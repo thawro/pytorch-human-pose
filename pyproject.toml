@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "dl_template"
+name = "human_pose"
 version = "0.1.0"
 description = ""
 authors = ["thawro <tomaszhawro.kontakt@gmail.com>"]
