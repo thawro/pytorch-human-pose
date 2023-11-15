@@ -22,7 +22,8 @@ class BaseConfig:
 class TransformConfig(BaseConfig):
     mean: tuple[float, ...] | list[float]
     std: tuple[float, ...] | list[float]
-    input_size: int
+    size: int
+    multi_obj: bool
 
 
 @dataclass

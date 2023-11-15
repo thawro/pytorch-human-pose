@@ -24,14 +24,14 @@ class BaseModel(nn.Module):
     def example_input(self, device: str = "cpu") -> dict[str, Tensor]:
         raise NotImplementedError()
 
-    def export_to_onnx(self, filename: str = "model.onnx"):
+    def export_to_onnx(self, filepath: str = "model.onnx"):
         dynamic_axes = {
             name: {0: "batch_size"} for name in self.input_names + self.output_names
         }
         torch.onnx.export(
             self,
             self.example_input(),
-            filename,
+            filepath,
             export_params=True,
             input_names=self.input_names,
             output_names=self.output_names,
@@ -58,3 +58,21 @@ class BaseModel(nn.Module):
 
     def export_layers_description_to_txt(self, filepath: str) -> str:
         return str(self.net)
+
+
+class BaseImageModel(BaseModel):
+    def example_input(
+        self,
+        batch_size: int = 1,
+        num_channels: int = 3,
+        height: int = 256,
+        width: int = 256,
+    ) -> dict[str, Tensor]:
+        return {
+            "images": torch.randn(
+                batch_size, num_channels, height, width, device=self.device
+            )
+        }
+
+    def forward(self, images: Tensor) -> Tensor:
+        return self.net(images)

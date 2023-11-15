@@ -8,19 +8,22 @@ from src.config import (
 
 BATCH_SIZE = 10
 EXPERIMENT_NAME = "test"
-DATASET = "<dataset>"
+DATASET = "COCO"
+# DATASET = "MPII"
+
 LIMIT_BATCHES = -1
-LOG_EVERY_N_STEPS = 50
+LOG_EVERY_N_STEPS = 100
 # CKPT_PATH = "<ckpt_path>"
 CKPT_PATH = None
 MODE = "train"
 LR = 1e-3
+SIZE = 256
 
 if LIMIT_BATCHES != -1:
     EXPERIMENT_NAME = "debug"
 
 transform_cfg = TransformConfig(
-    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], input_size=256
+    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], size=SIZE, multi_obj=False
 )
 
 dataloader_cfg = DataloaderConfig(batch_size=BATCH_SIZE, transform=transform_cfg)

@@ -11,6 +11,14 @@ class Result:
 
 @dataclass
 class SegmentationResult:
+    image: np.ndarray
+    target: np.ndarray
+    pred: np.ndarray
+
+
+@dataclass
+class KeypointsResult:
     images: np.ndarray
-    targets: np.ndarray
-    preds: np.ndarray
+    target_heatmaps: np.ndarray
+    pred_heatmaps: np.ndarray
+    keypoints: list[list[int]]

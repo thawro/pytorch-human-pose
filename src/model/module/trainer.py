@@ -5,14 +5,14 @@ from src.data.datamodule import DataModule
 from src.logging import get_pylogger
 from src.logging.loggers import BaseLogger
 from src.model.utils import save_checkpoint
-from src.model.module.base import BaseModule
+from src.model.module.keypoints import KeypointsModule
 from src.callbacks import BaseCallback, Callbacks
 
 log = get_pylogger(__name__)
 
 
 class Trainer:
-    module: BaseModule
+    module: KeypointsModule
     datamodule: DataModule
 
     def __init__(
@@ -46,7 +46,7 @@ class Trainer:
         update_metrics=True and single_batch=False for full validation set evaluation
         """
         with torch.no_grad():
-            loop = tqdm(dataloader, leave=False, desc=desc)
+            loop = tqdm(dataloader, leave=True, desc=desc)
             if single_batch:
                 limit_batches = 1
             else:
@@ -62,7 +62,7 @@ class Trainer:
     def train_epoch(self):
         self.module.on_train_epoch_start()
         self.callbacks.on_train_epoch_start(self)
-        loop = tqdm(self.datamodule.train_dataloader, leave=False, desc="Train")
+        loop = tqdm(self.datamodule.train_dataloader, leave=True, desc="Train")
         limit_batches = int(self._limit_batches)
         for i, batch in enumerate(loop):
             for j in range(len(batch)):
@@ -96,7 +96,7 @@ class Trainer:
         self.module.on_validation_epoch_end()
         self.callbacks.on_validation_epoch_end(self)
 
-    def fit(self, module: BaseModule, datamodule: DataModule):
+    def fit(self, module: KeypointsModule, datamodule: DataModule):
         if self.log_every_n_steps == -1:
             self.log_every_n_steps = datamodule.total_batches["train"] - 1
         self.datamodule = datamodule

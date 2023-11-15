@@ -110,7 +110,11 @@ class BaseExamplesPlotterCallback(BaseCallback):
     def plot_example_results(self, trainer: Trainer, results: Result, filepath: str):
         raise NotImplementedError()
 
-    def plot(self, trainer: Trainer, prefix: str) -> None:
+    def plot(self, trainer: Trainer, prefix: str, on_step: bool) -> None:
+        if on_step:
+            dirpath = trainer.logger.steps_examples_dir
+        else:
+            dirpath = trainer.logger.epochs_examples_dir
         for stage in self.stages:
             if stage not in trainer.module.results:
                 log.warn(
@@ -118,11 +122,11 @@ class BaseExamplesPlotterCallback(BaseCallback):
                 )
                 continue
             results = trainer.module.results[stage]
-            filepath = f"{trainer.logger.examples_dir}/{stage}/{prefix}{self.name}.jpg"
+            filepath = f"{dirpath}/{stage}/{prefix}{self.name}.jpg"
             self.plot_example_results(trainer, results, filepath)
 
     def on_epoch_end(self, trainer: Trainer) -> None:
-        self.plot(trainer, prefix=f"epoch_{trainer.current_epoch}")
+        self.plot(trainer, prefix=f"epoch_{trainer.current_epoch}", on_step=False)
 
     def log(self, trainer: Trainer) -> None:
-        self.plot(trainer, prefix=f"step_{trainer.current_step}")
+        self.plot(trainer, prefix=f"step_{trainer.current_step}", on_step=True)

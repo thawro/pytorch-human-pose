@@ -5,11 +5,10 @@ import random
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from src.data.transforms.base import DatasetTransform
 from src.logging import get_pylogger
+from src.data.transforms.keypoints import KeypointsTransform
+from src.data.datasets.keypoints import BaseKeypointsDataset
 
-
-from torchvision.datasets import VisionDataset
 
 log = get_pylogger(__name__)
 
@@ -17,10 +16,10 @@ log = get_pylogger(__name__)
 class DataModule:
     def __init__(
         self,
-        train_ds: VisionDataset,
-        val_ds: VisionDataset,
-        test_ds: VisionDataset | None,
-        transform: DatasetTransform,
+        train_ds: BaseKeypointsDataset,
+        val_ds: BaseKeypointsDataset,
+        test_ds: BaseKeypointsDataset | None,
+        transform: KeypointsTransform,
         batch_size: int = 12,
         num_workers: int = 8,
         pin_memory: bool = True,

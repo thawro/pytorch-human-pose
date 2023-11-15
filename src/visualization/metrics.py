@@ -11,6 +11,8 @@ def plot_metrics(metrics_storage: MetricsStorage, filepath: str | None) -> None:
     ncols = len(metrics)
 
     fig, axes = plt.subplots(1, ncols, figsize=(8 * ncols, 8))
+    if ncols == 1:
+        axes = [axes]
     for (metric_name, split_values), ax in zip(metrics.items(), axes):
         for split, values in split_values.items():
             epochs = list(range(len(values)))

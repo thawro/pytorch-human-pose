@@ -13,7 +13,7 @@ class ConvBnAct(nn.Module):
         kernel_size: int,
         stride: int = 1,
         batch_norm: bool = True,
-        activation: str = "ReLU",
+        activation: str | None = "ReLU",
     ):
         super().__init__()
         padding = (kernel_size - 1) // 2
@@ -25,18 +25,21 @@ class ConvBnAct(nn.Module):
             padding,
             bias=not batch_norm,
         )
-        if activation == "LeakyReLU":
+        if activation is None:
+            self.activation = None
+        elif activation == "LeakyReLU":
             self.activation = nn.LeakyReLU(0.2, inplace=True)
         else:
             self.activation = getattr(nn, activation)()
         self.batchnorm = nn.BatchNorm2d(out_channels) if batch_norm else None
 
     def forward(self, x: Tensor) -> Tensor:
-        x = self.conv(x)
+        out = self.conv(x)
         if self.batchnorm is not None:
-            x = self.batchnorm(x)
-        x = self.activation(x)
-        return x
+            out = self.batchnorm(out)
+        if self.activation is not None:
+            out = self.activation(out)
+        return out
 
 
 class SEBlock(nn.Module):
@@ -51,9 +54,15 @@ class SEBlock(nn.Module):
 
         self.excitation = nn.Sequential(
             # excitation
-            nn.Linear(in_features=input_channels, out_features=input_channels // reduction_ratio),
+            nn.Linear(
+                in_features=input_channels,
+                out_features=input_channels // reduction_ratio,
+            ),
             nn.ReLU(inplace=True),
-            nn.Linear(in_features=input_channels // reduction_ratio, out_features=input_channels),
+            nn.Linear(
+                in_features=input_channels // reduction_ratio,
+                out_features=input_channels,
+            ),
             nn.Sigmoid(),
         )
 

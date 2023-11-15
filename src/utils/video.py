@@ -69,7 +69,9 @@ def process_video(
         if count == end_frame:
             break
         if ret:
-            result, prev_frames = processing_fn(frame=frame_rgb, prev_frames=prev_frames)
+            result, prev_frames = processing_fn(
+                frame=frame_rgb, prev_frames=prev_frames
+            )
             for name, out in result.items():
                 results[name].append(out)
             if cv2.waitKey(1) == 27:
