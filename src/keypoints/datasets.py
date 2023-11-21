@@ -85,23 +85,26 @@ class BaseKeypointsDataset(BaseImageDataset):
         root: str,
         split: str,
         transform: KeypointsTransform,
-        output_sizes: list[tuple[int, int]],
+        hm_resolutions: list[float],
         labels: list[str],
         limbs: list[tuple[int, int]],
     ):
         super().__init__(root, split, transform)
         self.labels = labels
         self.limbs = limbs
-        self.output_sizes = output_sizes
+        out_size = transform.out_size
+        self.hm_resolutions = hm_resolutions
+        self.hm_sizes = [
+            (int(res * out_size[0]), int(res * out_size[1])) for res in hm_resolutions
+        ]
         self.is_train = split == "train"
         self.annots_filepaths = [
             path.replace(".jpg", ".yaml").replace("images", "annots")
             for path in self.images_filepaths
         ]
-        self.size = transform.size
         hm_generators = []
-        for output_size in output_sizes:
-            hm_generators.append(HeatmapGenerator(output_size, sigma=2))
+        for hm_size in self.hm_sizes:
+            hm_generators.append(HeatmapGenerator(hm_size, sigma=2))
         self.hm_generators = hm_generators
 
     def __len__(self) -> int:
@@ -117,10 +120,15 @@ class BaseKeypointsDataset(BaseImageDataset):
         visibilities: list[int],
         num_obj: int,
     ) -> tuple[Tensor, list[list[tuple[int, int]]], list[list[int]]]:
-        image = self.transform.preprocessing(image=image)["image"]
+        transformed = self.transform.preprocessing(
+            image=image, keypoints=keypoints, visibilities=visibilities
+        )
+        tr_image = transformed["image"]
+        tr_keypoints = np.array(transformed["keypoints"]).astype(np.int32)
+        tr_visibilities = np.array(transformed["visibilities"])
 
         transformed = self.transform.postprocessing(
-            image=image, keypoints=keypoints, visibilities=visibilities
+            image=tr_image, keypoints=tr_keypoints, visibilities=tr_visibilities
         )
         tr_image = transformed["image"]
         tr_keypoints = np.array(transformed["keypoints"]).astype(np.int32)
@@ -132,7 +140,7 @@ class BaseKeypointsDataset(BaseImageDataset):
     def __getitem__(self, idx: int) -> tuple[Tensor, Tensor, Tensor]:
         raise NotImplementedError()
 
-    def plot(self, idx: int, hm_idx: int = 1):
+    def plot(self, idx: int, hm_idx: int = 0):
         raw_image = self.load_image(idx)
         image, all_heatmaps, target_weights = self[idx]
 
@@ -151,6 +159,7 @@ class BaseKeypointsDataset(BaseImageDataset):
             xmax = raw_image.shape[1] + xmin
             blank[:, xmin:xmax] = raw_image
         tr_h, tr_w = image.shape[:2]
+
         raw_image = cv2.resize(blank, (tr_w, tr_h))
 
         kpts_heatmaps = create_heatmaps(image, hms, limbs=self.limbs)
@@ -188,8 +197,10 @@ class MultiObjectsKeypointsDataset(BaseKeypointsDataset):
         image, keypoints, visibilities = self._transform(
             image, keypoints, visibilities, num_obj
         )
+        max_h, max_w = image.shape[:2]
+
         heatmaps, target_weights = self.heatmap_generator(
-            keypoints, visibilities, self.size, self.size
+            keypoints, visibilities, max_h, max_w
         )
         heatmaps = torch.from_numpy(heatmaps)
         target_weights = torch.from_numpy(target_weights)
@@ -231,7 +242,7 @@ class SingleObjectKeypointsDataset(BaseKeypointsDataset):
             image, keypoints, visibilities, num_obj=1
         )
         all_heatmaps = []
-        max_h, max_w = self.size, self.size
+        max_h, max_w = image.shape[-2:]
         for hm_generator in self.hm_generators:
             heatmaps, target_weights = hm_generator(
                 keypoints, visibilities, max_h, max_w
@@ -254,16 +265,17 @@ if __name__ == "__main__":
         from geda.data_providers.coco import LABELS, LIMBS
 
     ds_root = str(DS_ROOT / ds_name / "SPPEHumanPose")
+    out_size = (256, 200)
     transform = SPPEKeypointsTransform(
-        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], size=256
+        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], out_size=out_size
     )
-    output_sizes = [(128, 128), (64, 64)]
-    # output_sizes = [(128, 96), (64, 48)]
+
+    hm_resolutions = [1 / 2, 1 / 4]
 
     ds = SingleObjectKeypointsDataset(
         ds_root,
         split,
-        output_sizes=output_sizes,
+        hm_resolutions=hm_resolutions,
         transform=transform,
         labels=LABELS,
         limbs=LIMBS,

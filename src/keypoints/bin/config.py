@@ -19,13 +19,13 @@ CKPT_PATH = None
 
 MODE = "train"
 LR = 1e-3
-SIZE = 256
+OUT_SIZE = (256, 256)
 
 if LIMIT_BATCHES != -1:
     EXPERIMENT_NAME = "debug"
 
 transform_cfg = TransformConfig(
-    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], size=SIZE
+    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], out_size=OUT_SIZE
 )
 
 dataloader_cfg = DataloaderConfig(batch_size=BATCH_SIZE, transform=transform_cfg)

@@ -4,6 +4,10 @@ import torch
 
 
 class SimpleBaseline(nn.Module):
+    """
+    https://arxiv.org/pdf/1804.06208.pdf
+    """
+
     def __init__(self, num_keypoints: int = 17):
         super().__init__()
         self.num_keypoints = num_keypoints

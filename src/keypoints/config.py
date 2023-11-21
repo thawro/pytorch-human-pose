@@ -22,7 +22,7 @@ class BaseConfig:
 class TransformConfig(BaseConfig):
     mean: tuple[float, ...] | list[float]
     std: tuple[float, ...] | list[float]
-    size: int
+    out_size: tuple[int, int]
 
 
 @dataclass

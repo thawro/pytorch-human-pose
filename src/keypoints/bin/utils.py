@@ -61,11 +61,10 @@ def create_datamodule(cfg: Config) -> KeypointsDataModule:
         DatasetClass = MultiObjectsKeypointsDataset
     else:
         DatasetClass = SingleObjectKeypointsDataset
-    output_sizes = [(64, 64), (128, 128)]
-    output_sizes = [(64, 64), (64, 64)]
+    hm_resolutions = [1 / 4, 1 / 4]
 
-    train_ds = DatasetClass(ds_root, "train", transform, output_sizes, labels, limbs)
-    val_ds = DatasetClass(ds_root, "val", transform, output_sizes, labels, limbs)
+    train_ds = DatasetClass(ds_root, "train", transform, hm_resolutions, labels, limbs)
+    val_ds = DatasetClass(ds_root, "val", transform, hm_resolutions, labels, limbs)
     return KeypointsDataModule(
         train_ds=train_ds,
         val_ds=val_ds,
