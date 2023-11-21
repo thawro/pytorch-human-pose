@@ -30,29 +30,33 @@ class KeypointsModule(BaseModule):
         self.labels = labels
 
     def _common_step(
-        self, batch: tuple[Tensor, Tensor, Tensor], batch_idx: int, update_metrics: bool
+        self,
+        batch: tuple[Tensor, list[Tensor], Tensor],
+        batch_idx: int,
+        update_metrics: bool,
     ):
         if self.stage == "train":
             self.optimizers["optim"].zero_grad()
 
-        images, target_heatmaps, target_weights = batch
+        images, stages_target_heatmaps, target_weights = batch
 
         stages_pred_heatmaps = self.model(images)
 
         loss = self.loss_fn.calculate_loss(
-            stages_pred_heatmaps, target_heatmaps, target_weights
+            stages_pred_heatmaps, stages_target_heatmaps, target_weights
         )
         if self.stage == "train":
             loss.backward()
             self.optimizers["optim"].step()
 
+        pred_heatmaps = stages_pred_heatmaps[-1]
+        target_heatmaps = stages_target_heatmaps[-1]
+
         if update_metrics:
             losses = {"loss": loss.item()}
-            # metrics = self.metrics.calculate_metrics(
-            #     stages_pred_heatmaps.mean(dim=1), target_heatmaps
-            # )
-            # self.steps_metrics_storage.append(metrics, self.stage)
-            # self.current_epoch_steps_metrics_storage.append(metrics, self.stage)
+            metrics = self.metrics.calculate_metrics(pred_heatmaps, target_heatmaps)
+            self.steps_metrics_storage.append(metrics, self.stage)
+            self.current_epoch_steps_metrics_storage.append(metrics, self.stage)
             self.steps_metrics_storage.append(losses, self.stage)
             self.current_epoch_steps_metrics_storage.append(losses, self.stage)
 
@@ -61,20 +65,10 @@ class KeypointsModule(BaseModule):
         if log_step or log_epoch:
             inv_processing = self.datamodule.transform.inverse_preprocessing
             numpy_images = inv_processing(images.detach().cpu().numpy())
-            h, w = numpy_images.shape[:2]
-            # TODO: assuming that all hms are same size
-            import torchvision.transforms.functional as F
 
-            num_stages = len(stages_pred_heatmaps)
-            pred_heatmaps = torch.stack(
-                [
-                    F.resize(stages_pred_heatmaps[i], [h, w], antialias=True)
-                    for i in range(num_stages)
-                ]
-            ).mean(dim=0)
             self.results[self.stage] = KeypointsResult(
                 images=numpy_images,
-                target_heatmaps=target_heatmaps[-1].cpu().numpy(),
+                target_heatmaps=target_heatmaps.cpu().numpy(),
                 pred_heatmaps=pred_heatmaps.detach().cpu().numpy(),
                 keypoints=None,
             )

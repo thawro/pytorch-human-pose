@@ -1,4 +1,3 @@
-import cv2
 import torch
 import numpy as np
 from PIL import Image
@@ -7,47 +6,27 @@ from albumentations.pytorch.transforms import ToTensorV2
 
 from src.base.transforms import _normalize
 
+keypoint_params = A.KeypointParams(
+    format="xy", label_fields=["visibilities"], remove_invisible=False
+)
+
 
 class KeypointsTransform:
     def __init__(
         self,
         mean: _normalize,
         std: _normalize,
-        size: int = 512,
-        multi_obj: bool = False,
+        random: A.Compose,
+        postprocessing: list[A.BasicTransform],
+        size: int = 256,
     ):
         self.std = np.array(std) * 255
         self.mean = np.array(mean) * 255
         self.size = size
-        self.multi_obj = multi_obj
-
-        keypoint_params = A.KeypointParams(
-            format="xy", label_fields=["visibilities"], remove_invisible=False
-        )
 
         self.preprocessing = A.Compose([A.Normalize(mean, std, max_pixel_value=255)])
-        self.random = A.Compose(
-            [A.Rotate(limit=20, p=1, border_mode=cv2.BORDER_CONSTANT, value=0)],
-            keypoint_params=keypoint_params,
-        )
 
-        if multi_obj:
-            smallest_max_size = A.SmallestMaxSize(size)
-            train_postprocessing = A.Compose(
-                [smallest_max_size, A.RandomCrop(size, size)]
-            )
-            inference_postprocessing = A.Compose(
-                [smallest_max_size, A.CenterCrop(size, size)]
-            )
-            postprocessing = []
-
-        else:
-            postprocessing = [
-                A.LongestMaxSize(size),
-                A.PadIfNeeded(size, size, border_mode=cv2.BORDER_CONSTANT, value=0),
-            ]
-
-        postprocessing.append(ToTensorV2(transpose_mask=True))
+        self.random = random
         self.postprocessing = A.Compose(postprocessing, keypoint_params=keypoint_params)
 
     @property
@@ -67,3 +46,18 @@ class KeypointsTransform:
             return _image.astype(np.uint8)
 
         return transform
+
+
+class SPPEKeypointsTransform(KeypointsTransform):
+    def __init__(
+        self,
+        mean: _normalize,
+        std: _normalize,
+        size: int = 512,
+    ):
+        random = A.Compose(
+            [A.Affine(scale=(0.75, 1.25), rotate=(-30, 30), keep_ratio=True, p=1)],
+            keypoint_params=keypoint_params,
+        )
+        postprocessing = [ToTensorV2(transpose_mask=True)]
+        super().__init__(mean, std, random, postprocessing)

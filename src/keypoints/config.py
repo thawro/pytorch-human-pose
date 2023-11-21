@@ -23,7 +23,6 @@ class TransformConfig(BaseConfig):
     mean: tuple[float, ...] | list[float]
     std: tuple[float, ...] | list[float]
     size: int
-    multi_obj: bool
 
 
 @dataclass
@@ -43,6 +42,7 @@ class SetupConfig(BaseConfig):
     log_every_n_steps: int
     ckpt_path: str | None
     mode: str
+    multiobj: bool
 
     @property
     def is_debug(self):

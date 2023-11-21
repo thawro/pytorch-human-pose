@@ -2,13 +2,12 @@ import numpy as np
 from torch import Tensor
 import torch
 import cv2
-import albumentations as A
 
 from src.utils.files import load_yaml
 from src.utils.image import make_grid, put_txt
 from src.base.datasets import BaseImageDataset
 
-from src.keypoints.transforms import KeypointsTransform
+from src.keypoints.transforms import KeypointsTransform, SPPEKeypointsTransform
 from src.keypoints.visualization import create_heatmaps
 
 
@@ -111,19 +110,6 @@ class BaseKeypointsDataset(BaseImageDataset):
     def load_annot(self, idx: int):
         return load_yaml(self.annots_filepaths[idx])
 
-    def parse_annot(self, annot: dict) -> tuple[list[tuple[int, int]], list[int]]:
-        objects = annot["objects"]
-        keypoints = []
-        visibilities = []
-        for obj_annots in objects:
-            kpts = obj_annots["keypoints"]
-            for kpt in kpts:
-                x, y = kpt["x"], kpt["y"]
-                visibility = int((x > 0 and y > 0) or kpt["visibility"] > 0)
-                keypoints.append([x, y])
-                visibilities.append(visibility)
-        return keypoints, visibilities
-
     def _transform(
         self,
         image: np.ndarray,
@@ -164,8 +150,8 @@ class BaseKeypointsDataset(BaseImageDataset):
         else:  # pad x
             xmax = raw_image.shape[1] + xmin
             blank[:, xmin:xmax] = raw_image
-        tr_size = image.shape[0]
-        raw_image = cv2.resize(blank, (tr_size, tr_size))
+        tr_h, tr_w = image.shape[:2]
+        raw_image = cv2.resize(blank, (tr_w, tr_h))
 
         kpts_heatmaps = create_heatmaps(image, hms, limbs=self.limbs)
 
@@ -175,10 +161,25 @@ class BaseKeypointsDataset(BaseImageDataset):
         images.extend(kpts_heatmaps)
 
         hms_grid = make_grid(images, nrows=3)
+        img_txt = self.images_filepaths[idx].split("/")[-1] + f" ({idx}/{len(self)})"
+        put_txt(hms_grid, [img_txt])
         return hms_grid
 
 
 class MultiObjectsKeypointsDataset(BaseKeypointsDataset):
+    def parse_annot(self, annot: dict) -> tuple[list[tuple[int, int]], list[int]]:
+        objects = annot["objects"]
+        keypoints = []
+        visibilities = []
+        for obj_annots in objects:
+            kpts = obj_annots["keypoints"]
+            for kpt in kpts:
+                x, y = kpt["x"], kpt["y"]
+                visibility = int((x > 0 and y > 0) or kpt["visibility"] > 0)
+                keypoints.append([x, y])
+                visibilities.append(visibility)
+        return keypoints, visibilities
+
     def __getitem__(self, idx: int) -> tuple[Tensor, Tensor, Tensor]:
         image = self.load_image(idx)
         annot = self.load_annot(idx)
@@ -197,17 +198,25 @@ class MultiObjectsKeypointsDataset(BaseKeypointsDataset):
 
 
 class SingleObjectKeypointsDataset(BaseKeypointsDataset):
+    transform: SPPEKeypointsTransform
+
+    def parse_annot(self, annot: dict) -> tuple[list[tuple[int, int]], list[int]]:
+        keypoints = []
+        visibilities = []
+
+        kpts = annot["keypoints"]
+        for kpt in kpts:
+            x, y = kpt["x"], kpt["y"]
+            visibility = int((x > 0 and y > 0) or kpt["visibility"] > 0)
+            keypoints.append([x, y])
+            visibilities.append(visibility)
+        return keypoints, visibilities
+
     def __getitem__(self, idx: int) -> tuple[Tensor, list[np.ndarray], Tensor]:
         image = self.load_image(idx)
         annot = self.load_annot(idx)
         img_h, img_w = image.shape[:2]
 
-        obj_sizes = []
-        for obj in annot["objects"]:
-            x, y, w, h = obj["bbox"]
-            obj_sizes.append(w * h)
-        biggest_obj_idx = np.array(obj_sizes).argmax()
-        annot["objects"] = [annot["objects"][biggest_obj_idx]]
         keypoints, visibilities = self.parse_annot(annot)
 
         if self.is_train:
@@ -217,32 +226,6 @@ class SingleObjectKeypointsDataset(BaseKeypointsDataset):
             image = transformed["image"]
             keypoints = transformed["keypoints"]
             visibilities = transformed["visibilities"]
-
-        if "COCO" in str(self.root):
-            xmin, ymin, w, h = annot["objects"][0]["bbox"]
-            x = xmin + w // 2
-            y = ymin + h // 2
-        else:  # TODO: change in geda
-            x, y, w, h = annot["objects"][0]["bbox"]
-
-        w = h = int(max(w, h) * 1.15)
-
-        xmin, xmax = int(x - w // 2), int(x + w // 2)
-        ymin, ymax = int(y - h // 2), int(y + h // 2)
-
-        xmin, xmax = max(0, xmin), min(xmax, img_w)
-        ymin, ymax = max(0, ymin), min(ymax, img_h)
-
-        crop = A.Compose(
-            [A.Crop(xmin, ymin, xmax, ymax)],
-            keypoint_params=A.KeypointParams(
-                format="xy", label_fields=["visibilities"], remove_invisible=False
-            ),
-        )
-        cropped = crop(image=image, keypoints=keypoints, visibilities=visibilities)
-        image = cropped["image"]
-        keypoints = cropped["keypoints"]
-        visibilities = cropped["visibilities"]
 
         image, keypoints, visibilities = self._transform(
             image, keypoints, visibilities, num_obj=1
@@ -263,17 +246,20 @@ if __name__ == "__main__":
     from src.utils.config import DS_ROOT
 
     ds_name = "MPII"
+    split = "train"
 
     if ds_name == "MPII":
         from geda.data_providers.mpii import LABELS, LIMBS
     else:
         from geda.data_providers.coco import LABELS, LIMBS
-    ds_root = str(DS_ROOT / ds_name / "HumanPose")
-    transform = KeypointsTransform(
+
+    ds_root = str(DS_ROOT / ds_name / "SPPEHumanPose")
+    transform = SPPEKeypointsTransform(
         mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], size=256
     )
     output_sizes = [(128, 128), (64, 64)]
-    split = "val"
+    # output_sizes = [(128, 96), (64, 48)]
+
     ds = SingleObjectKeypointsDataset(
         ds_root,
         split,

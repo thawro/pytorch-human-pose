@@ -42,7 +42,7 @@ def create_heatmaps(
     h, w = image.shape[:2]
     resized_heatmaps = []
     for i, hm in enumerate(heatmaps):
-        resized_heatmaps.append(cv2.resize(hm, dsize=(h, w)))
+        resized_heatmaps.append(cv2.resize(hm, dsize=(w, h)))
     heatmaps = np.stack(resized_heatmaps)
 
     kpts_heatmaps = []
@@ -51,7 +51,6 @@ def create_heatmaps(
         hm = (hm * 255).astype(np.uint8)
         hm = 255 - hm
         hm = cv2.applyColorMap(hm, cv2.COLORMAP_JET)
-
         img_hm = cv2.addWeighted(image, 0.5, hm, 0.5, 1)
         kpts_heatmaps.append(img_hm)
     image = plot_connections(image.copy(), heatmaps, limbs, thr)

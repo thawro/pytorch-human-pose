@@ -11,17 +11,20 @@ class ResidualModule(nn.Module):
         self.conv_layers = nn.Sequential(
             ConvBnAct(in_channels, mid_channels, 1),
             ConvBnAct(mid_channels, mid_channels, 3),
-            ConvBnAct(mid_channels, out_channels, 1),
+            ConvBnAct(mid_channels, out_channels, 1, activation=None),
         )
         if out_channels == in_channels:
             self.conv_residual = nn.Identity()
         else:
-            self.conv_residual = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+            self.conv_residual = ConvBnAct(
+                in_channels, out_channels, kernel_size=1, activation=None
+            )
+        self.relu = nn.ReLU()
 
     def forward(self, x: Tensor) -> Tensor:
         residual = self.conv_residual(x)
         out = self.conv_layers(x)
-        return out + residual
+        return self.relu(out + residual)
 
 
 class HourglassModule(nn.Module):
@@ -35,8 +38,7 @@ class HourglassModule(nn.Module):
         layers_up = []
         for i in range(num_blocks):
             block_down = nn.Sequential(
-                ResidualModule(in_channels, mid_channels),
-                nn.MaxPool2d(2, 2),
+                nn.MaxPool2d(2, 2), ResidualModule(in_channels, mid_channels)
             )
 
             block_residual = ResidualModule(in_channels, mid_channels)
@@ -51,54 +53,44 @@ class HourglassModule(nn.Module):
             layers_up.append(block_up)
 
             in_channels = mid_channels * ResidualModule.expansion
+
         self.layers_down = nn.ModuleList(layers_down)
         self.layers_residual = nn.ModuleList(layers_residual)
-
-        self.mid_conv = nn.Sequential(
-            ResidualModule(in_channels, mid_channels),
-            # ResidualModule(in_channels, mid_channels),
-        )
+        self.mid_conv = ResidualModule(in_channels, mid_channels)
         self.layers_up = nn.ModuleList(layers_up)
 
     def forward(self, x: Tensor) -> Tensor:
-        # print()
-        # print("--------")
-        # print("Hourglass module ", x.shape)
         residuals = []
         for i in range(self.num_blocks):
             residual = self.layers_residual[i](x)
             residuals.append(residual)
             x = self.layers_down[i](x)
-        #     print(f"down {i}, residual: {residual.shape}, x: {x.shape}")
-        # print("--")
         x = self.mid_conv(x)
-        # print("mid: ", x.shape)
-        # print("--")
         for i in range(self.num_blocks):
             residual = residuals[-(i + 1)]
             x = self.layers_up[i](x)
-            # print(f"up {i}, residual: {residual.shape}, x: {x.shape}")
             x += residual
-
-        # print("--------")
         return x
 
 
 class HourglassHead(nn.Module):
     def __init__(self, in_channels: int, mid_channels: int, num_keypoints: int):
         super().__init__()
-        self.conv_0 = ConvBnAct(in_channels, in_channels, kernel_size=1)
-        self.heatmaps_head = nn.Conv2d(in_channels, num_keypoints, kernel_size=1)
+        self.conv_0 = nn.Sequential(
+            ResidualModule(in_channels, mid_channels),
+            ConvBnAct(in_channels, in_channels, 1),
+        )
 
-        self.conv_0_1 = ConvBnAct(in_channels, in_channels, kernel_size=1)
+        self.heatmaps_head = nn.Conv2d(in_channels, num_keypoints, kernel_size=1)
+        self.remap_feats = nn.Conv2d(in_channels, in_channels, kernel_size=1)
         self.remap_heatmaps = nn.Conv2d(num_keypoints, in_channels, kernel_size=1)
 
-    def forward(self, hg_feats: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-        hg_feats = self.conv_0(hg_feats)
+    def forward(self, hg_out: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+        hg_feats = self.conv_0(hg_out)
         heatmaps = self.heatmaps_head(hg_feats)
         remaped_heatmaps = self.remap_heatmaps(heatmaps)
-        conv_0_1_feats = self.conv_0_1(hg_feats)
-        return conv_0_1_feats, heatmaps, remaped_heatmaps
+        remaped_feats = self.remap_feats(hg_feats)
+        return remaped_feats, heatmaps, remaped_heatmaps
 
 
 class HourglassNet(nn.Module):
@@ -135,6 +127,7 @@ class HourglassNet(nn.Module):
             residual = out
             hg_out = self.stages[i](out)
             after_hg_feats, heatmaps, heatmaps_feats = self.heatmap_heads[i](hg_out)
-            stages_heatmaps.append(nn.functional.sigmoid(heatmaps))
+            # heatmaps = nn.functional.sigmoid(heatmaps)
+            stages_heatmaps.append(heatmaps)
             out = residual + after_hg_feats + heatmaps_feats
         return stages_heatmaps

@@ -14,13 +14,13 @@ from src.base.callbacks import (
 )
 
 from ..datamodule import KeypointsDataModule
-from ..transforms import KeypointsTransform
+from ..transforms import KeypointsTransform, SPPEKeypointsTransform
 from ..datasets import SingleObjectKeypointsDataset, MultiObjectsKeypointsDataset
 from ..loss import KeypointsLoss
 from ..model import KeypointsModel
 from ..architectures.hourglass import HourglassNet
-from ..architectures.hourglass2 import HourglassNet as HN
 from ..architectures.hrnet import PoseHigherResolutionNet
+from ..architectures.simple_baseline import SimpleBaseline
 from ..module import KeypointsModule
 from ..metrics import KeypointsMetrics
 from ..callbacks import KeypointsExamplesPlotterCallback
@@ -52,12 +52,12 @@ def create_callbacks(cfg: Config) -> list[BaseCallback]:
 def create_datamodule(cfg: Config) -> KeypointsDataModule:
     ds_name = cfg.setup.dataset
     log.info("..Creating DataModule..")
-    transform = KeypointsTransform(**cfg.dataloader.transform.to_dict())
-    ds_root = str(DS_ROOT / ds_name / "HumanPose")
+    transform = SPPEKeypointsTransform(**cfg.dataloader.transform.to_dict())
+    ds_root = str(DS_ROOT / ds_name / "SPPEHumanPose")
     labels = ds2labels[ds_name]
     limbs = ds2limbs[ds_name]
 
-    if transform.multi_obj:
+    if cfg.setup.multiobj:
         DatasetClass = MultiObjectsKeypointsDataset
     else:
         DatasetClass = SingleObjectKeypointsDataset
@@ -77,7 +77,8 @@ def create_datamodule(cfg: Config) -> KeypointsDataModule:
 
 def create_model(cfg: Config) -> KeypointsModel:
     num_kpts = 16 if cfg.setup.dataset == "MPII" else 17
-    net = HourglassNet(num_stages=2, num_keypoints=num_kpts)
+    # net = HourglassNet(num_stages=2, num_keypoints=num_kpts)
+    net = SimpleBaseline(num_keypoints=num_kpts)
     # net = HN(num_stacks=2, num_classes=num_kpts)
     # net = PoseHigherResolutionNet(num_keypoints=num_kpts)
     model = KeypointsModel(net)
