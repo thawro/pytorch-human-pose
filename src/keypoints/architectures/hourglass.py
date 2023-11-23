@@ -94,6 +94,10 @@ class HourglassHead(nn.Module):
 
 
 class HourglassNet(nn.Module):
+    """
+    https://arxiv.org/pdf/1603.06937.pdf
+    """
+
     def __init__(self, num_stages: int, num_keypoints: int = 17) -> None:
         super().__init__()
         self.num_stages = num_stages

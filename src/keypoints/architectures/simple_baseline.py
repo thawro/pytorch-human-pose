@@ -1,6 +1,9 @@
 from src.base.architectures.backbones.resnet import ResNet
 from torch import nn, Tensor
 import torch
+from typing import Literal
+
+_resnets = Literal["resnet18", "resnet34", "resnet50", "resnet101", "resnet152"]
 
 
 class SimpleBaseline(nn.Module):
@@ -8,21 +11,21 @@ class SimpleBaseline(nn.Module):
     https://arxiv.org/pdf/1804.06208.pdf
     """
 
-    def __init__(self, num_keypoints: int = 17):
+    def __init__(self, num_keypoints: int, backbone: _resnets):
         super().__init__()
         self.num_keypoints = num_keypoints
-        backbone: ResNet = torch.hub.load(
-            "pytorch/vision:v0.10.0", "resnet18", pretrained=True
+        backbone_net: ResNet = torch.hub.load(
+            "pytorch/vision:v0.10.0", backbone, pretrained=True
         )
 
-        self.conv1 = backbone.conv1
-        self.bn1 = backbone.bn1
-        self.relu = backbone.relu
-        self.maxpool = backbone.maxpool
-        self.layer1 = backbone.layer1
-        self.layer2 = backbone.layer2
-        self.layer3 = backbone.layer3
-        self.layer4 = backbone.layer4
+        self.conv1 = backbone_net.conv1
+        self.bn1 = backbone_net.bn1
+        self.relu = backbone_net.relu
+        self.maxpool = backbone_net.maxpool
+        self.layer1 = backbone_net.layer1
+        self.layer2 = backbone_net.layer2
+        self.layer3 = backbone_net.layer3
+        self.layer4 = backbone_net.layer4
 
         num_deconv_layers = 3
         deconv_kernel = 4

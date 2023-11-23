@@ -77,7 +77,7 @@ def create_datamodule(cfg: Config) -> KeypointsDataModule:
 def create_model(cfg: Config) -> KeypointsModel:
     num_kpts = 16 if cfg.setup.dataset == "MPII" else 17
     # net = HourglassNet(num_stages=2, num_keypoints=num_kpts)
-    net = SimpleBaseline(num_keypoints=num_kpts)
+    net = SimpleBaseline(num_keypoints=num_kpts, backbone="resnet34")
     # net = HN(num_stacks=2, num_classes=num_kpts)
     # net = PoseHigherResolutionNet(num_keypoints=num_kpts)
     model = KeypointsModel(net)
