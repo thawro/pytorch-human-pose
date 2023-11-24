@@ -38,7 +38,9 @@ class BasicBlock(nn.Module):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu1 = nn.ReLU(inplace=True)
+        self.relu2 = nn.ReLU(inplace=True)
+
         self.conv2 = conv3x3(planes, planes)
         self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
         self.downsample = downsample
@@ -49,7 +51,7 @@ class BasicBlock(nn.Module):
 
         out = self.conv1(x)
         out = self.bn1(out)
-        out = self.relu(out)
+        out = self.relu1(out)
 
         out = self.conv2(out)
         out = self.bn2(out)
@@ -58,7 +60,7 @@ class BasicBlock(nn.Module):
             residual = self.downsample(x)
 
         out += residual
-        out = self.relu(out)
+        out = self.relu2(out)
 
         return out
 
@@ -78,7 +80,10 @@ class Bottleneck(nn.Module):
             planes, planes * self.expansion, kernel_size=1, bias=False
         )
         self.bn3 = nn.BatchNorm2d(planes * self.expansion, momentum=BN_MOMENTUM)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu1 = nn.ReLU(inplace=True)
+        self.relu2 = nn.ReLU(inplace=True)
+        self.relu3 = nn.ReLU(inplace=True)
+
         self.downsample = downsample
         self.stride = stride
 
@@ -87,11 +92,11 @@ class Bottleneck(nn.Module):
 
         out = self.conv1(x)
         out = self.bn1(out)
-        out = self.relu(out)
+        out = self.relu1(out)
 
         out = self.conv2(out)
         out = self.bn2(out)
-        out = self.relu(out)
+        out = self.relu2(out)
 
         out = self.conv3(out)
         out = self.bn3(out)
@@ -100,7 +105,7 @@ class Bottleneck(nn.Module):
             residual = self.downsample(x)
 
         out += residual
-        out = self.relu(out)
+        out = self.relu3(out)
 
         return out
 
@@ -287,7 +292,7 @@ class HighResolutionModule(nn.Module):
                     y = y + x[j]
                 else:
                     y = y + self.fuse_layers[i][j](x[j])
-            x_fuse.append(self.relu(y))
+            x_fuse.append(nn.functional.relu(y))
 
         return x_fuse
 
@@ -310,14 +315,20 @@ class PoseHigherResolutionNet(nn.Module):
         self.bn1 = nn.BatchNorm2d(64, momentum=BN_MOMENTUM)
         self.conv2 = nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(64, momentum=BN_MOMENTUM)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu1 = nn.ReLU(inplace=True)
+        self.relu2 = nn.ReLU(inplace=True)
+
         self.layer1 = self._make_layer(Bottleneck, 64, 4)
 
+        C = 32
+        C_2 = 2 * C
+        C_4 = 4 * C
+        C_8 = 8 * C
         stages_cfg = [
             [1, 1, [4], [64], Bottleneck, "sum"],
-            [1, 2, [4, 4], [24, 48], Bottleneck, "sum"],
-            [1, 3, [4, 4, 4], [24, 48, 92], Bottleneck, "sum"],
-            [1, 4, [4, 4, 4, 4], [24, 48, 92, 192], Bottleneck, "sum"],
+            [1, 2, [4, 4], [C, C_2], BasicBlock, "sum"],
+            [4, 3, [4, 4, 4], [C, C_2, C_4], BasicBlock, "sum"],
+            [3, 4, [4, 4, 4, 4], [C, C_2, C_4, C_8], BasicBlock, "sum"],
         ]
         self.stage2_cfg = stages_cfg[1]
         self.stage3_cfg = stages_cfg[2]
@@ -360,7 +371,7 @@ class PoseHigherResolutionNet(nn.Module):
         )
 
         self.final_layers = self._make_final_layers(pre_stage_channels[0])
-        self.deconv_layers = self._make_deconv_layers(pre_stage_channels[0])
+        # self.deconv_layers = self._make_deconv_layers(pre_stage_channels[0])
 
         self.pretrained_layers = {}
 
@@ -381,22 +392,22 @@ class PoseHigherResolutionNet(nn.Module):
             )
         )
 
-        for i in range(self.deconv_cfg["num_deconvs"]):
-            input_channels = self.deconv_cfg["num_channels"][i]
-            output_channels = (
-                self.num_keypoints + dim_tag
-                if self.with_ae_loss  # TODO: not all layers use AE loss
-                else self.num_keypoints
-            )
-            final_layers.append(
-                nn.Conv2d(
-                    in_channels=input_channels,
-                    out_channels=output_channels,
-                    kernel_size=final_conv_kernel,
-                    stride=1,
-                    padding=1 if final_conv_kernel == 3 else 0,
-                )
-            )
+        # for i in range(self.deconv_cfg["num_deconvs"]):
+        #     input_channels = self.deconv_cfg["num_channels"][i]
+        #     output_channels = (
+        #         self.num_keypoints + dim_tag
+        #         if self.with_ae_loss  # TODO: not all layers use AE loss
+        #         else self.num_keypoints
+        #     )
+        #     final_layers.append(
+        #         nn.Conv2d(
+        #             in_channels=input_channels,
+        #             out_channels=output_channels,
+        #             kernel_size=final_conv_kernel,
+        #             stride=1,
+        #             padding=1 if final_conv_kernel == 3 else 0,
+        #         )
+        #     )
 
         return nn.ModuleList(final_layers)
 
@@ -559,10 +570,10 @@ class PoseHigherResolutionNet(nn.Module):
     def forward(self, x):
         x = self.conv1(x)
         x = self.bn1(x)
-        x = self.relu(x)
+        x = self.relu1(x)
         x = self.conv2(x)
         x = self.bn2(x)
-        x = self.relu(x)
+        x = self.relu2(x)
         x = self.layer1(x)
 
         x_list = []
@@ -594,15 +605,15 @@ class PoseHigherResolutionNet(nn.Module):
         y = self.final_layers[0](x)
         final_outputs.append(y)
 
-        for i in range(self.deconv_cfg["num_deconvs"]):
-            if self.deconv_cfg["cat_output"][i]:
-                x = torch.cat((x, y), 1)
+        # for i in range(self.deconv_cfg["num_deconvs"]):
+        #     if self.deconv_cfg["cat_output"][i]:
+        #         x = torch.cat((x, y), 1)
 
-            x = self.deconv_layers[i](x)
-            y = self.final_layers[i + 1](x)
-            final_outputs.append(y)
+        #     x = self.deconv_layers[i](x)
+        #     y = self.final_layers[i + 1](x)
+        #     final_outputs.append(y)
 
-        return final_outputs
+        return [final_outputs[0]]
 
     def init_weights(self, pretrained="", verbose=True):
         logger.info("=> init weights from normal distribution")

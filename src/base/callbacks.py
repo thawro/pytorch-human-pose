@@ -247,7 +247,7 @@ class MetricsSaverCallback(BaseCallback):
 
 
 class ModelSummary(BaseCallback):
-    def __init__(self, depth: int = 4):
+    def __init__(self, depth: int = 6):
         self.depth = depth
 
     def on_fit_start(self, trainer: Trainer):
