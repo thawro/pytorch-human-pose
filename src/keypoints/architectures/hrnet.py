@@ -235,17 +235,21 @@ class HighResolutionStage(nn.Module):
         is_final_stage: bool,
         is_first_stage: bool,
     ):
+        # num_out_channels is bigger than num_in_channels between stages because
+        # we need to use the last element of num_out_channels to create the new scale branch
+        # using transition layer
         super().__init__()
         self.is_final_stage = is_final_stage
         blocks = []
         for i in range(num_blocks):
             is_final_block = i == num_blocks - 1
-            _num_out_channels = num_out_channels[: len(num_in_channels)]
+
             highres_block = HighResolutionBlock(
                 num_units=num_units,
                 ResidUnitType=ResidUnitType,
                 num_in_channels=num_in_channels,
             )
+            _num_out_channels = num_out_channels[: len(num_in_channels)]
             if is_final_stage and is_final_block:
                 num_scales_out = 1
             else:
@@ -257,9 +261,8 @@ class HighResolutionStage(nn.Module):
             blocks.extend(block)
         self.blocks = nn.Sequential(*blocks)
 
-        # transition layer uses last high resolution blocks out channels
-        last_block_out_channels = highres_block.num_out_channels
-        transition_in_channels = last_block_out_channels
+        # transition layer uses last high resolution blocks out channels as in channels
+        transition_in_channels = highres_block.num_out_channels
         if not is_final_stage:
             self.transition_layer = TransitionLayer(
                 transition_in_channels, num_out_channels, is_first_stage
