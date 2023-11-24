@@ -191,7 +191,7 @@ class TransitionLayer(nn.Module):
         self.is_first_stage = is_first_stage
         layers = []
         # transition block for each scale branch
-        for i in range(len(num_in_channels) - 1):
+        for i in range(len(num_in_channels)):
             in_channels, out_channels = num_in_channels[i], num_out_channels[i]
             # not clear in the paper if scaleX - scaleX transition is identity or
             # convolution, the implementation from github uses:
@@ -211,7 +211,7 @@ class TransitionLayer(nn.Module):
 
     def forward(self, stage_scales_outputs: list[Tensor]) -> list[Tensor]:
         transition_out = []
-        for i in range(len(self.num_in_channels) - 1):
+        for i in range(len(self.num_in_channels)):
             stage_scale_out = stage_scales_outputs[i]
             transition_block = self.transition_blocks[i]
             transition_scale_out = transition_block(stage_scale_out)
@@ -259,7 +259,7 @@ class HighResolutionStage(nn.Module):
 
         # transition layer uses last high resolution blocks out channels
         last_block_out_channels = highres_block.num_out_channels
-        transition_in_channels = last_block_out_channels + [last_block_out_channels[-1]]
+        transition_in_channels = last_block_out_channels
         if not is_final_stage:
             self.transition_layer = TransitionLayer(
                 transition_in_channels, num_out_channels, is_first_stage

@@ -40,7 +40,7 @@ def create_callbacks(cfg: Config) -> list[BaseCallback]:
         KeypointsExamplesPlotterCallback("keypoints", ["train", "val"]),
         MetricsPlotterCallback(),
         MetricsSaverCallback(),
-        ModelSummary(depth=10),
+        ModelSummary(depth=4),
         # SaveModelCheckpoint(name="best", metric="MAE", mode="min", stage="val"),
         SaveModelCheckpoint(name="last", last=True, top_k=0, stage="val"),
         # SaveLastAsOnnx(every_n_minutes=60),
@@ -79,8 +79,8 @@ def create_model(cfg: Config) -> KeypointsModel:
     num_kpts = 16 if cfg.setup.dataset == "MPII" else 17
     # net = HourglassNet(num_stages=2, num_keypoints=num_kpts)
     # net = SimpleBaseline(num_keypoints=num_kpts, backbone="resnet34")
-    # net = HRNet(num_keypoints=num_kpts)
-    net = PoseHigherResolutionNet(num_kpts)
+    net = HRNet(num_keypoints=num_kpts)
+    # net = PoseHigherResolutionNet(num_kpts)
     model = KeypointsModel(net)
     return model
 
