@@ -18,7 +18,6 @@ I have separate classes for:
         map features to desired scale/depth and fuses those features with sum operation
     * transition layers (TransitionLayer) - used after fusion layer of last block of a stage. It maps 
         256 channels to C channels in the stage1-stage2 transition and creates new scale branches for all transitions
-
 """
 
 from torch import nn, Tensor

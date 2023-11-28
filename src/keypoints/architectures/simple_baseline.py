@@ -36,16 +36,22 @@ class SimpleBaseline(nn.Module):
 
         deconv_layers = []
         for i in range(num_deconv_layers):
-            deconv_layers.append(
-                nn.ConvTranspose2d(
-                    in_channels=deconv_channels[i],
-                    out_channels=deconv_channels[i + 1],
-                    kernel_size=deconv_kernel,
-                    stride=2,
-                    padding=deconv_padding,
-                    output_padding=decovn_output_padding,
-                    bias=False,
-                )
+            in_channels = deconv_channels[i]
+            out_channels = deconv_channels[i + 1]
+            deconv_layers.extend(
+                [
+                    nn.ConvTranspose2d(
+                        in_channels=in_channels,
+                        out_channels=out_channels,
+                        kernel_size=deconv_kernel,
+                        stride=2,
+                        padding=deconv_padding,
+                        output_padding=decovn_output_padding,
+                        bias=False,
+                    ),
+                    nn.BatchNorm2d(out_channels),
+                    nn.ReLU(),
+                ]
             )
 
         self.deconv_layers = nn.Sequential(*deconv_layers)
@@ -58,7 +64,7 @@ class SimpleBaseline(nn.Module):
             padding=0,
         )
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor) -> list[Tensor]:
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
