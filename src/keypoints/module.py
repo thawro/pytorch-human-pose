@@ -1,25 +1,21 @@
 """Implementation of specialized Module"""
-import torch
 from torch import optim
 from torch import Tensor
 
 from src.base.module import BaseModule
 
-from .model import KeypointsModel
-from .loss import KeypointsLoss
-from .results import KeypointsResult
+from .model import BaseKeypointsModel, KeypointsModel, AEKeypointsModel
+from .loss import KeypointsLoss, AEKeypointsLoss
+from .results import SPPEKeypointsResults, MPPEKeypointsResults
 from .metrics import KeypointsMetrics
 
 
-class KeypointsModule(BaseModule):
-    model: KeypointsModel
-    loss_fn: KeypointsLoss
+class BaseKeypointsModule(BaseModule):
     metrics: KeypointsMetrics
-    results: dict[str, KeypointsResult]
 
     def __init__(
         self,
-        model: KeypointsModel,
+        model: BaseKeypointsModel,
         loss_fn: KeypointsLoss,
         metrics: KeypointsMetrics,
         labels: list[str],
@@ -29,16 +25,28 @@ class KeypointsModule(BaseModule):
         super().__init__(model, loss_fn, metrics, optimizers, schedulers)
         self.labels = labels
 
+    def _update_metrics(self, metrics: dict[str, float], losses: dict[str, float]):
+        self.steps_metrics_storage.append(metrics, self.stage)
+        self.current_epoch_steps_metrics_storage.append(metrics, self.stage)
+        self.steps_metrics_storage.append(losses, self.stage)
+        self.current_epoch_steps_metrics_storage.append(losses, self.stage)
+
+
+class KeypointsModule(BaseKeypointsModule):
+    model: KeypointsModel
+    loss_fn: KeypointsLoss
+    results: dict[str, SPPEKeypointsResults]
+
     def _common_step(
         self,
-        batch: tuple[Tensor, list[Tensor], Tensor],
+        batch: tuple[Tensor, list[Tensor], Tensor, Tensor, Tensor],
         batch_idx: int,
         update_metrics: bool,
     ):
         if self.stage == "train":
             self.optimizers["optim"].zero_grad()
 
-        images, stages_target_heatmaps, target_weights = batch
+        images, stages_target_heatmaps, target_weights, _, _ = batch
 
         stages_pred_heatmaps = self.model(images)
 
@@ -55,20 +63,57 @@ class KeypointsModule(BaseModule):
         if update_metrics:
             losses = {"loss": loss.item()}
             metrics = self.metrics.calculate_metrics(pred_heatmaps, target_heatmaps)
-            self.steps_metrics_storage.append(metrics, self.stage)
-            self.current_epoch_steps_metrics_storage.append(metrics, self.stage)
-            self.steps_metrics_storage.append(losses, self.stage)
-            self.current_epoch_steps_metrics_storage.append(losses, self.stage)
+            self._update_metrics(metrics, losses)
 
-        log_step = self.current_step % self.log_every_n_steps == 0
-        log_epoch = (batch_idx + 1) == self.total_batches[self.stage]
-        if log_step or log_epoch:
+        if self.is_log_step(batch_idx):
             inv_processing = self.datamodule.transform.inverse_preprocessing
             numpy_images = inv_processing(images.detach().cpu().numpy())
+            self.results[self.stage] = SPPEKeypointsResults.from_preds(
+                numpy_images, pred_heatmaps
+            )
 
-            self.results[self.stage] = KeypointsResult(
-                images=numpy_images,
-                target_heatmaps=target_heatmaps.cpu().numpy(),
-                pred_heatmaps=pred_heatmaps.detach().cpu().numpy(),
-                keypoints=None,
+
+class AEKeypointsModule(BaseKeypointsModule):
+    model: AEKeypointsModel
+    loss_fn: AEKeypointsLoss
+    results: dict[str, MPPEKeypointsResults]
+
+    def _common_step(
+        self,
+        batch: tuple[Tensor, list[Tensor], Tensor, list, list],
+        batch_idx: int,
+        update_metrics: bool,
+    ):
+        if self.stage == "train":
+            self.optimizers["optim"].zero_grad()
+
+        images, stages_target_heatmaps, target_weights, target_keypoints, _ = batch
+
+        stages_pred_heatmaps, stages_pred_tags = self.model(images)
+
+        loss = self.loss_fn.calculate_loss(
+            stages_pred_heatmaps,
+            stages_target_heatmaps,
+            stages_pred_tags,
+            target_weights,
+            target_keypoints,
+        )
+        if self.stage == "train":
+            loss.backward()
+            self.optimizers["optim"].step()
+
+        pred_heatmaps = stages_pred_heatmaps[-1]
+        pred_tags = stages_pred_tags[-1]
+        target_heatmaps = stages_target_heatmaps[-1]
+
+        if update_metrics:
+            losses = {"loss": loss.item()}
+            metrics = self.metrics.calculate_metrics(pred_heatmaps, target_heatmaps)
+            self._update_metrics(metrics, losses)
+
+        if self.is_log_step(batch_idx):
+            inv_processing = self.datamodule.transform.inverse_preprocessing
+            numpy_images = inv_processing(images.detach().cpu().numpy())
+            self.results[self.stage] = MPPEKeypointsResults.from_preds(
+                numpy_images, pred_heatmaps, pred_tags
             )

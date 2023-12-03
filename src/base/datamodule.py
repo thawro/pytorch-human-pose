@@ -20,6 +20,7 @@ class DataModule:
         num_workers: int = 8,
         pin_memory: bool = True,
         drop_last: bool = True,
+        collate_fn=None,
     ):
         super().__init__()
         self.train_ds = train_ds
@@ -37,6 +38,7 @@ class DataModule:
             pin_memory=pin_memory,
             drop_last=drop_last,
             batch_size=batch_size,
+            collate_fn=collate_fn,
         )
 
         self.train_dataloader = DataLoader(train_ds, shuffle=True, **dl_params)

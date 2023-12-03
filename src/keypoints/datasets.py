@@ -6,9 +6,15 @@ import cv2
 from src.utils.files import load_yaml
 from src.utils.image import make_grid, put_txt
 from src.base.datasets import BaseImageDataset
+import torchvision.transforms.functional as F
 
-from src.keypoints.transforms import KeypointsTransform, SPPEKeypointsTransform
-from src.keypoints.visualization import create_heatmaps
+
+from src.keypoints.transforms import (
+    KeypointsTransform,
+    SPPEKeypointsTransform,
+    MPPEKeypointsTransform,
+)
+from src.keypoints.visualization import plot_heatmaps, plot_connections
 
 
 class HeatmapGenerator:
@@ -36,13 +42,6 @@ class HeatmapGenerator:
         max_w: int,
     ) -> tuple[np.ndarray, np.ndarray]:
         """
-        joints_centers is a dict in form:
-        {
-            joint_id: [(x1, y1, v1), (x2, y2, v2), ..., (xn, yn, vn)],
-            ...
-        }
-        xy - coords,
-        v - visibility
         visibility: 0 - not labeled, 1 - labeled but not visible, 2 - labeled and visible
         """
         num_objects = len(keypoints)
@@ -119,7 +118,19 @@ class BaseKeypointsDataset(BaseImageDataset):
         keypoints: list[tuple[int, int]],
         visibilities: list[int],
         num_obj: int,
-    ) -> tuple[Tensor, list[list[tuple[int, int]]], list[list[int]]]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        if self.is_train:
+            transform = self.transform.random
+        else:
+            transform = self.transform.inference
+
+        transformed = transform(
+            image=image, keypoints=keypoints, visibilities=visibilities
+        )
+        image = transformed["image"]
+        keypoints = transformed["keypoints"]
+        visibilities = transformed["visibilities"]
+
         transformed = self.transform.preprocessing(
             image=image, keypoints=keypoints, visibilities=visibilities
         )
@@ -133,20 +144,21 @@ class BaseKeypointsDataset(BaseImageDataset):
         tr_image = transformed["image"]
         tr_keypoints = np.array(transformed["keypoints"]).astype(np.int32)
         tr_visibilities = np.array(transformed["visibilities"])
-        tr_keypoints = tr_keypoints.reshape(num_obj, -1, 2).tolist()
-        tr_visibilities = tr_visibilities.reshape(num_obj, -1).tolist()
+        tr_keypoints = tr_keypoints.reshape(num_obj, -1, 2)
+        tr_visibilities = tr_visibilities.reshape(num_obj, -1)
         return tr_image, tr_keypoints, tr_visibilities
 
-    def __getitem__(self, idx: int) -> tuple[Tensor, Tensor, Tensor]:
+    def parse_annot(self, annot: dict) -> tuple[list[tuple[int, int]], list[int], int]:
         raise NotImplementedError()
 
     def plot(self, idx: int, hm_idx: int = 0):
         raw_image = self.load_image(idx)
-        image, all_heatmaps, target_weights = self[idx]
+        image, all_heatmaps, target_weights, keypoints, visibilities = self[idx]
 
         heatmaps = all_heatmaps[hm_idx]
-        hms = heatmaps
-        # hms = heatmaps.cpu().numpy()
+        h, w = image.shape[-2:]
+        heatmaps = F.resize(torch.from_numpy(heatmaps), [h, w])
+
         image = self.transform.inverse_preprocessing(image)
 
         raw_size = max(*raw_image.shape[:2])
@@ -162,58 +174,101 @@ class BaseKeypointsDataset(BaseImageDataset):
 
         raw_image = cv2.resize(blank, (tr_w, tr_h))
 
-        kpts_heatmaps = create_heatmaps(image, hms, limbs=self.limbs)
+        kpts_heatmaps = plot_heatmaps(image, heatmaps.numpy())
+
+        scores = []
+        for i in range(len(keypoints)):
+            obj_scores = []
+            for j in range(len(keypoints[i])):
+                score = (visibilities[i][j] > 0) * 1
+                obj_scores.append(score)
+            scores.append(obj_scores)
+
+        image = plot_connections(image.copy(), keypoints, scores, self.limbs, thr=0.5)
+        kpts_heatmaps.insert(0, image)
 
         images = [raw_image]
         for kpt_heatmap, label in zip(kpts_heatmaps[1:], self.labels):
             put_txt(kpt_heatmap, [label])
         images.extend(kpts_heatmaps)
 
-        hms_grid = make_grid(images, nrows=3)
+        hms_grid = make_grid(images, nrows=3, resize=0.5)
         img_txt = self.images_filepaths[idx].split("/")[-1] + f" ({idx}/{len(self)})"
         put_txt(hms_grid, [img_txt])
         return hms_grid
 
+    def __getitem__(
+        self, idx: int
+    ) -> tuple[np.ndarray, list[np.ndarray], np.ndarray, np.ndarray, np.ndarray,]:
+        image = self.load_image(idx)
+        annot = self.load_annot(idx)
 
-class MultiObjectsKeypointsDataset(BaseKeypointsDataset):
-    def parse_annot(self, annot: dict) -> tuple[list[tuple[int, int]], list[int]]:
-        objects = annot["objects"]
+        keypoints, visibilities, num_obj = self.parse_annot(annot)
+        image, keypoints, visibilities = self._transform(
+            image, keypoints, visibilities, num_obj
+        )
+
+        max_h, max_w = image.shape[-2:]
+
+        scales_heatmaps = []
+        for hm_generator in self.hm_generators:
+            heatmaps, target_weights = hm_generator(
+                keypoints, visibilities, max_h, max_w
+            )
+            scales_heatmaps.append(heatmaps)
+
+        return image, scales_heatmaps, target_weights, keypoints, visibilities
+
+
+def mppe_collate_fn(
+    batch: tuple[np.ndarray, list[np.ndarray], np.ndarray, np.ndarray, np.ndarray]
+) -> tuple[
+    Tensor,
+    list[Tensor],
+    Tensor,
+    list[list[list[tuple[int, int]]]],
+    list[list[list[float]]],
+]:
+    images = [item[0] for item in batch]
+    scales_heatmaps = [item[1] for item in batch]
+    target_weights = [item[2] for item in batch]
+    keypoints = [item[3].tolist() for item in batch]
+    visibilities = [item[4].tolist() for item in batch]
+
+    images = torch.from_numpy(np.stack(images))
+    scales_heatmaps = torch.from_numpy(np.stack(scales_heatmaps))
+    scales_heatmaps = [scales_heatmaps[:, i] for i in range(scales_heatmaps.shape[1])]
+    target_weights = torch.from_numpy(np.stack(target_weights))
+
+    return images, scales_heatmaps, target_weights, keypoints, visibilities
+
+
+class MPPEKeypointsDataset(BaseKeypointsDataset):
+    transform: MPPEKeypointsTransform
+
+    def parse_annot(self, annot: dict) -> tuple[list[tuple[int, int]], list[int], int]:
+        objects_annot = annot["objects"]
+        num_objects = len(objects_annot)
         keypoints = []
         visibilities = []
-        for obj_annots in objects:
+        for obj_annots in objects_annot:
             kpts = obj_annots["keypoints"]
             for kpt in kpts:
                 x, y = kpt["x"], kpt["y"]
                 visibility = int((x > 0 and y > 0) or kpt["visibility"] > 0)
                 keypoints.append([x, y])
                 visibilities.append(visibility)
-        return keypoints, visibilities
 
-    def __getitem__(self, idx: int) -> tuple[Tensor, Tensor, Tensor]:
-        image = self.load_image(idx)
-        annot = self.load_annot(idx)
-        num_obj = len(annot["objects"])
-        keypoints, visibilities = self.parse_annot(annot)
-        image, keypoints, visibilities = self._transform(
-            image, keypoints, visibilities, num_obj
-        )
-        max_h, max_w = image.shape[:2]
-
-        heatmaps, target_weights = self.heatmap_generator(
-            keypoints, visibilities, max_h, max_w
-        )
-        heatmaps = torch.from_numpy(heatmaps)
-        target_weights = torch.from_numpy(target_weights)
-
-        return image, heatmaps, target_weights
+        return keypoints, visibilities, num_objects
 
 
-class SingleObjectKeypointsDataset(BaseKeypointsDataset):
+class SPPEKeypointsDataset(BaseKeypointsDataset):
     transform: SPPEKeypointsTransform
 
-    def parse_annot(self, annot: dict) -> tuple[list[tuple[int, int]], list[int]]:
+    def parse_annot(self, annot: dict) -> tuple[list[tuple[int, int]], list[int], int]:
         keypoints = []
         visibilities = []
+        num_objects = 1
 
         kpts = annot["keypoints"]
         for kpt in kpts:
@@ -221,42 +276,14 @@ class SingleObjectKeypointsDataset(BaseKeypointsDataset):
             visibility = int((x > 0 and y > 0) or kpt["visibility"] > 0)
             keypoints.append([x, y])
             visibilities.append(visibility)
-        return keypoints, visibilities
-
-    def __getitem__(self, idx: int) -> tuple[Tensor, list[np.ndarray], Tensor]:
-        image = self.load_image(idx)
-        annot = self.load_annot(idx)
-        img_h, img_w = image.shape[:2]
-
-        keypoints, visibilities = self.parse_annot(annot)
-
-        if self.is_train:
-            transformed = self.transform.random(
-                image=image, keypoints=keypoints, visibilities=visibilities
-            )
-            image = transformed["image"]
-            keypoints = transformed["keypoints"]
-            visibilities = transformed["visibilities"]
-
-        image, keypoints, visibilities = self._transform(
-            image, keypoints, visibilities, num_obj=1
-        )
-        all_heatmaps = []
-        max_h, max_w = image.shape[-2:]
-        for hm_generator in self.hm_generators:
-            heatmaps, target_weights = hm_generator(
-                keypoints, visibilities, max_h, max_w
-            )
-            all_heatmaps.append(heatmaps)
-        target_weights = torch.from_numpy(target_weights)
-
-        return image, all_heatmaps, target_weights
+        return keypoints, visibilities, num_objects
 
 
 if __name__ == "__main__":
     from src.utils.config import DS_ROOT
 
-    ds_name = "MPII"
+    mode = "MPPE"
+    ds_name = "COCO"
     split = "train"
 
     if ds_name == "MPII":
@@ -264,23 +291,24 @@ if __name__ == "__main__":
     else:
         from geda.data_providers.coco import LABELS, LIMBS
 
-    ds_root = str(DS_ROOT / ds_name / "SPPEHumanPose")
-    out_size = (256, 200)
-    transform = SPPEKeypointsTransform(
-        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], out_size=out_size
-    )
+    mean = [0.485, 0.456, 0.406]
+    std = [0.229, 0.224, 0.225]
+
+    if mode == "SPPE":
+        ds_subdir = "SPPEHumanPose"
+        out_size = (256, 192)
+        transform = SPPEKeypointsTransform(mean=mean, std=std, out_size=out_size)
+        Dataset = SPPEKeypointsDataset
+
+    else:
+        ds_subdir = "HumanPose"
+        out_size = (512, 512)
+        transform = MPPEKeypointsTransform(mean=mean, std=std, out_size=out_size)
+        Dataset = MPPEKeypointsDataset
+
+    ds_root = str(DS_ROOT / ds_name / ds_subdir)
 
     hm_resolutions = [1 / 2, 1 / 4]
 
-    ds = SingleObjectKeypointsDataset(
-        ds_root,
-        split,
-        hm_resolutions=hm_resolutions,
-        transform=transform,
-        labels=LABELS,
-        limbs=LIMBS,
-    )
-    # ds = MultiObjectsKeypointsDataset(
-    #     ds_root, "val", transform=transform.inference, labels=LABELS
-    # )
+    ds = Dataset(ds_root, split, transform, hm_resolutions, labels=LABELS, limbs=LIMBS)
     ds.explore(idx=0)

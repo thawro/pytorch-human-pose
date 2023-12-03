@@ -160,3 +160,8 @@ class BaseModule:
         }
         self.epochs_metrics_storage.append(optizers_lr, split="train")
         self.current_epoch_steps_metrics_storage.clear()
+
+    def is_log_step(self, batch_idx: int):
+        log_step = self.current_step % self.log_every_n_steps == 0
+        log_epoch = (batch_idx + 1) == self.total_batches[self.stage]
+        return log_step or log_epoch

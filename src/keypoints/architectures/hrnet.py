@@ -101,7 +101,7 @@ class HighResolutionBlock(nn.Module):
         self.scales_blocks = nn.ModuleList(scales_blocks)
         self.num_out_channels = num_out_channels
 
-    def forward(self, scales_inputs: list[Tensor]):
+    def forward(self, scales_inputs: list[Tensor]) -> list[Tensor]:
         # forward pass in each scale units
         scales_out = []
         for i in range(self.num_scales):
@@ -160,7 +160,7 @@ class FusionLayer(nn.Module):
             scales_fusion_layers.append(scale_fusion_layers)
         self.scales_fusion_layers = nn.ModuleList(scales_fusion_layers)
 
-    def forward(self, scales_outputs: list[Tensor]):
+    def forward(self, scales_outputs: list[Tensor]) -> list[Tensor]:
         fusion_scales_out = []
         # i - index of output scale block
         # j - index of input scale block
@@ -269,7 +269,7 @@ class HighResolutionStage(nn.Module):
         else:
             self.transition_layer = None
 
-    def forward(self, scales_inputs: list[Tensor]):
+    def forward(self, scales_inputs: list[Tensor]) -> list[Tensor]:
         scales_outs = self.blocks(scales_inputs)
         if self.transition_layer is not None:
             scales_outs = self.transition_layer(scales_outs)

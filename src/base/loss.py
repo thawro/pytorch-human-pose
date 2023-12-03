@@ -2,6 +2,7 @@
 
 from torch import Tensor
 from torch.nn.modules.loss import _Loss
+from abc import abstractmethod
 
 
 class WeightedLoss(_Loss):
@@ -10,8 +11,8 @@ class WeightedLoss(_Loss):
         self.criterion = criterion
         self.weight = weight
 
-    def forward(self, pred: Tensor, target: Tensor) -> Tensor:
-        loss = self.criterion(pred, target)
+    def forward(self, *args, **kwargs) -> Tensor:
+        loss = self.criterion(*args, **kwargs)
         return self.weight * loss
 
 
@@ -20,6 +21,6 @@ class BaseLoss(_Loss):
         super().__init__()
         self.loss_fn = loss_fn
 
+    @abstractmethod
     def calculate_loss(self, pred: Tensor, target: Tensor) -> Tensor:
-        loss = self.loss_fn(pred, target)
-        return loss
+        raise NotImplementedError()

@@ -14,6 +14,7 @@ class DeconvHeatmapsHead(nn.Module):
         padding: int = 1,
         output_padding: int = 0,
     ):
+        super().__init__()
         stride = 2
         self.deconv = nn.Sequential(
             nn.ConvTranspose2d(
@@ -80,4 +81,4 @@ class HigherHRNet(nn.Module):
             deconv_layer = self.deconv_layers[i]
             feats, out = deconv_layer(deconv_input)
             heatmaps.append(out)
-        return [tags], heatmaps
+        return heatmaps, [tags]

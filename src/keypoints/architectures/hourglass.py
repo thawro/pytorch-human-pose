@@ -151,7 +151,7 @@ class BaseHourglassNet(nn.Module):
     """
 
     def __init__(
-        self, num_stages: int, num_keypoints: int, HeadClass: Type[BaseHourglassHead]
+        self, num_keypoints: int, num_stages: int, HeadClass: Type[BaseHourglassHead]
     ) -> None:
         super().__init__()
         self.num_stages = num_stages
@@ -188,8 +188,8 @@ class HourglassNet(BaseHourglassNet):
     https://arxiv.org/pdf/1603.06937.pdf
     """
 
-    def __init__(self, num_stages: int, num_keypoints: int = 17) -> None:
-        super().__init__(num_stages, num_keypoints, HourglassHead)
+    def __init__(self, num_keypoints: int, num_stages: int) -> None:
+        super().__init__(num_keypoints, num_stages, HourglassHead)
 
     def forward(self, x: Tensor) -> list[Tensor]:
         out = super().forward(x)
@@ -209,8 +209,8 @@ class AEHourglassNet(BaseHourglassNet):
     https://arxiv.org/pdf/1611.05424.pdf
     """
 
-    def __init__(self, num_stages: int, num_keypoints: int = 17) -> None:
-        super().__init__(num_stages, num_keypoints, AEHourglassHead)
+    def __init__(self, num_keypoints: int, num_stages: int) -> None:
+        super().__init__(num_keypoints, num_stages, AEHourglassHead)
 
     def forward(self, x: Tensor) -> tuple[list[Tensor], list[Tensor]]:
         out = super().forward(x)
@@ -228,7 +228,7 @@ class AEHourglassNet(BaseHourglassNet):
         return stages_tags, stages_heatmaps
 
 
-class SPMHourglassNet(BaseHourglassNet):
+class SMPHourglassNet(BaseHourglassNet):
     """
     Single Stage MultiPerson Pose Machines
     https://arxiv.org/pdf/1908.09220v1.pdf

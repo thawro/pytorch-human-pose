@@ -42,10 +42,23 @@ class SetupConfig(BaseConfig):
     log_every_n_steps: int
     ckpt_path: str | None
     mode: str
-    multiobj: bool
+    arch: str
 
     @property
-    def is_debug(self):
+    def num_keypoints(self) -> int:
+        if self.dataset == "MPII":
+            return 16
+        elif self.dataset == "COCO":
+            return 17
+        else:
+            raise ValueError("Wrong ds name")
+
+    @property
+    def is_sppe(self) -> bool:
+        return self.mode == "SPPE"
+
+    @property
+    def is_debug(self) -> bool:
         return self.limit_batches > 0
 
 

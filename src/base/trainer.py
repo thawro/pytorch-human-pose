@@ -1,4 +1,5 @@
 import torch
+from torch import Tensor
 from tqdm.auto import tqdm
 
 from src.logging import get_pylogger
@@ -54,9 +55,9 @@ class Trainer:
                 limit_batches = int(self._limit_batches)
             for i, batch in enumerate(loop):
                 for j in range(len(batch)):
-                    if isinstance(batch[j], torch.Tensor):
+                    if isinstance(batch[j], Tensor):
                         batch[j] = batch[j].to(self.device)
-                    else:  # list
+                    elif isinstance(batch[j][0], Tensor):  # list of tensors
                         batch[j] = [
                             batch[j][i].to(self.device) for i in range(len(batch[j]))
                         ]
@@ -72,9 +73,9 @@ class Trainer:
         limit_batches = int(self._limit_batches)
         for i, batch in enumerate(loop):
             for j in range(len(batch)):
-                if isinstance(batch[j], torch.Tensor):
+                if isinstance(batch[j], Tensor):
                     batch[j] = batch[j].to(self.device)
-                else:  # list
+                elif isinstance(batch[j][0], Tensor):  # list of tensors
                     batch[j] = [
                         batch[j][i].to(self.device) for i in range(len(batch[j]))
                     ]

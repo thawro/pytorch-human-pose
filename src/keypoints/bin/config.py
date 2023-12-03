@@ -11,13 +11,14 @@ EXPERIMENT_NAME = "test"
 # DATASET = "COCO"
 DATASET = "MPII"
 
-LIMIT_BATCHES = -1
+LIMIT_BATCHES = 5
 LOG_EVERY_N_STEPS = -1
 
 CKPT_PATH = "/home/shate/Desktop/projects/pytorch-human-pose/results/test/17-11-2023_19:00:22_train_MPII_LR(0.001)/checkpoints/last.pt"
 CKPT_PATH = None
 
-MODE = "train"
+MODE = "MPPE"
+ARCHITECTURE = "HigherHRNet"
 LR = 1e-3
 OUT_SIZE = (256, 256)
 
@@ -40,7 +41,7 @@ setup_cfg = SetupConfig(
     log_every_n_steps=LOG_EVERY_N_STEPS,
     ckpt_path=CKPT_PATH,
     mode=MODE,
-    multiobj=False,
+    arch=ARCHITECTURE,
 )
 
 optimizer_cfg = OptimizerConfig(lr=LR)

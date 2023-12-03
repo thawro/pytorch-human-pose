@@ -1,7 +1,7 @@
 from src.base.metrics import BaseMetrics
 from torch import Tensor
 import torch
-from src.keypoints.ops import get_kpts_coords
+from src.keypoints.ops import get_sppe_kpts_coords
 
 
 class PercentageCorrectKeypoints:
@@ -26,11 +26,11 @@ class PercentageCorrectKeypoints:
         # mask for cases when target has no annotation
         target_mask = targets_heatmaps.sum(dim=(2, 3)) > 0
 
-        pred_coords = get_kpts_coords(preds_heatmaps)
-        target_coords = get_kpts_coords(targets_heatmaps)
+        pred_coords = get_sppe_kpts_coords(preds_heatmaps)
+        target_coords = get_sppe_kpts_coords(targets_heatmaps)
 
         # Using 1/10 of height and width as distance to gt kpt
-        norm = torch.ones(batch_size, 2) * torch.tensor([w, h]) / 10
+        norm = torch.ones(batch_size, 2) * torch.tensor([h, w]) / 10
         norm = norm.unsqueeze(1).to(pred_coords.device)
         normed_pred_coords = pred_coords / norm
         normed_target_coords = target_coords / norm

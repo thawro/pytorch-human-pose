@@ -34,13 +34,20 @@ def stack_frames_horizontally(
     return img
 
 
-def make_grid(images: list[np.ndarray], nrows: int = 2, pad: int = 5) -> np.ndarray:
-    h, w = images[0].shape[:2]
-    ncols = int(np.ceil(len(images) / nrows).item())
+def make_grid(
+    images: list[np.ndarray], nrows: int = 2, pad: int = 5, resize: float = -1
+) -> np.ndarray:
+    _images = [img.copy() for img in images]
+    if resize > 0:
+        for i in range(len(_images)):
+            _images[i] = cv2.resize(_images[i], (0, 0), fx=resize, fy=resize)
+
+    h, w = _images[0].shape[:2]
+    ncols = int(np.ceil(len(_images) / nrows).item())
     grid_h = (h + pad) * nrows + pad
     grid_w = (w + pad) * ncols + pad
-    grid = np.zeros((grid_h, grid_w, 3), dtype=images[0].dtype)
-    for idx, image in enumerate(images):
+    grid = np.zeros((grid_h, grid_w, 3), dtype=_images[0].dtype)
+    for idx, image in enumerate(_images):
         if len(image.shape) == 2:
             image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
         row = idx // ncols
@@ -116,7 +123,7 @@ def add_labels_to_frames(
         if isinstance(label, str):
             label = [label]
 
-        labeled_image = add_txt_to_image(
+        labeled_image = put_txt(
             image.copy(),
             label,
             vspace=5,
