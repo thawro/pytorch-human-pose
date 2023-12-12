@@ -31,37 +31,3 @@ def get_sppe_kpts_coords(
                 scores[i, j] = heatmaps[i, j][y, x]
         return coords, scores
     return coords
-
-
-# TODO
-def get_mppe_ae_kpts_coords(
-    heatmaps: Tensor, tags: Tensor, return_scores: bool = False
-) -> Tensor | tuple[Tensor, Tensor]:
-    """Return keypoints coordinates for Multi Person Pose Estimation (MPPE) using tags (Associative Embeddings)"""
-    if isinstance(heatmaps, np.ndarray):
-        heatmaps = torch.from_numpy(heatmaps)
-        tags = torch.from_numpy(tags)
-
-    if heatmaps.dim() == 3:
-        heatmaps.unsqueeze_(0)
-        tags.unsqueeze_(0)
-
-    assert (
-        heatmaps.dim() == 4 and tags.dim() == 4
-    ), f"Score maps should be 4-dim (actual: {heatmaps.dim(), tags.dim()})"
-
-    batch_size, num_kpts, h, w = heatmaps.shape
-    tags = F.resize(tags, [h, w])
-    print(tags.shape, heatmaps.shape)
-    exit()
-    coords = None
-
-    if return_scores:
-        num_obj = None
-        scores = torch.zeros(batch_size, num_obj, num_kpts)
-        for i in range(batch_size):
-            for j in range(num_kpts):
-                y, x = coords[i, j].tolist()
-                scores[i, j] = heatmaps[i, j][y, x]
-        return coords, scores
-    return coords

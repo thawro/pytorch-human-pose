@@ -17,11 +17,56 @@ JOINTS_ORDER = [
 ]
 
 
-class HeatmapParser(object):
+class SPPEHeatmapParser:
+    def __init__(self, num_kpts: int, det_thr: float = 0.2):
+        self.num_kpts = num_kpts
+        self.det_thr = det_thr
+
+    def match(self, heatmaps: Tensor) -> np.ndarray:
+        """
+        heatmaps: detection heatmaps. Tensor of shape [num_kpts, height, width]
+
+        Return joints array of shape [num_person, num_kpts, 3], where 3 is for
+        (x, y, score) of each keypoint
+        """
+        num_person = 1
+        num_kpts, h, w = heatmaps.shape
+        joints = torch.zeros(num_person, num_kpts, 3)
+        flat_heatmaps = heatmaps.view(num_kpts, -1)
+        coords = torch.argmax(flat_heatmaps, 2)
+        coords = coords.view(num_kpts, 1) + 1
+        coords = coords.repeat(1, 2).float()
+        coords[:, 0] = (coords[:, 0] - 1) % w
+        coords[:, 1] = torch.floor((coords[:, 1] - 1) / w)
+        coords = coords.to(torch.int32)  # .flip(-1)
+        # coords are in [x, y] order
+        scores = torch.zeros(num_kpts)
+        for idx in range(num_kpts):
+            y, x = coords[idx].tolist()
+            scores[idx] = heatmaps[idx][y, x]
+        joints[..., :2] = coords
+        joints[..., 2] = scores
+        return joints.cpu().numpy()
+
+    def parse(self, heatmaps: Tensor) -> np.ndarray:
+        """
+        heatmaps: detection heatmaps. Tensor of shape [1, num_kpts, height, width]
+
+        Return joints array of shape [1, num_kpts, 3], where 1 is for person number and 3 is for
+        (x, y, score) of each keypoint
+        """
+        heatmaps = heatmaps[0]
+        joints = self.match(heatmaps)
+        mask = joints[..., 2] >= self.det_thr
+        joints[mask][..., :2] = (0, 0)
+        return joints
+
+
+class MPPEHeatmapParser:
     def __init__(
         self,
+        num_kpts: int,
         max_num_people: int = 3,
-        num_kpts: int = 17,
         det_thr: float = 0.2,
         tag_thr: float = 1.0,
     ):
@@ -47,17 +92,19 @@ class HeatmapParser(object):
         joints_tags = joints_tags.round()  # TODO
         joints_scores = np.expand_dims(joints_scores, -1)
 
-        joint_dict = defaultdict(
-            lambda: np.zeros((self.num_kpts, 3 + joints_tags.shape[2])), {}
+        joints_dim = sum(
+            arr.shape[-1] for arr in [joints_tags, joints_scores, joints_coords]
         )
+        joint_dict = defaultdict(lambda: np.zeros((self.num_kpts, joints_dim)), {})
         tag_dict = {}
         for i in range(self.num_kpts):
             idx = self.joints_order[i]
 
-            joint_tags = joints_tags[idx]
-            joint_coords = joints_coords[idx]
-            joint_scores = joints_scores[idx]
+            joint_tags = joints_tags[idx]  # shape: [num_person, embedding_dim]
+            joint_coords = joints_coords[idx]  # shape: [num_person, 2]
+            joint_scores = joints_scores[idx]  # shape: [num_person, 1]
 
+            # shape: [num_person, joints_dim]
             joints = np.concatenate((joint_coords, joint_scores, joint_tags), 1)
 
             mask = joint_scores.squeeze() > self.det_thr
@@ -89,7 +136,7 @@ class HeatmapParser(object):
 
                 n_added = len(joint_tags)
                 n_grouped = len(grouped_keys)
-                if n_added > n_grouped:
+                if n_added > n_grouped:  # some new keypoints appeared as detected
                     diff = np.concatenate(
                         (diff, np.zeros((n_added, n_added - n_grouped)) + 1e10), axis=1
                     )
@@ -272,7 +319,7 @@ if __name__ == "__main__":
 
     split = "train"
 
-    parser = HeatmapParser(max_num_people=3, num_kpts=16)
+    parser = MPPEHeatmapParser(max_num_people=3, num_kpts=16)
 
     transform = MPPEKeypointsTransform(
         mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], out_size=(512, 512)

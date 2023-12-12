@@ -26,10 +26,14 @@ class BaseKeypointsModule(BaseModule):
         self.labels = labels
 
     def _update_metrics(self, metrics: dict[str, float], losses: dict[str, float]):
-        self.steps_metrics_storage.append(metrics, self.stage)
-        self.current_epoch_steps_metrics_storage.append(metrics, self.stage)
-        self.steps_metrics_storage.append(losses, self.stage)
-        self.current_epoch_steps_metrics_storage.append(losses, self.stage)
+        # TODO: make it a dict to add step/epoch value
+        # TODO: calculate SPPE/MPPE coords once and pass it to other callbacks
+        if metrics is not None:
+            self.steps_metrics_storage.append(metrics, self.stage)
+            self.current_epoch_steps_metrics_storage.append(metrics, self.stage)
+        if losses is not None:
+            self.steps_metrics_storage.append(losses, self.stage)
+            self.current_epoch_steps_metrics_storage.append(losses, self.stage)
 
 
 class KeypointsModule(BaseKeypointsModule):
