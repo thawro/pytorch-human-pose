@@ -7,6 +7,8 @@ import numpy as np
 from pathlib import Path
 from tqdm.auto import tqdm
 import math
+from joblib import Parallel, delayed
+
 
 RESOLUTION = (256, 256)
 
@@ -48,6 +50,104 @@ def process_coco_obj_annot(annot: dict) -> tuple[tuple[int, int, int, int], bool
     return (xmin, ymin, xmax, ymax), is_valid
 
 
+def parse_single_file(
+    annot_path: str,
+    ds_name: str,
+    imgs_path: Path,
+    annots_path: Path,
+    new_size: tuple[int, int],
+):
+    new_h, new_w = new_size
+    filename = Path(annot_path).stem
+    img_path = annot_path.replace("annots", "images").replace(".yaml", ".jpg")
+    image = np.asarray(Image.open(img_path), dtype=np.uint8)
+    if len(image.shape) == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+    h, w = image.shape[:2]
+    annot = load_yaml(annot_path)
+    objects = annot["objects"]
+    for i, obj in enumerate(objects):
+        new_filename = f"{filename}_{i}"
+        new_img_path = imgs_path / f"{new_filename}.jpg"
+        new_annot_path = annots_path / f"{new_filename}.yaml"
+
+        if ds_name == "MPII":
+            process_annot = process_mpii_obj_annot
+        else:
+            process_annot = process_coco_obj_annot
+        (xmin, ymin, xmax, ymax), is_valid = process_annot(obj)
+
+        if not is_valid:
+            continue
+
+        y_size = ymax - ymin
+        x_size = xmax - xmin
+
+        xc = xmin + x_size // 2
+        yc = ymin + y_size // 2
+
+        y_marg = int(0.25 * y_size)
+        y_size += y_marg
+
+        x_marg = int(0.25 * x_size)
+        x_size += x_marg
+
+        size = max(y_size, x_size)
+
+        # x_size = int(y_size / aspect_ratio)
+        x_size, y_size = size, size
+
+        new_image = np.zeros((y_size, x_size, 3), dtype=np.uint8)
+
+        xmin = max(xc - x_size // 2, 0)
+        xmax = min(w, xc + x_size // 2)
+        ymin = max(yc - y_size // 2, 0)
+        ymax = min(h, yc + y_size // 2)
+
+        obj_image = image[ymin:ymax, xmin:xmax]
+
+        obj_w = xmax - xmin
+        obj_h = ymax - ymin
+
+        pad_x = math.floor((x_size - obj_w) / 2)
+        pad_y = math.floor((y_size - obj_h) / 2)
+
+        new_ymin, new_ymax = pad_y, pad_y + obj_image.shape[0]
+        new_xmin, new_xmax = pad_x, pad_x + obj_image.shape[1]
+
+        new_image[new_ymin:new_ymax, new_xmin:new_xmax] = obj_image
+        new_image = cv2.resize(new_image, (new_w, new_h))
+        Image.fromarray(new_image).save(new_img_path)
+
+        kpt_x_offset = -xmin + pad_x
+        kpt_y_offset = -ymin + pad_y
+        kpt_y_scaler = new_h / y_size
+        kpt_x_scaler = new_w / x_size
+
+        kpts = obj["keypoints"]
+        new_kpts = []
+        for kpt in kpts:
+            if kpt["x"] <= 0 and kpt["y"] <= 0:
+                new_x = 0
+                new_y = 0
+            else:
+                new_x = max(int((kpt["x"] + kpt_x_offset) * kpt_x_scaler), 1)
+                new_y = max(int((kpt["y"] + kpt_y_offset) * kpt_y_scaler), 1)
+            vis = new_x > 0 and new_y > 0
+            if ds_name == "MPII":  # matlab 1-index notation
+                new_x -= 1
+                new_y -= 1
+            new_kpts.append({"x": new_x, "y": new_y, "visibility": vis})
+
+        new_annot = {
+            "filename": f"{new_filename}.jpg",
+            "height": new_h,
+            "width": new_w,
+            "keypoints": new_kpts,
+        }
+        save_yaml(new_annot, new_annot_path)
+
+
 def prepare_sppe_data(new_resolution: tuple[int, int], ds_name: str):
     new_h, new_w = new_resolution
     aspect_ratio = new_h / new_w
@@ -64,100 +164,26 @@ def prepare_sppe_data(new_resolution: tuple[int, int], ds_name: str):
         split_imgs_path = new_ds_root / "images" / split
         split_annots_path.mkdir(parents=True, exist_ok=True)
         split_imgs_path.mkdir(parents=True, exist_ok=True)
-        for annot_path in tqdm(annot_filepaths, desc=split):
-            filename = Path(annot_path).stem
-            img_path = annot_path.replace("annots", "images").replace(".yaml", ".jpg")
-            image = np.asarray(Image.open(img_path), dtype=np.uint8)
-            if len(image.shape) == 2:
-                image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-            h, w = image.shape[:2]
-            annot = load_yaml(annot_path)
-            objects = annot["objects"]
-            for i, obj in enumerate(objects):
-                new_filename = f"{filename}_{i}"
-                new_img_path = split_imgs_path / f"{new_filename}.jpg"
-                new_annot_path = split_annots_path / f"{new_filename}.yaml"
+        params = dict(
+            ds_name=ds_name,
+            imgs_path=split_imgs_path,
+            annots_path=split_annots_path,
+            new_size=(new_h, new_w),
+        )
 
-                if ds_name == "MPII":
-                    process_annot = process_mpii_obj_annot
-                else:
-                    process_annot = process_coco_obj_annot
-                (xmin, ymin, xmax, ymax), is_valid = process_annot(obj)
+        Parallel(n_jobs=-1)(
+            delayed(parse_single_file)(annot_path, **params)
+            for annot_path in tqdm(annot_filepaths, desc=split)
+        )
 
-                if not is_valid:
-                    continue
-
-                y_size = ymax - ymin
-                x_size = xmax - xmin
-
-                xc = xmin + x_size // 2
-                yc = ymin + y_size // 2
-
-                y_marg = int(0.25 * y_size)
-                y_size += y_marg
-
-                x_marg = int(0.25 * x_size)
-                x_size += x_marg
-
-                size = max(y_size, x_size)
-
-                # x_size = int(y_size / aspect_ratio)
-                x_size, y_size = size, size
-
-                new_image = np.zeros((y_size, x_size, 3), dtype=np.uint8)
-
-                xmin = max(xc - x_size // 2, 0)
-                xmax = min(w, xc + x_size // 2)
-                ymin = max(yc - y_size // 2, 0)
-                ymax = min(h, yc + y_size // 2)
-
-                obj_image = image[ymin:ymax, xmin:xmax]
-
-                obj_w = xmax - xmin
-                obj_h = ymax - ymin
-
-                pad_x = math.floor((x_size - obj_w) / 2)
-                pad_y = math.floor((y_size - obj_h) / 2)
-
-                new_ymin, new_ymax = pad_y, pad_y + obj_image.shape[0]
-                new_xmin, new_xmax = pad_x, pad_x + obj_image.shape[1]
-
-                new_image[new_ymin:new_ymax, new_xmin:new_xmax] = obj_image
-                new_image = cv2.resize(new_image, (new_w, new_h))
-                Image.fromarray(new_image).save(new_img_path)
-
-                kpt_x_offset = -xmin + pad_x
-                kpt_y_offset = -ymin + pad_y
-                kpt_y_scaler = new_h / y_size
-                kpt_x_scaler = new_w / x_size
-
-                kpts = obj["keypoints"]
-                new_kpts = []
-                for kpt in kpts:
-                    if kpt["x"] <= 0 and kpt["y"] <= 0:
-                        new_x = 0
-                        new_y = 0
-                    else:
-                        new_x = max(int((kpt["x"] + kpt_x_offset) * kpt_x_scaler), 1)
-                        new_y = max(int((kpt["y"] + kpt_y_offset) * kpt_y_scaler), 1)
-                    vis = new_x > 0 and new_y > 0
-                    if ds_name == "MPII":  # matlab 1-index notation
-                        new_x -= 1
-                        new_y -= 1
-                    new_kpts.append({"x": new_x, "y": new_y, "visibility": vis})
-
-                new_annot = {
-                    "filename": f"{new_filename}.jpg",
-                    "height": new_h,
-                    "width": new_w,
-                    "keypoints": new_kpts,
-                }
-                save_yaml(new_annot, new_annot_path)
+        # for annot_path in tqdm(annot_filepaths, desc=split):
+        #     parse_single_file(annot_path)
 
 
 def main():
     res = (256, 256)
-    prepare_sppe_data(new_resolution=res, ds_name="COCO")
+    # prepare_sppe_data(new_resolution=res, ds_name="COCO")
+    prepare_sppe_data(new_resolution=res, ds_name="MPII")
 
 
 if __name__ == "__main__":

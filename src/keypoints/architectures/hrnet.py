@@ -303,8 +303,8 @@ class HRNet(nn.Module):
         self.stages = nn.Sequential(*stages)
         self.final_conv = nn.Conv2d(C, num_keypoints, 1, 1, 0)
 
-    def forward(self, x: Tensor) -> list[Tensor]:
-        x = self.conv1(x)
+    def forward(self, images: Tensor) -> list[Tensor]:
+        x = self.conv1(images)
         x = self.conv2(x)
         out = self.stages([x])
         high_res_out = out[0]

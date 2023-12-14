@@ -27,7 +27,7 @@ class HeatmapsLoss(_Loss):
 
 class KeypointsLoss(BaseLoss):
     def __init__(self):
-        self.loss_fn = WeightedLoss(HeatmapsLoss(), weight=1)
+        super().__init__(WeightedLoss(HeatmapsLoss(), weight=1))
 
     def calculate_loss(
         self,

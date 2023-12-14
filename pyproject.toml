@@ -31,6 +31,8 @@ opencv-python = "^4.8.0.76"
 kornia = "^0.7.0"
 moviepy = "^1.0.3"
 munkres = "^1.1.4"
+joblib = "^1.3.2"
+onnxruntime-gpu = "^1.16.3"
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^2.17.4"

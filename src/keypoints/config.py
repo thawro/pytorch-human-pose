@@ -1,6 +1,6 @@
 import dataclasses
 from dataclasses import dataclass
-from src.utils import NOW, ROOT
+from src.utils import NOW, ROOT, RESULTS_PATH
 
 
 @dataclass
@@ -83,4 +83,4 @@ class Config(BaseConfig):
 
     @property
     def logs_path(self):
-        return str(ROOT / "results" / self.setup.experiment_name / self.run_name)
+        return str(RESULTS_PATH / self.setup.experiment_name / self.run_name)

@@ -24,7 +24,7 @@ def plot_connections(
         kpts_scores = all_kpts_scores[i]
         color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
 
-        for (x, y), score in zip(kpts_coords, kpts_scores):
+        for (y, x), score in zip(kpts_coords, kpts_scores):
             if score < thr:
                 continue
             cv2.circle(image, (x, y), 3, (0, 128, 255), -1)
@@ -33,10 +33,10 @@ def plot_connections(
             if kpts_scores[id_1] < thr or kpts_scores[id_2] < thr:
                 continue
             kpt_1 = kpts_coords[id_1]
-            x1, y1 = kpt_1
+            y1, x1 = kpt_1
 
             kpt_2 = kpts_coords[id_2]
-            x2, y2 = kpt_2
+            y2, x2 = kpt_2
             cv2.line(image, (x1, y1), (x2, y2), color, 4)
     return image
 
@@ -59,7 +59,7 @@ def plot_results_heatmaps(
     filepath: str | None = None,
     thr: float = 0.5,
 ):
-    n_rows = len(results.pred_heatmaps)
+    n_rows = min(10, len(results.pred_heatmaps))
     fig, axes = plt.subplots(n_rows, 1, figsize=(24, n_rows * 8))
     grids = []
     for i in range(n_rows):

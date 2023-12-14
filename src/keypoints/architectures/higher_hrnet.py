@@ -68,8 +68,8 @@ class HigherHRNet(nn.Module):
 
         self.deconv_layers = nn.ModuleList(deconv_layers)
 
-    def forward(self, x: Tensor) -> tuple[list[Tensor], list[Tensor]]:
-        x = self.stem(x)
+    def forward(self, images: Tensor) -> tuple[list[Tensor], list[Tensor]]:
+        x = self.stem(images)
         high_res_out = self.hrnet_backbone([x])[0]
         tags = self.tags_head(high_res_out)
 

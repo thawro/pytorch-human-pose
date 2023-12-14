@@ -7,7 +7,7 @@ import torch
 class BaseModel(nn.Module):
     def __init__(
         self,
-        net: nn.Module,
+        net: nn.DataParallel,
         input_names: list[str] = ["input"],
         output_names: list[str] = ["output"],
     ):
@@ -21,21 +21,23 @@ class BaseModel(nn.Module):
         return next(self.parameters()).device
 
     @abstractmethod
-    def example_input(self, device: str = "cpu") -> dict[str, Tensor]:
+    def example_input(self) -> dict[str, Tensor]:
         raise NotImplementedError()
 
-    def export_to_onnx(self, filepath: str = "model.onnx"):
-        dynamic_axes = {
+    def dynamic_axes(self) -> dict[str, dict[int, str]]:
+        return {
             name: {0: "batch_size"} for name in self.input_names + self.output_names
         }
+
+    def export_to_onnx(self, filepath: str = "model.onnx"):
         torch.onnx.export(
-            self,
+            self.net.module,
             self.example_input(),
             filepath,
             export_params=True,
             input_names=self.input_names,
             output_names=self.output_names,
-            dynamic_axes=dynamic_axes,
+            dynamic_axes=self.dynamic_axes(),
         )
 
     def summary(self, depth: int = 4):
@@ -61,6 +63,14 @@ class BaseModel(nn.Module):
 
 
 class BaseImageModel(BaseModel):
+    def dynamic_axes(self) -> dict[str, dict[int, str]]:
+        input_axes = {
+            name: {0: "batch_size", 2: "height", 3: "width"}
+            for name in self.input_names
+        }
+        output_axes = {name: {0: "batch_size"} for name in self.output_names}
+        return input_axes | output_axes
+
     def example_input(
         self,
         batch_size: int = 1,

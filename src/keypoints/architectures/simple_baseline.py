@@ -64,8 +64,8 @@ class SimpleBaseline(nn.Module):
             padding=0,
         )
 
-    def forward(self, x: Tensor) -> list[Tensor]:
-        x = self.conv1(x)
+    def forward(self, images: Tensor) -> list[Tensor]:
+        x = self.conv1(images)
         x = self.bn1(x)
         x = self.relu(x)
         x = self.maxpool(x)

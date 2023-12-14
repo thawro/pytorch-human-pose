@@ -282,8 +282,8 @@ class SPPEKeypointsDataset(BaseKeypointsDataset):
 if __name__ == "__main__":
     from src.utils.config import DS_ROOT
 
-    mode = "MPPE"
-    ds_name = "COCO"
+    mode = "SPPE"
+    ds_name = "MPII"
     split = "train"
 
     if ds_name == "MPII":

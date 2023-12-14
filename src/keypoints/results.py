@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import numpy as np
 from torch import Tensor
-from .ops import get_sppe_kpts_coords, get_mppe_ae_kpts_coords
+from .ops import get_sppe_kpts_coords
 import torchvision.transforms.functional as F
 
 

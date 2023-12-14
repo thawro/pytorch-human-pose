@@ -1,6 +1,6 @@
 from torch import optim
 import geda.data_providers as gdp
-
+import torch
 from src.logging import get_pylogger
 from src.utils.config import DS_ROOT
 from src.base.callbacks import (
@@ -43,7 +43,7 @@ def create_callbacks(cfg: Config) -> list[BaseCallback]:
         ModelSummary(depth=4),
         # SaveModelCheckpoint(name="best", metric="MAE", mode="min", stage="val"),
         SaveModelCheckpoint(name="last", last=True, top_k=0, stage="val"),
-        # SaveLastAsOnnx(every_n_minutes=60),
+        SaveLastAsOnnx(every_n_minutes=60),
     ]
     if cfg.setup.ckpt_path is not None:
         callbacks.append(LoadModelCheckpoint(cfg.setup.ckpt_path))
@@ -111,6 +111,8 @@ def create_model(cfg: Config) -> BaseKeypointsModel:
         else:
             raise ValueError("MPPE implemented only for Hourglass and HigherHRNet")
 
+    net = torch.nn.DataParallel(net, device_ids=[0, 1])
+
     model = ModelClass(net)
     return model
 
@@ -124,6 +126,7 @@ def create_module(cfg: Config) -> BaseKeypointsModule:
         loss_fn = AEKeypointsLoss()
         ModuleClass = AEKeypointsModule
     model = create_model(cfg)
+
     optimizer = optim.Adam(model.parameters(), **cfg.optimizer.to_dict())
     scheduler = None
     # scheduler = optim.lr_scheduler.MultiStepLR(
@@ -136,6 +139,6 @@ def create_module(cfg: Config) -> BaseKeypointsModule:
         metrics=metrics,
         labels=ds2labels[cfg.setup.dataset],
         optimizers={"optim": optimizer},
-        schedulers={"optim": scheduler},
+        schedulers={},  # {"optim": scheduler},
     )
     return module

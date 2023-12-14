@@ -191,8 +191,8 @@ class HourglassNet(BaseHourglassNet):
     def __init__(self, num_keypoints: int, num_stages: int) -> None:
         super().__init__(num_keypoints, num_stages, HourglassHead)
 
-    def forward(self, x: Tensor) -> list[Tensor]:
-        out = super().forward(x)
+    def forward(self, images: Tensor) -> list[Tensor]:
+        out = super().forward(images)
         stages_heatmaps = []
         for i in range(self.num_stages):
             residual = out
@@ -212,8 +212,8 @@ class AEHourglassNet(BaseHourglassNet):
     def __init__(self, num_keypoints: int, num_stages: int) -> None:
         super().__init__(num_keypoints, num_stages, AEHourglassHead)
 
-    def forward(self, x: Tensor) -> tuple[list[Tensor], list[Tensor]]:
-        out = super().forward(x)
+    def forward(self, images: Tensor) -> tuple[list[Tensor], list[Tensor]]:
+        out = super().forward(images)
         stages_heatmaps = []
         stages_tags = []
         for i in range(self.num_stages):
@@ -239,8 +239,8 @@ class SMPHourglassNet(BaseHourglassNet):
     def __init__(self, num_stages: int, num_keypoints: int = 17) -> None:
         super().__init__(num_stages, num_keypoints, SPMHourglassHead)
 
-    def forward(self, x: Tensor) -> tuple[list[Tensor], list[Tensor]]:
-        out = super().forward(x)
+    def forward(self, images: Tensor) -> tuple[list[Tensor], list[Tensor]]:
+        out = super().forward(images)
         stages_heatmaps = []
         stages_tags = []
         for i in range(self.num_stages):

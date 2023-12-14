@@ -257,6 +257,7 @@ class ModelSummary(BaseCallback):
         save_txt_to_file(model_summary, filepath)
 
 
+# TODO: replace with epochs
 class SaveLastAsOnnx(BaseCallback):
     def __init__(self, every_n_minutes: int = 30):
         self.every_n_minutes = every_n_minutes
