@@ -34,3 +34,56 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+# TODO: add lr scheduler
+# TODO: add halfbody augmentation
+# TODO: create training schemes same as in articles for each approach
+# TODO: zrobic osobna klase datasetu per dataset (MPII, COCO) i w nich zaimplementowac metryki do ewaluacji:
+# MPII: PCKh@0.5
+# COCO: OKS
+# TODO: dodac do inferencji model pytorchowy
+# TODO: dodac do inferecji dockera
+# TODO: zrobic apke (gradio?), ktora bedzie korzystac z dockera
+# TODO: odpalic MPPE
+
+# TODO:::::!!!!! ::: dodac transform na koordynaty segmentacji dla COCO
+
+"""
+Hourglass:
+	1:1 aspect ratio
+	256x256 wycentrowane
+	rotation (+/- 30 degrees), and scaling (.75-1.25)
+	RMSProp
+	lr: 2.5e-4 do wysycenia, potem 5e-5
+	flip heatmap -> agregacja
+	1px gauss
+	quarter px offset
+	MPII: PCKh
+	
+SimpleBaseline:
+	4:3 aspect ratio
+	256x192 wycentrowane
+	rotation (+/- 40 degrees), scaling (0.7-1.3) and flip
+	lr: 1e-3, 1e-4 (90epoka), 1e-5 (120 epoka) (lacznie 140 epok)
+	Adam
+	batch_size: 128
+	flip heatmap -> agregacja
+	quarter px offset
+	COCO: OKS metric
+	2px gauss
+	
+HRNet:
+	4:3 aspect ratio
+	256x192 wycentrowane
+	rotation (+/- 45 degrees), scaling (0.65-1.35) and flip
+	lr: 1e-3, 1e-4 (170 epoka), 1e-5 (200 epoka) (lacznie 210 epok)
+	Adam
+	batch_size: 128
+	flip heatmap -> agregacja
+	quarter px offset
+	COCO: OKS metric
+	MPII: PCKh@0.5
+	1px gauss
+	
+"""

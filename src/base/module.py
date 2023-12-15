@@ -73,10 +73,12 @@ class BaseModule:
         for name, attr in attributes.items():
             setattr(self, name, attr)
 
-    def load_state_dict(self, state_dict: dict):
+    def load_state_dict(self, state_dict: dict, lr: float | None = None):
         self.model.load_state_dict(state_dict["model"])
         for name, optimizer in self.optimizers.items():
             optimizer.load_state_dict(state_dict["optimizers"][name])
+            if lr is not None:
+                optimizer.param_groups[0]["lr"] = lr
         for name, scheduler in self.schedulers.items():
             scheduler.load_state_dict(state_dict["schedulers"][name])
         self.steps_metrics_storage.load_state_dict(state_dict["metrics"]["steps"])

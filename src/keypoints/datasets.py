@@ -6,6 +6,8 @@ import cv2
 from src.utils.files import load_yaml
 from src.utils.image import make_grid, put_txt
 from src.base.datasets import BaseImageDataset
+from src.keypoints.utils import xyxy_to_mask, mask_to_bounding_xyxy_coords
+
 import torchvision.transforms.functional as F
 
 
@@ -106,6 +108,12 @@ class BaseKeypointsDataset(BaseImageDataset):
             hm_generators.append(HeatmapGenerator(hm_size, sigma=2))
         self.hm_generators = hm_generators
 
+    @property
+    def name(self) -> str:
+        if "COCO" in str(self.root):
+            return "COCO"
+        return "MPII"
+
     def __len__(self) -> int:
         return len(self.annots_filepaths)
 
@@ -117,49 +125,74 @@ class BaseKeypointsDataset(BaseImageDataset):
         image: np.ndarray,
         keypoints: list[tuple[int, int]],
         visibilities: list[int],
+        mask: np.ndarray,
         num_obj: int,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         if self.is_train:
             transform = self.transform.random
         else:
             transform = self.transform.inference
 
         transformed = transform(
-            image=image, keypoints=keypoints, visibilities=visibilities
+            image=image,
+            keypoints=keypoints,
+            visibilities=visibilities,
+            mask=mask,
         )
         image = transformed["image"]
         keypoints = transformed["keypoints"]
         visibilities = transformed["visibilities"]
+        mask = transformed["mask"]
 
         transformed = self.transform.preprocessing(
-            image=image, keypoints=keypoints, visibilities=visibilities
+            image=image,
+            keypoints=keypoints,
+            visibilities=visibilities,
+            mask=mask,
         )
         tr_image = transformed["image"]
         tr_keypoints = np.array(transformed["keypoints"]).astype(np.int32)
         tr_visibilities = np.array(transformed["visibilities"])
+        tr_mask = transformed["mask"]
 
         transformed = self.transform.postprocessing(
-            image=tr_image, keypoints=tr_keypoints, visibilities=tr_visibilities
+            image=tr_image,
+            keypoints=tr_keypoints,
+            visibilities=tr_visibilities,
+            mask=tr_mask,
         )
         tr_image = transformed["image"]
         tr_keypoints = np.array(transformed["keypoints"]).astype(np.int32)
         tr_visibilities = np.array(transformed["visibilities"])
+        tr_mask = transformed["mask"]
         tr_keypoints = tr_keypoints.reshape(num_obj, -1, 2)
         tr_visibilities = tr_visibilities.reshape(num_obj, -1)
-        return tr_image, tr_keypoints, tr_visibilities
+
+        return tr_image, tr_keypoints, tr_visibilities, tr_mask
 
     def parse_annot(self, annot: dict) -> tuple[list[tuple[int, int]], list[int], int]:
         raise NotImplementedError()
 
     def plot(self, idx: int, hm_idx: int = 0):
-        raw_image = self.load_image(idx)
-        image, all_heatmaps, target_weights, keypoints, visibilities = self[idx]
+        raw_image, raw_annot = self.get_raw_data(idx)
+        image, all_heatmaps, _, keypoints, visibilities, extra_coords = self[idx]
 
         heatmaps = all_heatmaps[hm_idx]
         h, w = image.shape[-2:]
         heatmaps = F.resize(torch.from_numpy(heatmaps), [h, w])
 
         image = self.transform.inverse_preprocessing(image)
+
+        if self.name == "MPII":
+            raw_head_coords = raw_annot["extra_coords"]
+            cv2.rectangle(
+                raw_image, raw_head_coords[0], raw_head_coords[1], (100, 255, 100), 2
+            )
+            # extra_coords is for head_coords in MPII dataset
+            cv2.rectangle(image, extra_coords[0], extra_coords[1], (100, 255, 100), 2)
+        else:
+            raw_seg_coords = raw_annot["extra_coords"]
+            pass  # TODO: visualize segmentation before and after transform
 
         raw_size = max(*raw_image.shape[:2])
         ymin, xmin = [(raw_size - size) // 2 for size in raw_image.shape[:2]]
@@ -194,22 +227,40 @@ class BaseKeypointsDataset(BaseImageDataset):
 
         hms_grid = make_grid(images, nrows=3, resize=0.5)
         img_txt = self.images_filepaths[idx].split("/")[-1] + f" ({idx}/{len(self)})"
-        put_txt(hms_grid, [img_txt])
+        put_txt(hms_grid, [img_txt], font_scale=0.25)
+        hms_grid = cv2.resize(hms_grid, dsize=(0, 0), fx=2, fy=2)
         return hms_grid
+
+    def get_raw_data(self, idx) -> tuple[np.ndarray, dict]:
+        image = self.load_image(idx)
+        annot = self.load_annot(idx)
+        return image, annot
 
     def __getitem__(
         self, idx: int
-    ) -> tuple[np.ndarray, list[np.ndarray], np.ndarray, np.ndarray, np.ndarray,]:
-        image = self.load_image(idx)
-        annot = self.load_annot(idx)
-
+    ) -> tuple[
+        np.ndarray,
+        list[np.ndarray],
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        list[list[int]],
+    ]:
+        image, annot = self.get_raw_data(idx)
+        h, w = image.shape[:2]
+        extra_coords = annot["extra_coords"]
         keypoints, visibilities, num_obj = self.parse_annot(annot)
-        image, keypoints, visibilities = self._transform(
-            image, keypoints, visibilities, num_obj
+        if self.name == "MPII":
+            mask = xyxy_to_mask(extra_coords, h, w)
+        else:  # COCO
+            mask = None
+        image, keypoints, visibilities, mask = self._transform(
+            image, keypoints, visibilities, mask, num_obj
         )
+        mask = mask.numpy()
+        tr_extra_coords = mask_to_bounding_xyxy_coords(mask)
 
         max_h, max_w = image.shape[-2:]
-
         scales_heatmaps = []
         for hm_generator in self.hm_generators:
             heatmaps, target_weights = hm_generator(
@@ -217,7 +268,14 @@ class BaseKeypointsDataset(BaseImageDataset):
             )
             scales_heatmaps.append(heatmaps)
 
-        return image, scales_heatmaps, target_weights, keypoints, visibilities
+        return (
+            image,
+            scales_heatmaps,
+            target_weights,
+            keypoints,
+            visibilities,
+            tr_extra_coords,
+        )
 
 
 def mppe_collate_fn(
@@ -269,7 +327,6 @@ class SPPEKeypointsDataset(BaseKeypointsDataset):
         keypoints = []
         visibilities = []
         num_objects = 1
-
         kpts = annot["keypoints"]
         for kpt in kpts:
             x, y = kpt["x"], kpt["y"]
@@ -284,6 +341,8 @@ if __name__ == "__main__":
 
     mode = "SPPE"
     ds_name = "MPII"
+    ds_name = "COCO"
+
     split = "train"
 
     if ds_name == "MPII":

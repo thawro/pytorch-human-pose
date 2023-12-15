@@ -133,10 +133,10 @@ class Trainer:
             self.callbacks.on_epoch_end(self)
             print()
 
-    def load_checkpoint(self, ckpt_path: str):
+    def load_checkpoint(self, ckpt_path: str, lr: float | None = None):
         log.info(f"Loading checkpoint from {ckpt_path}")
         ckpt_state = torch.load(ckpt_path)
-        self.module.load_state_dict(ckpt_state["module"])
+        self.module.load_state_dict(ckpt_state["module"], lr=lr)
         self.datamodule.load_state_dict(ckpt_state["datamodule"])
         self.callbacks.load_state_dict(ckpt_state["callbacks"])
         self.current_epoch = ckpt_state["epoch"] + 1

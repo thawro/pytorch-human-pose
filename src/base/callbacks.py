@@ -193,11 +193,12 @@ class SaveModelCheckpoint(BaseCallback):
 
 
 class LoadModelCheckpoint(BaseCallback):
-    def __init__(self, ckpt_path: str):
+    def __init__(self, ckpt_path: str, lr: float | None = None):
         self.ckpt_path = ckpt_path
+        self.lr = lr
 
     def on_fit_start(self, trainer: Trainer):
-        trainer.load_checkpoint(self.ckpt_path)
+        trainer.load_checkpoint(self.ckpt_path, lr=self.lr)
 
 
 class MetricsPlotterCallback(BaseCallback):

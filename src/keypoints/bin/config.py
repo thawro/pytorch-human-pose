@@ -14,12 +14,12 @@ DATASET = "MPII"
 LIMIT_BATCHES = -1
 LOG_EVERY_N_STEPS = -1
 
-CKPT_PATH = "/home/thawro/Desktop/projects/pytorch-human-pose/results/test/12-12-2023_20:07:56_SPPE_MPII_LR(0.001)_HRNet/checkpoints/last.pt"
+CKPT_PATH = "/home/thawro/Desktop/projects/pytorch-human-pose/results/test/13-12-2023_17:26:01_SPPE_MPII_LR(0.001)_HRNet/checkpoints/last.pt"
 # CKPT_PATH = None
 
 MODE = "SPPE"
 ARCHITECTURE = "HRNet"
-LR = 1e-3
+LR = 5e-4
 OUT_SIZE = (256, 256)
 
 if LIMIT_BATCHES != -1:

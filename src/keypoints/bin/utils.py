@@ -46,7 +46,7 @@ def create_callbacks(cfg: Config) -> list[BaseCallback]:
         SaveLastAsOnnx(every_n_minutes=60),
     ]
     if cfg.setup.ckpt_path is not None:
-        callbacks.append(LoadModelCheckpoint(cfg.setup.ckpt_path))
+        callbacks.append(LoadModelCheckpoint(cfg.setup.ckpt_path, lr=cfg.optimizer.lr))
     return callbacks
 
 
@@ -93,11 +93,11 @@ def create_model(cfg: Config) -> BaseKeypointsModel:
     if is_sppe:
         ModelClass = KeypointsModel
         if arch == "Hourglass":
-            net = HourglassNet(num_kpts, num_stages=2)
+            net = HourglassNet(num_kpts, num_stages=8)
         elif arch == "SimpleBaseline":
-            net = SimpleBaseline(num_keypoints=num_kpts, backbone="resnet34")
+            net = SimpleBaseline(num_keypoints=num_kpts, backbone="resnet101")
         elif arch == "HRNet":
-            net = HRNet(num_keypoints=num_kpts)
+            net = HRNet(num_keypoints=num_kpts, C=32)
         else:
             raise ValueError(
                 "SPPE implemented only for Hourglass, SimpleBaseline and HRNet"

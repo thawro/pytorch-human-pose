@@ -1011,13 +1011,13 @@ files = [
 
 [[package]]
 name = "geda"
-version = "0.1.13"
+version = "0.1.15"
 description = ""
 optional = false
 python-versions = ">=3.9,<3.13"
 files = [
-    {file = "geda-0.1.13-py3-none-any.whl", hash = "sha256:a8e6671bcdf52de23750aeb785caaf2bf2b51c201a3c059a8557f74a667d89c9"},
-    {file = "geda-0.1.13.tar.gz", hash = "sha256:6d60e808b52b4e87fbd63d5e569b593dc1d15064576fe8e844d6c08ee340d3f4"},
+    {file = "geda-0.1.15-py3-none-any.whl", hash = "sha256:7c9e33be71db9d41c239f50a9d86c995feb3de81459a0bfbe7c527bbf139d6cc"},
+    {file = "geda-0.1.15.tar.gz", hash = "sha256:3cab932374f2b7f788aedb47d5a61140ac2a0de8ee6fe2b4eb89b0059ce1faa2"},
 ]
 
 [package.dependencies]
@@ -1025,6 +1025,7 @@ black = ">=23.3.0,<24.0.0"
 colored = ">=1.4.4,<2.0.0"
 colorlog = ">=6.7.0,<7.0.0"
 isort = ">=5.12.0,<6.0.0"
+joblib = ">=1.3.2,<2.0.0"
 mat73 = ">=0.60,<0.61"
 matplotlib = ">=3.7.2,<4.0.0"
 numpy = ">=1.25.2,<2.0.0"
@@ -4558,4 +4559,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<3.13"
-content-hash = "23dba0672b485d073491c6a94f013eb5da0958f90713abbf86e0abd7e1142394"
+content-hash = "6fb24cfca570906750610af2cfc5284d9c6d90f184894af4396cc94df043e161"

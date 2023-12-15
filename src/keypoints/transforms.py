@@ -11,6 +11,12 @@ keypoint_params = A.KeypointParams(
     format="xy", label_fields=["visibilities"], remove_invisible=False
 )
 
+additional_targets = {"mask": "mask"}
+
+compose_params = dict(
+    keypoint_params=keypoint_params, additional_targets=additional_targets
+)
+
 
 class KeypointsTransform:
     def __init__(
@@ -29,12 +35,12 @@ class KeypointsTransform:
 
         self.preprocessing = A.Compose(
             [A.Normalize(mean, std, max_pixel_value=255), *preprocessing],
-            keypoint_params=keypoint_params,
+            **compose_params,
         )
 
         self.random = random
         self.inference = inference
-        self.postprocessing = A.Compose(postprocessing, keypoint_params=keypoint_params)
+        self.postprocessing = A.Compose(postprocessing, **compose_params)
 
     @property
     def inverse_preprocessing(self):
@@ -78,10 +84,10 @@ class SPPEKeypointsTransform(KeypointsTransform):
             [
                 A.Affine(scale=(0.75, 1.25), rotate=(-30, 30), keep_ratio=True, p=1),
             ],
-            keypoint_params=keypoint_params,
+            **compose_params,
         )
 
-        inference = A.Compose([], keypoint_params=keypoint_params)
+        inference = A.Compose([], **compose_params)
 
         postprocessing = [
             ToTensorV2(),
@@ -102,7 +108,7 @@ class MPPEKeypointsTransform(KeypointsTransform):
                 A.PadIfNeeded(*out_size, border_mode=cv2.BORDER_CONSTANT),
                 A.Affine(scale=(0.75, 1.5), rotate=(-40, 40), keep_ratio=True, p=1),
             ],
-            keypoint_params=keypoint_params,
+            **compose_params,
         )
 
         postprocessing = [
@@ -114,7 +120,7 @@ class MPPEKeypointsTransform(KeypointsTransform):
                 A.LongestMaxSize(max(out_size)),
                 A.PadIfNeeded(*out_size, border_mode=cv2.BORDER_CONSTANT),
             ],
-            keypoint_params=keypoint_params,
+            **compose_params,
         )
 
         super().__init__(
