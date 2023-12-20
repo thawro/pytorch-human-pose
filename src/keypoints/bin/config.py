@@ -8,17 +8,23 @@ from src.keypoints.config import (
 
 BATCH_SIZE = 128
 EXPERIMENT_NAME = "test"
-# DATASET = "COCO"
+
+DATASET = "COCO"
 DATASET = "MPII"
 
-LIMIT_BATCHES = -1
+MODE = "SPPE"
+# MODE = "MPPE"
+
+LIMIT_BATCHES = 5
 LOG_EVERY_N_STEPS = -1
 
-CKPT_PATH = "/home/thawro/Desktop/projects/pytorch-human-pose/results/test/13-12-2023_17:26:01_SPPE_MPII_LR(0.001)_HRNet/checkpoints/last.pt"
+CKPT_PATH = "/home/thawro/Desktop/projects/pytorch-human-pose/results/test/14-12-2023_17:43:04_CONT_SPPE_MPII_LR(0.0005)/checkpoints/last.pt"
 # CKPT_PATH = None
 
-MODE = "SPPE"
+
 ARCHITECTURE = "HRNet"
+# ARCHITECTURE = "HigherHRNet"
+
 LR = 5e-4
 OUT_SIZE = (256, 256)
 

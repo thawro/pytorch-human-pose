@@ -1,5 +1,4 @@
 from torch import optim
-import geda.data_providers as gdp
 import torch
 from src.logging import get_pylogger
 from src.utils.config import DS_ROOT
@@ -15,23 +14,25 @@ from src.base.callbacks import (
 
 from ..datamodule import KeypointsDataModule
 from ..transforms import SPPEKeypointsTransform, MPPEKeypointsTransform
-from ..datasets import SPPEKeypointsDataset, MPPEKeypointsDataset, mppe_collate_fn
+from ..datasets import (
+    SppeMpiiDataset,
+    MppeMpiiDataset,
+    SppeCocoDataset,
+    MppeCocoDataset,
+    collate_fn,
+)
 from ..loss import KeypointsLoss, AEKeypointsLoss
 from ..model import BaseKeypointsModel, KeypointsModel, AEKeypointsModel
 from ..architectures.hourglass import HourglassNet, AEHourglassNet
 from ..architectures.simple_baseline import SimpleBaseline
 from ..architectures.hrnet import HRNet
 from ..architectures.higher_hrnet import HigherHRNet
-from ..module import BaseKeypointsModule, KeypointsModule, AEKeypointsModule
-from ..metrics import KeypointsMetrics
+from ..module import BaseKeypointsModule, SPPEKeypointsModule, MPPEKeypointsModule
 from ..callbacks import KeypointsExamplesPlotterCallback
 from ..config import Config
 
 
 log = get_pylogger(__name__)
-
-ds2labels = {"COCO": gdp.coco.LABELS, "MPII": gdp.mpii.LABELS}
-ds2limbs = {"COCO": gdp.coco.LIMBS, "MPII": gdp.mpii.LIMBS}
 
 
 def create_callbacks(cfg: Config) -> list[BaseCallback]:
@@ -43,38 +44,40 @@ def create_callbacks(cfg: Config) -> list[BaseCallback]:
         ModelSummary(depth=4),
         # SaveModelCheckpoint(name="best", metric="MAE", mode="min", stage="val"),
         SaveModelCheckpoint(name="last", last=True, top_k=0, stage="val"),
-        SaveLastAsOnnx(every_n_minutes=60),
     ]
     if cfg.setup.ckpt_path is not None:
         callbacks.append(LoadModelCheckpoint(cfg.setup.ckpt_path, lr=cfg.optimizer.lr))
+
+    if not cfg.setup.is_debug:
+        callbacks.extend([SaveLastAsOnnx(every_n_minutes=60)])
     return callbacks
 
 
 def create_datamodule(cfg: Config) -> KeypointsDataModule:
     ds_name = cfg.setup.dataset
     log.info("..Creating DataModule..")
+    Datasets = {
+        "SPPE": {"COCO": SppeCocoDataset, "MPII": SppeMpiiDataset},
+        "MPPE": {"COCO": MppeCocoDataset, "MPII": MppeMpiiDataset},
+    }
+    mode = "SPPE" if cfg.setup.is_sppe else "MPPE"
+    DatasetClass = Datasets[mode][ds_name]
 
     if cfg.setup.is_sppe:
-        DatasetClass = SPPEKeypointsDataset
         TransformClass = SPPEKeypointsTransform
-        collate_fn = None
         ds_subdir = "SPPEHumanPose"
         hm_resolutions = [1 / 4, 1 / 4]
     else:
-        DatasetClass = MPPEKeypointsDataset
         TransformClass = MPPEKeypointsTransform
-        collate_fn = mppe_collate_fn
         ds_subdir = "HumanPose"
         hm_resolutions = [1 / 2]
 
     ds_root = str(DS_ROOT / ds_name / ds_subdir)
-    labels = ds2labels[ds_name]
-    limbs = ds2limbs[ds_name]
 
     transform = TransformClass(**cfg.dataloader.transform.to_dict())
 
-    train_ds = DatasetClass(ds_root, "train", transform, hm_resolutions, labels, limbs)
-    val_ds = DatasetClass(ds_root, "val", transform, hm_resolutions, labels, limbs)
+    train_ds = DatasetClass(ds_root, "train", transform, hm_resolutions)
+    val_ds = DatasetClass(ds_root, "val", transform, hm_resolutions)
     return KeypointsDataModule(
         train_ds=train_ds,
         val_ds=val_ds,
@@ -117,14 +120,14 @@ def create_model(cfg: Config) -> BaseKeypointsModel:
     return model
 
 
-def create_module(cfg: Config) -> BaseKeypointsModule:
+def create_module(cfg: Config, labels: list[str]) -> BaseKeypointsModule:
     log.info("..Creating Module..")
     if cfg.setup.is_sppe:
         loss_fn = KeypointsLoss()
-        ModuleClass = KeypointsModule
+        ModuleClass = SPPEKeypointsModule
     else:
         loss_fn = AEKeypointsLoss()
-        ModuleClass = AEKeypointsModule
+        ModuleClass = MPPEKeypointsModule
     model = create_model(cfg)
 
     optimizer = optim.Adam(model.parameters(), **cfg.optimizer.to_dict())
@@ -132,12 +135,10 @@ def create_module(cfg: Config) -> BaseKeypointsModule:
     # scheduler = optim.lr_scheduler.MultiStepLR(
     #     optimizer, milestones=[10, 20, 30], gamma=0.1
     # )
-    metrics = KeypointsMetrics()
     module = ModuleClass(
         model=model,
         loss_fn=loss_fn,
-        metrics=metrics,
-        labels=ds2labels[cfg.setup.dataset],
+        labels=labels,
         optimizers={"optim": optimizer},
         schedulers={},  # {"optim": scheduler},
     )

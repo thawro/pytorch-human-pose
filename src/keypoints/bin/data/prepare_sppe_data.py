@@ -3,7 +3,7 @@ import glob
 from src.utils.files import load_yaml, save_yaml
 from src.keypoints.utils import (
     xyxy_to_mask,
-    coco_poly_seg_to_mask,
+    coco_polygons_to_mask,
     mask_to_polygons,
     mask_to_bounding_xyxy_coords,
 )
@@ -74,7 +74,7 @@ def process_coco_obj_annot(
     # assuming that RLE seg is not passed further (is_crowd=1, so returned earlier)
     segmentation = annot["segmentation"]
     # object mask
-    extras = {"mask": coco_poly_seg_to_mask(segmentation, h, w)}
+    extras = {"mask": coco_polygons_to_mask(segmentation, h, w)}
     return (xmin, ymin, xmax, ymax), is_valid, extras
 
 
@@ -164,12 +164,11 @@ def parse_single_file(
         new_mask = cv2.resize(new_mask, (new_w, new_h))
 
         if ds_name == "MPII":  # adjust MPII head_xyxy coords wrt the new scale and pad
-            # scales should be the same (aspect ratio is preserved)
             # head_xyxy
-            extras = {"extra_coords": mask_to_bounding_xyxy_coords(new_mask)}
+            extras = {"head_xyxy": mask_to_bounding_xyxy_coords(new_mask)}
         else:  # COCO
             # segmentation polygons
-            extras = {"extra_coords": mask_to_polygons(new_mask)}
+            extras = {"segmentation": mask_to_polygons(new_mask)}
 
         kpt_x_offset = -xmin + pad_x
         kpt_y_offset = -ymin + pad_y
@@ -229,14 +228,11 @@ def prepare_sppe_data(new_resolution: tuple[int, int], ds_name: str):
             for annot_path in tqdm(annot_filepaths, desc=split)
         )
 
-        # for annot_path in tqdm(annot_filepaths, desc=split):
-        #     parse_single_file(annot_path)
-
 
 def main():
     res = (256, 256)
-    prepare_sppe_data(new_resolution=res, ds_name="COCO")
-    # prepare_sppe_data(new_resolution=res, ds_name="MPII")
+    # prepare_sppe_data(new_resolution=res, ds_name="COCO")
+    prepare_sppe_data(new_resolution=res, ds_name="MPII")
 
 
 if __name__ == "__main__":

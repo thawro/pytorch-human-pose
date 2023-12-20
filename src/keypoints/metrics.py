@@ -8,14 +8,14 @@ class PercentageCorrectKeypoints:
     """Calculate accuracy according to PCK.
 
     PCK is calculated as percent of keypoints which are predicted in the range equal to
-    thr * 0.1 * size
+    alpha * 0.1 * size
     from the ground trouth keypoint
-    where thr is by default 0.5 and size is height for y coordinate and width for x coordinate
+    where alpha is by default 0.5 and size is height for y coordinate and width for x coordinate
     """
 
-    def __init__(self, idxs: list[int], thr: float = 0.5):
+    def __init__(self, idxs: list[int], alpha: float = 0.5):
         self.idxs = idxs
-        self.thr = thr
+        self.alpha = alpha
 
     def __call__(self, preds_heatmaps: Tensor, targets_heatmaps: Tensor) -> Tensor:
         batch_size, num_joints, h, w = preds_heatmaps.shape
@@ -44,7 +44,7 @@ class PercentageCorrectKeypoints:
             kpt_dist = distances[:, idxs[i]]
             kpt_dist = kpt_dist[kpt_dist != -1]
             if len(kpt_dist) > 0:
-                kpt_acc = 1.0 * (kpt_dist < self.thr).sum().item() / len(kpt_dist)
+                kpt_acc = 1.0 * (kpt_dist < self.alpha).sum().item() / len(kpt_dist)
             else:
                 kpt_acc = -1
             acc[i] = kpt_acc
@@ -54,7 +54,7 @@ class PercentageCorrectKeypoints:
 
 class KeypointsMetrics(BaseMetrics):
     def __init__(self):
-        self.pck = PercentageCorrectKeypoints(idxs=None, thr=0.5)
+        self.pck = PercentageCorrectKeypoints(idxs=None, alpha=0.5)
 
     def calculate_metrics(
         self, preds_heatmaps: Tensor, targets_heatmaps: Tensor

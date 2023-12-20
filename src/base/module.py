@@ -12,7 +12,6 @@ from .storage import MetricsStorage
 from .metrics import BaseMetrics
 from .results import BaseResult
 from .model import BaseModel
-from .metrics import BaseMetrics
 from .callbacks import Callbacks
 
 log = get_pylogger(__name__)
@@ -35,7 +34,6 @@ class BaseModule:
         self,
         model: BaseModel,
         loss_fn: _Loss,
-        metrics: BaseMetrics,
         optimizers: dict[str, torch.optim.Optimizer],
         schedulers: dict[str, torch.optim.lr_scheduler.LRScheduler] = {},
     ):
@@ -44,7 +42,6 @@ class BaseModule:
         self.loss_fn = loss_fn
         self.optimizers = optimizers
         self.schedulers = schedulers
-        self.metrics = metrics
         self.steps_metrics_storage = MetricsStorage()
         self.current_epoch_steps_metrics_storage = MetricsStorage()
         self.epochs_metrics_storage = MetricsStorage()

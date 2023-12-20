@@ -12,7 +12,7 @@ def plot_connections(
     all_kpts_coords: np.ndarray,
     all_kpts_scores: np.ndarray,
     limbs: list[tuple[int, int]],
-    thr: float = 0.5,
+    thr: float = -100,
 ):
     """
     all_kpts_coords is of shape [num_obj, num_kpts, 2]
@@ -55,7 +55,7 @@ def plot_results_heatmaps(
     results: SPPEKeypointsResults,
     limbs: list[tuple[int, int]],
     filepath: str | None = None,
-    thr: float = 0.5,
+    thr: float = -100,
 ):
     n_rows = min(10, len(results.pred_heatmaps))
     fig, axes = plt.subplots(n_rows, 1, figsize=(24, n_rows * 8))
@@ -64,12 +64,12 @@ def plot_results_heatmaps(
         ax = axes[i]
         pred_heatmaps = results.pred_heatmaps[i]
         image = results.images[i]
-        kpts_coords = results.keypoints[i]
-        kpts_scores = results.scores[i]
+        kpts_coords = results.pred_keypoints[i].astype(np.int32)
+        kpts_scores = results.pred_scores[i]
 
         pred_kpts_heatmaps = plot_heatmaps(image, pred_heatmaps)
 
-        image = plot_connections(image.copy(), [kpts_coords], [kpts_scores], limbs, thr)
+        image = plot_connections(image.copy(), kpts_coords, kpts_scores, limbs, thr)
         pred_kpts_heatmaps.insert(0, image)
 
         pred_hms_grid = make_grid(pred_kpts_heatmaps, nrows=2, pad=5)

@@ -11,7 +11,7 @@ keypoint_params = A.KeypointParams(
     format="xy", label_fields=["visibilities"], remove_invisible=False
 )
 
-additional_targets = {"mask": "mask"}
+additional_targets = {"masks": "masks"}
 
 compose_params = dict(
     keypoint_params=keypoint_params, additional_targets=additional_targets
@@ -26,7 +26,6 @@ class KeypointsTransform:
         preprocessing: list[A.BasicTransform],
         random: A.Compose,
         inference: A.Compose,
-        postprocessing: list[A.BasicTransform],
         out_size: tuple[int, int] = (256, 192),
     ):
         self.std = np.array(std) * 255
@@ -40,7 +39,7 @@ class KeypointsTransform:
 
         self.random = random
         self.inference = inference
-        self.postprocessing = A.Compose(postprocessing, **compose_params)
+        self.postprocessing = A.Compose([ToTensorV2()], **compose_params)
 
     @property
     def inverse_preprocessing(self):
@@ -89,13 +88,7 @@ class SPPEKeypointsTransform(KeypointsTransform):
 
         inference = A.Compose([], **compose_params)
 
-        postprocessing = [
-            ToTensorV2(),
-        ]
-
-        super().__init__(
-            mean, std, preprocessing, random, inference, postprocessing, out_size
-        )
+        super().__init__(mean, std, preprocessing, random, inference, out_size)
 
 
 class MPPEKeypointsTransform(KeypointsTransform):
@@ -111,10 +104,6 @@ class MPPEKeypointsTransform(KeypointsTransform):
             **compose_params,
         )
 
-        postprocessing = [
-            ToTensorV2(),
-        ]
-
         inference = A.Compose(
             [
                 A.LongestMaxSize(max(out_size)),
@@ -123,6 +112,4 @@ class MPPEKeypointsTransform(KeypointsTransform):
             **compose_params,
         )
 
-        super().__init__(
-            mean, std, preprocessing, random, inference, postprocessing, out_size
-        )
+        super().__init__(mean, std, preprocessing, random, inference, out_size)

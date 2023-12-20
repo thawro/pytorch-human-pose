@@ -13,3 +13,7 @@ class KeypointsDataModule(DataModule):
     val_ds: BaseKeypointsDataset
     test_ds: BaseKeypointsDataset
     transform: KeypointsTransform
+
+    @property
+    def get_metrics(self):
+        return self.train_ds.get_metrics

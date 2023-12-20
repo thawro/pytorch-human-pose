@@ -33,7 +33,7 @@ class SPPEHeatmapParser:
         num_kpts, h, w = heatmaps.shape
         joints = torch.zeros(num_person, num_kpts, 3)
         flat_heatmaps = heatmaps.view(num_kpts, -1)
-        coords = torch.argmax(flat_heatmaps, 2)
+        coords = torch.argmax(flat_heatmaps, 1)
         coords = coords.view(num_kpts, 1) + 1
         coords = coords.repeat(1, 2).float()
         coords[:, 0] = (coords[:, 0] - 1) % w
@@ -57,7 +57,7 @@ class SPPEHeatmapParser:
         """
         heatmaps = heatmaps[0]
         joints = self.match(heatmaps)
-        mask = joints[..., 2] >= self.det_thr
+        mask = joints[..., 2] < self.det_thr
         joints[mask][..., :2] = (0, 0)
         return joints
 
@@ -334,12 +334,10 @@ if __name__ == "__main__":
     )
 
     def run_grouping(idx):
-        print("grouping: ", idx)
         image, scales_heatmaps, target_weights, keypoints, visibilities = ds[idx]
 
         heatmaps = torch.from_numpy(scales_heatmaps[0]).unsqueeze(0)
         tags = torch.ones_like(heatmaps) * 3
         joints = parser.parse(heatmaps, tags, True, False)
-        print(joints)
 
     ds.explore(idx=13, callback=run_grouping)

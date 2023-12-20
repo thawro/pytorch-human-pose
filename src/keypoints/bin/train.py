@@ -16,7 +16,8 @@ def main() -> None:
     torch.set_float32_matmul_precision("medium")
 
     datamodule = create_datamodule(cfg)
-    module = create_module(cfg)
+    labels = datamodule.train_ds.labels
+    module = create_module(cfg, labels)
 
     logger = TerminalLogger(cfg.logs_path, config=cfg.to_dict())
     callbacks = create_callbacks(cfg)
@@ -46,8 +47,12 @@ if __name__ == "__main__":
 # TODO: dodac do inferecji dockera
 # TODO: zrobic apke (gradio?), ktora bedzie korzystac z dockera
 # TODO: odpalic MPPE
+# TODO: logowanie metryk nie w liscie, tylko w slowniku, zeby mozna bylo sprecyzowac krok logowania
 
-# TODO:::::!!!!! ::: dodac transform na koordynaty segmentacji dla COCO
+
+# TODO!!!: wyliczanie PCKh@0.5 i OKS dla wersji SPPE i MPPE
+#  PCKh: [X] SPPE   [ ] MPPE
+#   OKS: [ ] SPPE   [ ] MPPE
 
 """
 Hourglass:
