@@ -103,60 +103,58 @@ class MPIIDataset:
             cv2.rectangle(image, (xmin, ymin), (xmax, ymax), (100, 255, 100), 2)
         return image
 
-    def PCKh(
+    def image_PCkh(
         self,
-        results: KeypointsResults,
+        pred_kpts: np.ndarray,
+        target_kpts: np.ndarray,
+        head_coords: list[list[list[int]]],
         alpha: float = 0.5,
-        idxs: list[int] | None = None,
-    ) -> np.ndarray:
-        batch_size, num_kpts, h, w = results.pred_heatmaps.shape
-        pred_kpts = results.pred_keypoints
-        target_kpts = results.target_keypoints
-        extra_coords = results.extra_coords
+    ):
+        num_obj = len(head_coords)
+        distances = []
+        for j in range(num_obj):
+            pred_kpt_coords = pred_kpts[j]
+            target_kpt_coords = target_kpts[j]
+            head_xyxy = head_coords[j][0]
+            xmin, ymin, xmax, ymax = head_xyxy
+            head_size = ((xmax - xmin) ** 2 + (ymax - ymin) ** 2) ** 0.5
+            norm_pred_coords = pred_kpt_coords / head_size
+            norm_target_coords = target_kpt_coords / head_size
+            sqared_diff = (norm_pred_coords - norm_target_coords) ** 2
+            kpts_distances = sqared_diff.sum(-1) ** 0.5
+            # both coords must be seen
+            target_mask = np.array([x > 0 and y > 0 for x, y in target_kpt_coords])
+            kpts_distances[~target_mask] = -1
+            distances.append(kpts_distances)
+        distances = np.array(distances)
 
-        if idxs is None:
-            idxs = list(range(num_kpts))
+        num_kpts = distances.shape[-1]
 
-        target_masks = results.target_heatmaps.sum(axis=(2, 3)) > 0
-
-        # extra_coords shape: [batch_size, num_obj, 1, num_coords*2]
-        all_distances = []
-        for i in range(batch_size):
-            num_obj = len(extra_coords[i])
-            for j in range(num_obj):
-                pred_kpt_coords = pred_kpts[i, j]
-                target_kpt_coords = target_kpts[i, j]
-                head_xyxy = extra_coords[i][j][0]
-                xmin, ymin, xmax, ymax = head_xyxy
-                head_size = ((xmax - xmin) ** 2 + (ymax - ymin) ** 2) ** 0.5
-                norm_pred_coords = pred_kpt_coords / head_size
-                norm_target_coords = target_kpt_coords / head_size
-                sqared_diff = (norm_pred_coords - norm_target_coords) ** 2
-                distances = sqared_diff.sum(-1) ** 0.5
-                # both coords must be seen
-                target_mask = np.array([x > 0 and y > 0 for x, y in target_kpt_coords])
-                distances[~target_mask] = -1
-                all_distances.append(distances)
-        distances = np.array(all_distances)
-        # norm = torch.ones(batch_size, 2) * torch.tensor([h, w]) / 10
-        # norm = norm.unsqueeze(1).to(pred_coords.device)
-        # normed_pred_coords = pred_coords / norm
-        # normed_target_coords = target_coords / norm
-
-        # sqared_diff = (normed_pred_coords - normed_target_coords) ** 2
-        # distances = torch.sum(sqared_diff, dim=-1) ** 0.5
-        # distances[~target_mask] = -1
-
-        acc = torch.zeros(num_kpts)
+        pckh = np.zeros(num_kpts)
         for i in range(num_kpts):
-            kpt_dist = distances[:, idxs[i]]
+            kpt_dist = distances[:, i]
             kpt_dist = kpt_dist[kpt_dist != -1]
             if len(kpt_dist) > 0:
                 kpt_acc = 1.0 * (kpt_dist < alpha).sum().item() / len(kpt_dist)
             else:
                 kpt_acc = -1
-            acc[i] = kpt_acc
-        return acc.numpy()
+            pckh[i] = kpt_acc
+        return pckh
+
+    def PCKh(self, results: KeypointsResults, alpha: float = 0.5) -> np.ndarray:
+        batch_size, num_kpts, h, w = results.pred_heatmaps.shape
+        pred_kpts = results.pred_keypoints
+        target_kpts = results.target_keypoints
+        extra_coords = results.extra_coords
+
+        # extra_coords shape: [batch_size, num_obj, 1, num_coords*2]
+        pckhs = []
+        for i in range(batch_size):
+            img_pckh = self.image_PCkh(
+                pred_kpts[i], target_kpts[i], extra_coords[i], alpha=alpha
+            )
+            pckhs.append(img_pckh)
+        return np.stack(pckhs).mean(axis=0)
 
 
 class COCODataset:
@@ -174,6 +172,68 @@ class COCODataset:
             _mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR) * get_color(i)
             image = cv2.addWeighted(image, 1, _mask, 1, 0)
         return image
+
+    def image_OKS(
+        self,
+        pred_kpts: np.ndarray,
+        target_kpts: np.ndarray,
+        seg_polygons: list[list[list[int]]],
+    ):
+        sigmas = [26, 25, 25, 35, 35, 79, 79, 72, 72, 62, 62, 107, 107, 87, 87, 89, 89]
+        sigmas = np.array(sigmas) / 1000
+        vars = (sigmas * 2) ** 2
+
+        num_obj = len(seg_polygons)
+        distances = []
+        for j in range(num_obj):
+            pred_kpt_coords = pred_kpts[j]
+            target_kpt_coords = target_kpts[j]
+            kpts_vis = np.array([x > 0 and y > 0 for x, y in target_kpt_coords])
+
+            obj_polygons = seg_polygons[j][0]
+            area = sum(cv2.contourArea(np.array(poly)) for poly in obj_polygons)
+
+            dist = ((pred_kpt_coords - target_kpt_coords) ** 2).sum(-1)
+
+            e = dist / vars / (area + np.spacing(1)) / 2
+            e = e[kpts_vis]
+            oks = np.sum(np.exp(-e)) / e.shape[0]
+
+            norm_pred_coords = pred_kpt_coords / head_size
+            norm_target_coords = target_kpt_coords / head_size
+            sqared_diff = (norm_pred_coords - norm_target_coords) ** 2
+            kpts_distances = sqared_diff.sum(-1) ** 0.5
+            # both coords must be seen
+            target_mask = np.array([x > 0 and y > 0 for x, y in target_kpt_coords])
+            kpts_distances[~target_mask] = -1
+            distances.append(kpts_distances)
+        distances = np.array(distances)
+
+        num_kpts = distances.shape[-1]
+
+        pckh = np.zeros(num_kpts)
+        for i in range(num_kpts):
+            kpt_dist = distances[:, i]
+            kpt_dist = kpt_dist[kpt_dist != -1]
+            if len(kpt_dist) > 0:
+                kpt_acc = 1.0 * (kpt_dist < alpha).sum().item() / len(kpt_dist)
+            else:
+                kpt_acc = -1
+            pckh[i] = kpt_acc
+        return pckh
+
+    def OKS(self, results: KeypointsResults) -> np.ndarray:
+        batch_size, num_kpts, h, w = results.pred_heatmaps.shape
+        pred_kpts = results.pred_keypoints
+        target_kpts = results.target_keypoints
+        extra_coords = results.extra_coords
+
+        # extra_coords shape: [batch_size, num_obj, 1, num_coords*2]
+        oks_lst = []
+        for i in range(batch_size):
+            img_oks = self.image_OKS(pred_kpts[i], target_kpts[i], extra_coords[i])
+            oks_lst.append(img_oks)
+        return np.stack(oks_lst).mean(axis=0)
 
 
 class BaseKeypointsDataset(BaseImageDataset):
