@@ -9,7 +9,6 @@ from src.logging.loggers import BaseLogger
 
 from .datamodule import DataModule
 from .storage import MetricsStorage
-from .metrics import BaseMetrics
 from .results import BaseResult
 from .model import BaseModel
 from .callbacks import Callbacks
@@ -42,9 +41,11 @@ class BaseModule:
         self.loss_fn = loss_fn
         self.optimizers = optimizers
         self.schedulers = schedulers
-        self.steps_metrics_storage = MetricsStorage()
-        self.current_epoch_steps_metrics_storage = MetricsStorage()
-        self.epochs_metrics_storage = MetricsStorage()
+        self.steps_metrics = MetricsStorage(name="Steps")  # every step metrics
+        self.validation_metrics = MetricsStorage(name="LogStep")  # validation metrics
+        self.current_epoch = 0
+        self.current_step = 0
+
         self.results: dict[str, BaseResult] = {}
 
     def pass_attributes(
@@ -78,8 +79,8 @@ class BaseModule:
                 optimizer.param_groups[0]["lr"] = lr
         for name, scheduler in self.schedulers.items():
             scheduler.load_state_dict(state_dict["schedulers"][name])
-        self.steps_metrics_storage.load_state_dict(state_dict["metrics"]["steps"])
-        self.epochs_metrics_storage.load_state_dict(state_dict["metrics"]["epochs"])
+        self.steps_metrics.load_state_dict(state_dict["metrics"]["steps"])
+        self.validation_metrics.load_state_dict(state_dict["metrics"]["validation"])
 
     def state_dict(self) -> dict:
         optimizers_state = {
@@ -89,8 +90,8 @@ class BaseModule:
             name: scheduler.state_dict() for name, scheduler in self.schedulers.items()
         }
         metrics_state = {
-            "steps": self.steps_metrics_storage.state_dict(),
-            "epochs": self.epochs_metrics_storage.state_dict(),
+            "steps": self.steps_metrics.state_dict(),
+            "validation": self.validation_metrics.state_dict(),
         }
         model_state = {"model": self.model.state_dict()}
         model_state.update(
@@ -103,64 +104,44 @@ class BaseModule:
         return model_state
 
     @abstractmethod
-    def _common_step(
-        self, batch: tuple[Tensor, Tensor], batch_idx: int, update_metrics: bool
-    ):
+    def _common_step(self, batch: tuple[Tensor, Tensor], batch_idx: int):
         raise NotImplementedError()
 
-    def training_step(
-        self, batch: tuple[Tensor, Tensor], batch_idx: int, update_metrics: bool
-    ):
+    def training_step(self, batch: tuple[Tensor, Tensor], batch_idx: int):
         self.stage = "train"
         self.model.train()
-        self._common_step(batch, batch_idx, update_metrics)
+        self._common_step(batch, batch_idx)
         for name, scheduler in self.schedulers.items():
             scheduler.step()
 
-    def validation_step(
-        self, batch: tuple[Tensor, Tensor], batch_idx: int, update_metrics: bool
-    ):
-        self.stage = "val"
+    def validation_step(self, batch: tuple[Tensor, Tensor], batch_idx: int, stage: str):
+        self.stage = stage
         self.model.eval()
         with torch.no_grad():
-            self._common_step(batch, batch_idx, update_metrics)
+            self._common_step(batch, batch_idx)
 
-    @abstractmethod
-    def on_train_epoch_start(self):
-        pass
+    def on_epoch_end(self) -> None:
+        epochs_metrics = self.steps_metrics.aggregate_over_key(
+            key="epoch"
+        ).inverse_nest()
+        for stage, metrics in epochs_metrics.items():
+            last_epoch_metrics = {
+                name: values[-1]["value"] for name, values in metrics.items()
+            }
+            msg = [f"Epoch: {self.current_epoch}"]
+            for name, value in last_epoch_metrics.items():
+                msg.append(f"{stage}/{name}: {round(value, 3)}")
+            log.info("  ".join(msg))
 
-    @abstractmethod
-    def on_validation_epoch_start(self):
-        pass
-
-    def _common_epoch_end(self) -> None:
-        batch_metrics = self.current_epoch_steps_metrics_storage.inverse_nest()[
-            self.stage
-        ]
-        mean_metrics = {
-            name: sum(values) / len(values) for name, values in batch_metrics.items()
-        }
-        msg = [f"Epoch: {self.current_epoch}"]
-        for name, value in mean_metrics.items():
-            msg.append(f"{self.stage}/{name}: {round(value, 3)}")
-        log.info("  ".join(msg))
-        self.epochs_metrics_storage.append(mean_metrics, split=self.stage)
-
-    def on_train_epoch_end(self) -> None:
-        self._common_epoch_end()
-
-    def on_validation_epoch_end(self) -> None:
-        self._common_epoch_end()
-
-    def on_epoch_end(self):
+    def log_optimizer_params(self):
         optizers_lr = {
             f"{name}_LR": optimizer.param_groups[0]["lr"]
             for name, optimizer in self.optimizers.items()
         }
-        self.epochs_metrics_storage.append(optizers_lr, split="train")
-        self.current_epoch_steps_metrics_storage.clear()
+        self.steps_metrics.append(
+            optizers_lr, self.current_step, self.current_epoch, split="train"
+        )
 
-    def is_log_step(self, batch_idx: int):
-        log_step = self.current_step % self.log_every_n_steps == 0
-        log_epoch = (batch_idx + 1) == self.total_batches[self.stage]
-        return log_step or log_epoch
+    @property
+    def is_log_step(self):
+        return self.current_step % self.log_every_n_steps == 0

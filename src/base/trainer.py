@@ -1,7 +1,8 @@
 import torch
 from torch import Tensor
+from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
-
+import math
 from src.logging import get_pylogger
 from src.logging.loggers import BaseLogger
 from src.utils.model import save_checkpoint
@@ -36,81 +37,72 @@ class Trainer:
         self.current_epoch = 0
         self.best_metrics = {}
 
-    def evaluate(
-        self,
-        dataloader,
-        desc: str,
-        update_metrics: bool = False,
-        single_batch: bool = True,
-    ):
-        """Evaluate on validation set
-        update_metrics=False and single_batch=True for examples plotter callbacks
-        update_metrics=True and single_batch=False for full validation set evaluation
-        """
+    def batch_to_device(self, batch) -> None:
+        for j in range(len(batch)):
+            if isinstance(batch[j], Tensor):
+                batch[j] = batch[j].to(self.device)
+            elif isinstance(batch[j][0], Tensor):  # list of tensors
+                batch[j] = [batch[j][i].to(self.device) for i in range(len(batch[j]))]
+
+    def get_limit_batches(self) -> int:
+        if self.current_step == 0:
+            return 1
+        else:
+            return int(self._limit_batches)
+
+    def evaluate(self, dataloader: DataLoader, stage: str):
+        """Evaluate on validation set"""
         with torch.no_grad():
-            loop = tqdm(dataloader, leave=True, desc=desc)
-            if single_batch:
-                limit_batches = 1
-            else:
-                limit_batches = int(self._limit_batches)
+            loop = tqdm(dataloader, leave=True, desc=stage)
+            limit_batches = self.get_limit_batches()
             for i, batch in enumerate(loop):
-                for j in range(len(batch)):
-                    if isinstance(batch[j], Tensor):
-                        batch[j] = batch[j].to(self.device)
-                    elif isinstance(batch[j][0], Tensor):  # list of tensors
-                        batch[j] = [
-                            batch[j][i].to(self.device) for i in range(len(batch[j]))
-                        ]
-                self.module.validation_step(batch, i, update_metrics)
+                self.batch_to_device(batch)
+                self.module.validation_step(batch, i, stage=stage)
                 limit_batches -= 1
                 if limit_batches == 0:
                     break
 
-    def train_epoch(self):
-        self.module.on_train_epoch_start()
-        self.callbacks.on_train_epoch_start(self)
-        loop = tqdm(self.datamodule.train_dataloader, leave=True, desc="Train")
-        limit_batches = int(self._limit_batches)
+    def sanity_check(self, dataloader: DataLoader):
+        """Run sanity check"""
+        loop = tqdm(dataloader, leave=True, desc="Sanity check")
+        limit_batches = 1
         for i, batch in enumerate(loop):
-            for j in range(len(batch)):
-                if isinstance(batch[j], Tensor):
-                    batch[j] = batch[j].to(self.device)
-                elif isinstance(batch[j][0], Tensor):  # list of tensors
-                    batch[j] = [
-                        batch[j][i].to(self.device) for i in range(len(batch[j]))
-                    ]
-            if self.current_step % self.log_every_n_steps == 0:
-                self.evaluate(
-                    self.datamodule.val_dataloader,
-                    desc="Val",
-                    update_metrics=False,
-                    single_batch=True,
-                )
-                self.callbacks.log(self)
-            self.module.training_step(batch, i, update_metrics=True)
-            self.current_step += 1
-            self.module.set_attributes(current_step=self.current_step)
+            self.batch_to_device(batch)
+            self.module.validation_step(batch, i, stage="sanity_check")
             limit_batches -= 1
             if limit_batches == 0:
                 break
-        self.module.on_train_epoch_end()
-        self.callbacks.on_train_epoch_end(self)
 
-    def val_epoch(self):
-        self.module.on_validation_epoch_start()
-        self.callbacks.on_validation_epoch_start(self)
-        self.evaluate(
-            self.datamodule.val_dataloader,
-            desc="Val",
-            update_metrics=True,
-            single_batch=False,
-        )
-        self.module.on_validation_epoch_end()
-        self.callbacks.on_validation_epoch_end(self)
+    def single_epoch(self):
+        self.callbacks.on_epoch_start(self)
+        loop = tqdm(self.datamodule.train_dataloader, leave=True, desc="Train")
+        limit_batches = int(self._limit_batches)
+        for i, batch in enumerate(loop):
+            self.batch_to_device(batch)
+            self.module.training_step(batch, i)
+            self.module.log_optimizer_params()
+            self.current_step += 1
+            self.module.set_attributes(current_step=self.current_step)
+            if self.current_step % self.log_every_n_steps == 0:
+                self.callbacks.on_validation_start(self)
+                self.evaluate(self.datamodule.val_dataloader, stage="eval_val")
+                self.evaluate(self.datamodule.train_dataloader, stage="eval_train")
+                self.callbacks.on_validation_end(self)
+            limit_batches -= 1
+            if limit_batches == 0:
+                break
+        self.module.on_epoch_end()
+        self.callbacks.on_epoch_end(self)
 
     def fit(self, module: BaseModule, datamodule: DataModule):
-        if self.log_every_n_steps == -1:
-            self.log_every_n_steps = datamodule.total_batches["train"] - 1
+        n_train_batches = datamodule.total_batches["train"] - 1
+        limit_batches = (
+            self._limit_batches if self._limit_batches > 0 else n_train_batches
+        )
+        if self.log_every_n_steps < 0:
+            self.log_every_n_steps = abs(self.log_every_n_steps) * min(
+                n_train_batches, limit_batches
+            )
         self.datamodule = datamodule
         module.model = module.model.to(self.device)
         self.module = module
@@ -122,16 +114,22 @@ class Trainer:
             limit_batches=int(self._limit_batches),
             log_every_n_steps=self.log_every_n_steps,
         )
-        self.module.set_attributes(current_step=self.current_step)
         self.callbacks.on_fit_start(self)
-        for epoch in range(self.current_epoch, self.current_epoch + self.max_epochs):
-            self.current_epoch = epoch
-            module.set_attributes(current_epoch=epoch)
-            self.train_epoch()
-            self.val_epoch()
-            module.on_epoch_end()
-            self.callbacks.on_epoch_end(self)
-            print()
+        self.module.set_attributes(current_step=self.current_step)
+
+        self.sanity_check(self.datamodule.val_dataloader)
+        try:
+            for epoch in range(
+                self.current_epoch, self.current_epoch + self.max_epochs
+            ):
+                self.current_epoch = epoch
+                module.set_attributes(current_epoch=epoch)
+                self.single_epoch()
+                self.callbacks.on_epoch_end(self)
+                print()
+        except KeyboardInterrupt as e:
+            self.callbacks.on_failure(self)
+            raise e
 
     def load_checkpoint(self, ckpt_path: str, lr: float | None = None):
         log.info(f"Loading checkpoint from {ckpt_path}")
@@ -139,8 +137,15 @@ class Trainer:
         self.module.load_state_dict(ckpt_state["module"], lr=lr)
         self.datamodule.load_state_dict(ckpt_state["datamodule"])
         self.callbacks.load_state_dict(ckpt_state["callbacks"])
-        self.current_epoch = ckpt_state["epoch"] + 1
-        self.current_step = ckpt_state["step"] + 1
+        self.current_step = ckpt_state["step"]
+        self.current_epoch = math.ceil(
+            self.current_step / self.datamodule.total_batches["train"]
+        )
+        log.info(
+            f"The training is resumed at: "
+            f"epoch={self.current_epoch}, "
+            f"step={self.current_step}"
+        )
 
     def save_checkpoint(self, ckpt_path: str):
         module_state = self.module.state_dict()
@@ -154,3 +159,8 @@ class Trainer:
             "step": self.current_step,
         }
         save_checkpoint(ckpt_state, ckpt_path)
+        log.info(
+            f"The training is saved at: "
+            f"epoch={self.current_epoch}, "
+            f"step={self.current_step}"
+        )

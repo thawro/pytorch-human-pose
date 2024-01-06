@@ -28,6 +28,12 @@ class KeypointsTransform:
         inference: A.Compose,
         out_size: tuple[int, int] = (256, 192),
     ):
+        if isinstance(mean, (float, int)):
+            mean = [mean] * 3
+
+        if isinstance(std, (float, int)):
+            std = [std] * 3
+
         self.std = np.array(std) * 255
         self.mean = np.array(mean) * 255
         self.out_size = out_size
@@ -54,7 +60,6 @@ class KeypointsTransform:
             else:
                 _image = image.transpose(0, 2, 3, 1)
             _image = _image * self.std + self.mean
-
             return _image.astype(np.uint8)
 
         return transform

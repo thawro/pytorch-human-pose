@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 from typing import Literal
+import matplotlib.pyplot as plt
 
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
@@ -133,3 +134,31 @@ def add_labels_to_frames(
         )
         labeled_frames.append(labeled_image)
     return labeled_frames
+
+
+# cmap = plt.cm.get_cmap("tab10")
+# get_color = lambda i: (np.array(cmap(i)[:3][::-1]) * 255).astype(np.uint8)
+
+colors = [
+    (144, 238, 144),  # Light Green
+    (255, 105, 180),  # Hot Pink
+    (135, 206, 250),  # Sky Blue
+    (255, 215, 0),  # Gold
+    (255, 69, 0),  # Red-Orange
+    (255, 182, 193),  # Light Pink
+    (0, 128, 128),  # Teal
+    (255, 160, 122),  # Light Salmon
+    (0, 191, 255),  # Deep Sky Blue
+    (70, 130, 180),  # Steel Blue
+    (255, 99, 71),  # Tomato
+    (0, 255, 255),  # Cyan
+    (0, 255, 127),  # Spring Green
+    (255, 0, 255),  # Magenta
+    (255, 215, 0),  # Gold
+    (255, 140, 0),  # Dark Orange
+    (30, 144, 255),  # Dodger Blue
+    (255, 20, 147),  # Deep Pink
+    (255, 165, 0),  # Orange
+    (218, 112, 214),  # Orchid
+]
+get_color = lambda i: np.array(colors[i]).astype(np.uint8)

@@ -21,10 +21,12 @@ class BaseDataset(Dataset):
     def plot(self, idx: int) -> np.ndarray:
         raise NotImplementedError()
 
-    def explore(self, idx: int = 0, callback: Callable[[int], Any] | None = None):
+    def explore(
+        self, idx: int = 0, callback: Callable[[int], Any] | None = None, **kwargs
+    ):
         if callback is not None:
             callback(idx)
-        image = self.plot(idx)
+        image = self.plot(idx, **kwargs)
         cv2.imshow("Sample", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
         k = cv2.waitKeyEx(0)
         # change according to your system
@@ -40,7 +42,7 @@ class BaseDataset(Dataset):
         elif k == left_key:  # SPACE or right arrow pressed
             print("Left arrow hit, exploring previous sample")
             idx -= 1
-        self.explore(idx, callback)
+        self.explore(idx, callback, **kwargs)
 
 
 class BaseImageDataset(BaseDataset):

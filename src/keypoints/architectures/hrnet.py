@@ -309,6 +309,10 @@ class HRNet(nn.Module):
         out = self.stages([x])
         high_res_out = out[0]
         heatmaps = self.final_conv(high_res_out)
+        heatmaps = torch.softmax(heatmaps, dim=1)
+        # heatmaps = torch.clip(heatmaps, 0, 1)
+        # TODO: softmax over channels
+
         return [heatmaps]
 
 

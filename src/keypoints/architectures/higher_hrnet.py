@@ -1,6 +1,7 @@
 from .hrnet import HRNet, BasicBlock
 from torch import nn, Tensor
 import torch
+import torch.nn.functional as F
 
 
 class DeconvHeatmapsHead(nn.Module):
@@ -34,7 +35,7 @@ class DeconvHeatmapsHead(nn.Module):
         for i in range(num_resid_blocks):
             resid_blocks.append(BasicBlock(out_channels))
         self.resid_blocks = nn.Sequential(*resid_blocks)
-        self.final_layer = nn.Conv2d(out_channels, num_keypoints, 1, 1, 0)
+        self.final_layer = nn.Conv2d(out_channels, num_keypoints * 2, 1, 1, 0)
 
     def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
         x = self.deconv(x)
@@ -52,11 +53,10 @@ class HigherHRNet(nn.Module):
             hrnet.conv2,
         )
         self.hrnet_backbone = hrnet.stages
+        self.num_keypoints = num_keypoints
+        self.init_heatmaps_head = nn.Conv2d(C, num_keypoints * 2, 1, 1, 0)
 
-        self.tags_head = nn.Conv2d(C, num_keypoints, 1, 1, 0)
-        self.heatmaps_head = nn.Conv2d(C, num_keypoints, 1, 1, 0)
-
-        deconv_channels = [C + num_keypoints, C]
+        deconv_channels = [C + num_keypoints * 2, C]
         self.num_deconv_layers = len(deconv_channels) - 1
 
         deconv_layers = []
@@ -68,17 +68,20 @@ class HigherHRNet(nn.Module):
 
         self.deconv_layers = nn.ModuleList(deconv_layers)
 
-    def forward(self, images: Tensor) -> tuple[list[Tensor], list[Tensor]]:
+    def forward(self, images: Tensor) -> list[Tensor]:
         x = self.stem(images)
         high_res_out = self.hrnet_backbone([x])[0]
-        tags = self.tags_head(high_res_out)
-
         feats = high_res_out
-        out = tags
-        heatmaps = []
+        init_heatmaps = self.init_heatmaps_head(high_res_out)
+        out = init_heatmaps
+        heatmaps = [init_heatmaps]
         for i in range(self.num_deconv_layers):
             deconv_input = torch.cat((feats, out), 1)
             deconv_layer = self.deconv_layers[i]
             feats, out = deconv_layer(deconv_input)
             heatmaps.append(out)
-        return heatmaps, [tags]
+        for i in range(len(heatmaps)):
+            heatmaps[i][:, : self.num_keypoints] = F.sigmoid(
+                heatmaps[i][:, : self.num_keypoints]
+            )
+        return heatmaps

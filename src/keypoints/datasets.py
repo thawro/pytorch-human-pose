@@ -2,9 +2,8 @@ import numpy as np
 from torch import Tensor
 import torch
 import cv2
-import matplotlib.pyplot as plt
 from src.utils.files import load_yaml
-from src.utils.image import make_grid, put_txt
+from src.utils.image import make_grid, put_txt, get_color
 from src.base.datasets import BaseImageDataset
 from src.keypoints.utils import (
     xyxy_to_mask,
@@ -24,7 +23,7 @@ from src.keypoints.transforms import (
     SPPEKeypointsTransform,
     MPPEKeypointsTransform,
 )
-from src.keypoints.results import KeypointsResults
+
 
 from src.keypoints.visualization import plot_heatmaps, plot_connections
 
@@ -34,7 +33,7 @@ class HeatmapGenerator:
     source: https://github.com/HRNet/HigherHRNet-Human-Pose-Estimation/blob/master/lib/dataset/target_generators/target_generators.py
     """
 
-    def __init__(self, output_size: tuple[int, int], sigma: float = 7):
+    def __init__(self, output_size: tuple[int, int], sigma: float = 2):
         self.output_size = output_size
         self.h, self.w = output_size
         if sigma < 0:
@@ -103,59 +102,6 @@ class MPIIDataset:
             cv2.rectangle(image, (xmin, ymin), (xmax, ymax), (100, 255, 100), 2)
         return image
 
-    def image_PCkh(
-        self,
-        pred_kpts: np.ndarray,
-        target_kpts: np.ndarray,
-        head_coords: list[list[list[int]]],
-        alpha: float = 0.5,
-    ):
-        num_obj = len(head_coords)
-        distances = []
-        for j in range(num_obj):
-            pred_kpt_coords = pred_kpts[j]
-            target_kpt_coords = target_kpts[j]
-            head_xyxy = head_coords[j][0]
-            xmin, ymin, xmax, ymax = head_xyxy
-            head_size = ((xmax - xmin) ** 2 + (ymax - ymin) ** 2) ** 0.5
-            norm_pred_coords = pred_kpt_coords / head_size
-            norm_target_coords = target_kpt_coords / head_size
-            sqared_diff = (norm_pred_coords - norm_target_coords) ** 2
-            kpts_distances = sqared_diff.sum(-1) ** 0.5
-            # both coords must be seen
-            target_mask = np.array([x > 0 and y > 0 for x, y in target_kpt_coords])
-            kpts_distances[~target_mask] = -1
-            distances.append(kpts_distances)
-        distances = np.array(distances)
-
-        num_kpts = distances.shape[-1]
-
-        pckh = np.zeros(num_kpts)
-        for i in range(num_kpts):
-            kpt_dist = distances[:, i]
-            kpt_dist = kpt_dist[kpt_dist != -1]
-            if len(kpt_dist) > 0:
-                kpt_acc = 1.0 * (kpt_dist < alpha).sum().item() / len(kpt_dist)
-            else:
-                kpt_acc = -1
-            pckh[i] = kpt_acc
-        return pckh
-
-    def PCKh(self, results: KeypointsResults, alpha: float = 0.5) -> np.ndarray:
-        batch_size, num_kpts, h, w = results.pred_heatmaps.shape
-        pred_kpts = results.pred_keypoints
-        target_kpts = results.target_keypoints
-        extra_coords = results.extra_coords
-
-        # extra_coords shape: [batch_size, num_obj, 1, num_coords*2]
-        pckhs = []
-        for i in range(batch_size):
-            img_pckh = self.image_PCkh(
-                pred_kpts[i], target_kpts[i], extra_coords[i], alpha=alpha
-            )
-            pckhs.append(img_pckh)
-        return np.stack(pckhs).mean(axis=0)
-
 
 class COCODataset:
     fn_coords2masks = polygons_to_mask
@@ -165,75 +111,12 @@ class COCODataset:
 
     def plot_extra_coords(self, image: np.ndarray, objects_polygons) -> np.ndarray:
         h, w = image.shape[:2]
-        cmap = plt.cm.get_cmap("tab10")
-        get_color = lambda i: (np.array(cmap(i)[:3][::-1]) * 255).astype(np.uint8)
+
         seg_masks = [polygons_to_mask(polygons, h, w) for polygons in objects_polygons]
         for i, mask in enumerate(seg_masks):
             _mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR) * get_color(i)
             image = cv2.addWeighted(image, 1, _mask, 1, 0)
         return image
-
-    def image_OKS(
-        self,
-        pred_kpts: np.ndarray,
-        target_kpts: np.ndarray,
-        seg_polygons: list[list[list[int]]],
-    ):
-        sigmas = [26, 25, 25, 35, 35, 79, 79, 72, 72, 62, 62, 107, 107, 87, 87, 89, 89]
-        sigmas = np.array(sigmas) / 1000
-        vars = (sigmas * 2) ** 2
-
-        num_obj = len(seg_polygons)
-        distances = []
-        for j in range(num_obj):
-            pred_kpt_coords = pred_kpts[j]
-            target_kpt_coords = target_kpts[j]
-            kpts_vis = np.array([x > 0 and y > 0 for x, y in target_kpt_coords])
-
-            obj_polygons = seg_polygons[j][0]
-            area = sum(cv2.contourArea(np.array(poly)) for poly in obj_polygons)
-
-            dist = ((pred_kpt_coords - target_kpt_coords) ** 2).sum(-1)
-
-            e = dist / vars / (area + np.spacing(1)) / 2
-            e = e[kpts_vis]
-            oks = np.sum(np.exp(-e)) / e.shape[0]
-
-            norm_pred_coords = pred_kpt_coords / head_size
-            norm_target_coords = target_kpt_coords / head_size
-            sqared_diff = (norm_pred_coords - norm_target_coords) ** 2
-            kpts_distances = sqared_diff.sum(-1) ** 0.5
-            # both coords must be seen
-            target_mask = np.array([x > 0 and y > 0 for x, y in target_kpt_coords])
-            kpts_distances[~target_mask] = -1
-            distances.append(kpts_distances)
-        distances = np.array(distances)
-
-        num_kpts = distances.shape[-1]
-
-        pckh = np.zeros(num_kpts)
-        for i in range(num_kpts):
-            kpt_dist = distances[:, i]
-            kpt_dist = kpt_dist[kpt_dist != -1]
-            if len(kpt_dist) > 0:
-                kpt_acc = 1.0 * (kpt_dist < alpha).sum().item() / len(kpt_dist)
-            else:
-                kpt_acc = -1
-            pckh[i] = kpt_acc
-        return pckh
-
-    def OKS(self, results: KeypointsResults) -> np.ndarray:
-        batch_size, num_kpts, h, w = results.pred_heatmaps.shape
-        pred_kpts = results.pred_keypoints
-        target_kpts = results.target_keypoints
-        extra_coords = results.extra_coords
-
-        # extra_coords shape: [batch_size, num_obj, 1, num_coords*2]
-        oks_lst = []
-        for i in range(batch_size):
-            img_oks = self.image_OKS(pred_kpts[i], target_kpts[i], extra_coords[i])
-            oks_lst.append(img_oks)
-        return np.stack(oks_lst).mean(axis=0)
 
 
 class BaseKeypointsDataset(BaseImageDataset):
@@ -241,7 +124,6 @@ class BaseKeypointsDataset(BaseImageDataset):
     is_multiobj: bool
     fn_coords2masks: Callable
     fn_masks2coords: Callable
-    get_metrics: Callable[[KeypointsResults], dict[str, float]]
     labels: list[str]
     limbs: list[tuple[int, int]]
 
@@ -308,7 +190,6 @@ class BaseKeypointsDataset(BaseImageDataset):
         )
         transformed = self.transform.preprocessing(**transformed)
         transformed = self.transform.postprocessing(**transformed)
-
         _image = transformed["image"]
         _masks = transformed["masks"]
         _keypoints = np.array(transformed["keypoints"]).astype(np.int32)
@@ -445,20 +326,29 @@ def collate_fn(
 ]:
     # extra_coords shape: [batch_size, num_obj, num_polygons, num_coords*2]
     images = [item[0] for item in batch]
+    batch_size = len(images)
     scales_heatmaps = [item[1] for item in batch]
     target_weights = [item[2] for item in batch]
-    target_keypoints = [item[3].tolist() for item in batch]
-    target_visibilities = [item[4].tolist() for item in batch]
+    target_keypoints = [item[3] for item in batch]
+    target_visibilities = [item[4] for item in batch]
     extra_coords = [item[5] for item in batch]
 
     images = torch.from_numpy(np.stack(images))
-    scales_heatmaps = torch.from_numpy(np.stack(scales_heatmaps))
-    scales_heatmaps = [scales_heatmaps[:, i] for i in range(scales_heatmaps.shape[1])]
+    # scales_heatmaps = torch.from_numpy(np.stack(scales_heatmaps))
+
+    num_resolutions = len(scales_heatmaps[0])
+    tensor_scales_heatmaps = []
+    # num_scales - element list with elements of shape
+    # batch_size, num_kpts, scale_h, scale_w
+    for i in range(num_resolutions):
+        resolution_heatmaps = [scales_heatmaps[b][i] for b in range(batch_size)]
+        resolution_heatmaps = torch.from_numpy(np.stack(resolution_heatmaps))
+        tensor_scales_heatmaps.append(resolution_heatmaps)
     target_weights = torch.from_numpy(np.stack(target_weights))
 
     return (
         images,
-        scales_heatmaps,
+        tensor_scales_heatmaps,
         target_weights,
         target_keypoints,
         target_visibilities,
@@ -517,10 +407,6 @@ class SppeMpiiDataset(SPPEKeypointsDataset, MPIIDataset):
         raw_coords = self.get_extras_from_annot(raw_annot)
         return self.plot_extra_coords(image, raw_coords)
 
-    def get_metrics(self, results: KeypointsResults) -> dict[str, float]:
-        perkpt_pckh = self.PCKh(results, alpha=0.5)
-        return {"PCKh@0.5": perkpt_pckh.mean()}
-
 
 class MppeMpiiDataset(MPPEKeypointsDataset, MPIIDataset):
     def get_extras_from_annot(self, annot: dict):
@@ -559,10 +445,11 @@ if __name__ == "__main__":
     mode = "SPPE"
     mode = "MPPE"
 
-    ds_name = "MPII"
+    # ds_name = "MPII"
     ds_name = "COCO"
 
     Dataset = Datasets[mode][ds_name]
+    split = "val"
     split = "train"
 
     mean = [0.485, 0.456, 0.406]
@@ -570,7 +457,7 @@ if __name__ == "__main__":
 
     if mode == "SPPE":
         ds_subdir = "SPPEHumanPose"
-        out_size = (256, 192)
+        out_size = (256, 256)
         transform = SPPEKeypointsTransform(mean=mean, std=std, out_size=out_size)
 
     else:
@@ -583,4 +470,4 @@ if __name__ == "__main__":
     hm_resolutions = [1 / 2, 1 / 4]
 
     ds = Dataset(ds_root, split, transform, hm_resolutions)
-    ds.explore(idx=4)
+    ds.explore(idx=0, hm_idx=0)

@@ -10,6 +10,6 @@ def random_float(min: float, max: float):
 
 def get_current_date_and_time() -> str:
     now = datetime.now()
-    # dd/mm/YY H:M:S
-    dt_string = now.strftime("%d-%m-%Y_%H:%M:%S")
+    # dt_string = now.strftime("%Y-%m-%d_%H:%M")
+    dt_string = now.strftime("%m-%d_%H:%M")
     return dt_string

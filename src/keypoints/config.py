@@ -1,6 +1,7 @@
 import dataclasses
 from dataclasses import dataclass
-from src.utils import NOW, ROOT, RESULTS_PATH
+from src.utils import NOW, RESULTS_PATH
+from pathlib import Path
 
 
 @dataclass
@@ -22,7 +23,7 @@ class BaseConfig:
 class TransformConfig(BaseConfig):
     mean: tuple[float, ...] | list[float]
     std: tuple[float, ...] | list[float]
-    out_size: tuple[int, int]
+    out_size: list[int] | tuple[int, int]
 
 
 @dataclass
@@ -34,6 +35,7 @@ class DataloaderConfig(BaseConfig):
 @dataclass
 class SetupConfig(BaseConfig):
     experiment_name: str
+    name_prefix: str
     seed: int
     device: str
     dataset: str
@@ -58,6 +60,10 @@ class SetupConfig(BaseConfig):
         return self.mode == "SPPE"
 
     @property
+    def is_mpii(self) -> bool:
+        return "MPII" in self.dataset
+
+    @property
     def is_debug(self) -> bool:
         return self.limit_batches > 0
 
@@ -75,12 +81,17 @@ class Config(BaseConfig):
 
     @property
     def run_name(self) -> str:
-        is_cont = "" if self.setup.ckpt_path is None else "_CONT"
         dataset = f"_{self.setup.dataset}"
-        lr = f"_LR({self.optimizer.lr})"
         mode = f"_{self.setup.mode}"
-        return f"{NOW}{is_cont}{mode}{dataset}{lr}"
+        name = f"_{self.setup.name_prefix}"
+        return f"{NOW}_{name}{mode}{dataset}"
 
     @property
-    def logs_path(self):
-        return str(RESULTS_PATH / self.setup.experiment_name / self.run_name)
+    def logs_path(self) -> str:
+        ckpt_path = self.setup.ckpt_path
+        if ckpt_path is None:
+            return str(RESULTS_PATH / self.setup.experiment_name / self.run_name / NOW)
+        else:
+            ckpt_path = Path(ckpt_path)
+            loaded_run_path = ckpt_path.parent.parent.parent
+            return str(loaded_run_path / NOW)

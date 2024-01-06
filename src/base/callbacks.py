@@ -1,8 +1,11 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
+
 
 if TYPE_CHECKING:
     from .trainer import Trainer
+    from src.base.module import BaseModule
+    from src.base.storage import MetricsStorage
 
 import math
 import time
@@ -17,36 +20,50 @@ from .results import BaseResult
 from .visualization import plot_metrics
 
 
+_log_mode = Literal["step", "epoch", "validation"]
+
+
+def get_metrics_storage(module: BaseModule, mode: _log_mode) -> MetricsStorage:
+    if mode == "step":
+        return module.steps_metrics.aggregate_over_key(key="step")
+    elif mode == "validation":
+        return module.validation_metrics.aggregate_over_key(key="step")
+    elif mode == "epoch":
+        return module.steps_metrics.aggregate_over_key(key="epoch")
+    else:
+        raise ValueError("Wrong logging mode")
+
+
 log = get_pylogger(__name__)
 
 
 class BaseCallback:
     @abstractmethod
-    def log(self, trainer: Trainer):
-        pass
-
-    @abstractmethod
     def on_fit_start(self, trainer: Trainer):
         pass
 
     @abstractmethod
-    def on_train_epoch_start(self, trainer: Trainer):
-        pass
-
-    @abstractmethod
-    def on_train_epoch_end(self, trainer: Trainer):
-        pass
-
-    @abstractmethod
-    def on_validation_epoch_start(self, trainer: Trainer):
-        pass
-
-    @abstractmethod
-    def on_validation_epoch_end(self, trainer: Trainer):
+    def on_epoch_start(self, trainer: Trainer):
         pass
 
     @abstractmethod
     def on_epoch_end(self, trainer: Trainer):
+        pass
+
+    @abstractmethod
+    def on_validation_start(self, trainer: Trainer):
+        pass
+
+    @abstractmethod
+    def on_validation_end(self, trainer: Trainer):
+        pass
+
+    @abstractmethod
+    def on_failure(self, trainer: Trainer):
+        pass
+
+    @abstractmethod
+    def on_step_end(self, trainer: Trainer):
         pass
 
     def state_dict(self) -> dict:
@@ -61,33 +78,30 @@ class Callbacks:
     def __init__(self, callbacks: list[BaseCallback]):
         self.callbacks = callbacks
 
-    def log(self, trainer: Trainer):
-        for callback in self.callbacks:
-            callback.log(trainer)
-
     def on_fit_start(self, trainer: Trainer):
         for callback in self.callbacks:
             callback.on_fit_start(trainer)
 
-    def on_train_epoch_start(self, trainer: Trainer):
+    def on_epoch_start(self, trainer: Trainer):
         for callback in self.callbacks:
-            callback.on_train_epoch_start(trainer)
-
-    def on_train_epoch_end(self, trainer: Trainer):
-        for callback in self.callbacks:
-            callback.on_train_epoch_end(trainer)
-
-    def on_validation_epoch_start(self, trainer: Trainer):
-        for callback in self.callbacks:
-            callback.on_validation_epoch_start(trainer)
-
-    def on_validation_epoch_end(self, trainer: Trainer):
-        for callback in self.callbacks:
-            callback.on_validation_epoch_end(trainer)
+            callback.on_epoch_start(trainer)
 
     def on_epoch_end(self, trainer: Trainer):
         for callback in self.callbacks:
             callback.on_epoch_end(trainer)
+
+    def on_validation_start(self, trainer: Trainer):
+        for callback in self.callbacks:
+            callback.on_validation_start(trainer)
+
+    def on_validation_end(self, trainer: Trainer):
+        for callback in self.callbacks:
+            callback.on_validation_end(trainer)
+
+    def on_failure(self, trainer: Trainer):
+        log.warn("Failure mode detected. Running callbacks `on_failure` methods")
+        for callback in self.callbacks:
+            callback.on_failure(trainer)
 
     @abstractmethod
     def state_dict(self):
@@ -100,47 +114,6 @@ class Callbacks:
     def load_state_dict(self, state_dict: dict):
         for callback in self.callbacks:
             callback.load_state_dict(state_dict)
-
-
-class BaseExamplesPlotterCallback(BaseCallback):
-    """Plot prediction examples"""
-
-    def __init__(self, name: str | None, stages: list[str] | str):
-        if name is None:
-            name = ""
-        else:
-            name = "_" + name
-        self.name = name
-        if isinstance(stages, str):
-            stages = [stages]
-        self.stages = stages
-
-    @abstractmethod
-    def plot_example_results(
-        self, trainer: Trainer, results: BaseResult, filepath: str
-    ):
-        raise NotImplementedError()
-
-    def plot(self, trainer: Trainer, prefix: str, on_step: bool) -> None:
-        if on_step:
-            dirpath = trainer.logger.steps_examples_dir
-        else:
-            dirpath = trainer.logger.epochs_examples_dir
-        for stage in self.stages:
-            if stage not in trainer.module.results:
-                log.warn(
-                    f"{__file__}: {stage} results not yet logged (epoch={trainer.current_epoch}, step={trainer.current_step})"
-                )
-                continue
-            results = trainer.module.results[stage]
-            filepath = f"{dirpath}/{stage}/{prefix}{self.name}.jpg"
-            self.plot_example_results(trainer, results, filepath)
-
-    def on_epoch_end(self, trainer: Trainer) -> None:
-        self.plot(trainer, prefix=f"epoch_{trainer.current_epoch}", on_step=False)
-
-    def log(self, trainer: Trainer) -> None:
-        self.plot(trainer, prefix=f"step_{trainer.current_step}", on_step=True)
 
 
 class SaveModelCheckpoint(BaseCallback):
@@ -160,6 +133,9 @@ class SaveModelCheckpoint(BaseCallback):
         self.save_last = last
         self.top_k = top_k
         self.verbose = verbose
+        self.mode = mode
+
+        self.callback_name = f"{metric if metric else ''} {self.name} ({mode})"
 
         self.best = torch.inf if mode == "min" else -torch.inf
         if mode == "min":
@@ -167,29 +143,35 @@ class SaveModelCheckpoint(BaseCallback):
         else:
             self.compare = lambda x, y: x > y
 
-    def on_validation_epoch_end(self, trainer: Trainer):
+    def save_model(self, trainer: Trainer):
         ckpt_dir = trainer.logger.ckpt_dir
+        if self.save_last:
+            trainer.save_checkpoint(str(ckpt_dir / f"last.pt"))
         if self.metric is not None and self.stage is not None:
-            metrics_storage = trainer.module.epochs_metrics_storage
-            stage_metric_values = metrics_storage.get(self.metric, self.stage)
+            metrics = trainer.module.validation_metrics
+            stage_metric_values = metrics.get(self.metric, self.stage)
             if len(stage_metric_values) == 0:
                 raise ValueError(
-                    f"{self.metric} not yet logged to metrics storage. Current logged metrics: {metrics_storage.logged_metrics}"
+                    f"{self.metric} not yet logged to metrics storage. Current logged metrics: {metrics.logged_metrics}"
                 )
-            last = stage_metric_values[-1]
+            last = stage_metric_values[-1]["value"]
             if self.compare(last, self.best) and self.top_k == 1:
                 self.best = last
                 log.info(f"Found new best value for {self.metric} ({self.stage})")
                 trainer.save_checkpoint(str(ckpt_dir / f"{self.name}.pt"))
-        if self.save_last:
-            name = self.name if self.name is not None else "last"
-            trainer.save_checkpoint(str(ckpt_dir / f"{name}.pt"))
+
+    def on_validation_end(self, trainer: Trainer):
+        self.save_model(trainer)
+
+    def on_failure(self, trainer: Trainer):
+        log.warn(f"`on_failure`: Saving {self.callback_name}")
+        self.save_model(trainer)
 
     def state_dict(self) -> dict:
         return {f"best_{self.stage}_{self.metric}": self.best}
 
     def load_state_dict(self, state_dict: dict):
-        self.best = state_dict[f"best_{self.stage}_{self.metric}"]
+        self.best = state_dict.get(f"best_{self.stage}_{self.metric}", self.best)
 
 
 class LoadModelCheckpoint(BaseCallback):
@@ -201,50 +183,75 @@ class LoadModelCheckpoint(BaseCallback):
         trainer.load_checkpoint(self.ckpt_path, lr=self.lr)
 
 
+class BaseExamplesPlotterCallback(BaseCallback):
+    """Plot prediction examples"""
+
+    def __init__(self, name: str | None):
+        if name is None:
+            name = ""
+        else:
+            name = "_" + name
+        self.name = name
+
+    @abstractmethod
+    def plot_example_results(
+        self, trainer: Trainer, results: BaseResult, filepath: str
+    ):
+        raise NotImplementedError()
+
+    def plot(self, trainer: Trainer, prefix: str, mode: _log_mode) -> None:
+        dirpath = trainer.logger.eval_examples_dir
+        for stage, results in trainer.module.results.items():
+            stage_dirpath = dirpath / stage
+            stage_dirpath.mkdir(exist_ok=True, parents=True)
+            filepath = stage_dirpath / f"{prefix}{self.name}.jpg"
+            self.plot_example_results(trainer, results, str(filepath))
+
+    def on_validation_end(self, trainer: Trainer) -> None:
+        self.plot(
+            trainer, prefix=f"validation_{trainer.current_step}", mode="validation"
+        )
+
+
 class MetricsPlotterCallback(BaseCallback):
     """Plot per epoch metrics"""
 
-    def plot(self, trainer: Trainer, on_step: bool) -> None:
-        module = trainer.module
-        prefix = "step" if on_step else "epoch"
-        filepath = f"{trainer.logger.log_path}/{prefix}_metrics.jpg"
-        storage = (
-            module.steps_metrics_storage if on_step else module.epochs_metrics_storage
-        )
+    def plot(self, trainer: Trainer, mode: _log_mode) -> None:
+        filepath = f"{trainer.logger.log_path}/{mode}_metrics.jpg"
+        storage = get_metrics_storage(trainer.module, mode)
         if len(storage.metrics) > 0:
-            plot_metrics(storage, filepath=filepath)
+            step_name = "epoch" if mode == "epoch" else "step"
+            plot_metrics(storage, step_name, filepath=filepath)
         else:
-            log.warn("No metrics to plot logged yet")
+            log.warn(f"No metrics to plot logged yet (mode={mode})")
 
     def on_epoch_end(self, trainer: Trainer) -> None:
-        self.plot(trainer, on_step=False)
+        self.plot(trainer, mode="epoch")
 
-    def log(self, trainer: Trainer) -> None:
-        self.plot(trainer, on_step=True)
+    def on_validation_end(self, trainer: Trainer) -> None:
+        self.plot(trainer, mode="validation")
+        self.plot(trainer, mode="step")
 
 
 class MetricsSaverCallback(BaseCallback):
     """Plot per epoch metrics"""
 
-    def save(self, trainer: Trainer, on_step: bool) -> None:
-        module = trainer.module
-        prefix = "step" if on_step else "epoch"
-        filepath = filepath = f"{trainer.logger.log_path}/{prefix}_metrics.yaml"
+    def save(self, trainer: Trainer, mode: _log_mode) -> None:
+        storage = get_metrics_storage(trainer.module, mode)
+        filepath = filepath = f"{trainer.logger.log_path}/{mode}_metrics.yaml"
 
-        storage = (
-            module.steps_metrics_storage if on_step else module.epochs_metrics_storage
-        )
         if len(storage.metrics) > 0:
             metrics = storage.to_dict()
             save_yaml(metrics, filepath)
         else:
-            log.warn("No metrics to save logged yet")
+            log.warn(f"No metrics to save logged yet (mode={mode})")
 
     def on_epoch_end(self, trainer: Trainer) -> None:
-        self.save(trainer, on_step=False)
+        self.save(trainer, mode="epoch")
 
-    def log(self, trainer: Trainer) -> None:
-        self.save(trainer, on_step=True)
+    def on_validation_end(self, trainer: Trainer) -> None:
+        self.save(trainer, mode="validation")
+        self.save(trainer, mode="step")
 
 
 class ModelSummary(BaseCallback):
@@ -272,7 +279,7 @@ class SaveLastAsOnnx(BaseCallback):
         filepath = f"{dirpath}/model.onnx"
         model.export_to_onnx(filepath)
 
-    def on_validation_epoch_end(self, trainer: Trainer):
+    def on_validation_end(self, trainer: Trainer):
         model = trainer.module.model
         dirpath = str(trainer.logger.model_onnx_dir)
         filepath = f"{dirpath}/model.onnx"

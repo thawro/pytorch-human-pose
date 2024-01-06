@@ -6,9 +6,10 @@ from abc import abstractmethod
 class BaseKeypointsModel(BaseImageModel):
     net: nn.Module
 
-    def __init__(self, net: nn.Module):
+    def __init__(self, net: nn.Module, num_keypoints: int):
         input_names = ["images"]
         output_names = ["keypoints"]
+        self.num_keypoints = num_keypoints
         super().__init__(net, input_names, output_names)
 
     def example_input(self) -> dict[str, Tensor]:

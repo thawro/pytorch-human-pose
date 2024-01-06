@@ -42,7 +42,7 @@ class SPPEHeatmapParser:
         # coords are in [x, y] order
         scores = torch.zeros(num_kpts)
         for idx in range(num_kpts):
-            y, x = coords[idx].tolist()
+            x, y = coords[idx].tolist()
             scores[idx] = heatmaps[idx][y, x]
         joints[..., :2] = coords
         joints[..., 2] = scores
@@ -166,7 +166,6 @@ class MPPEHeatmapParser:
         batch_size, num_kpts, h, w = heatmaps.shape
 
         heatmaps = self.nms(heatmaps)
-
         heatmaps = heatmaps.view(batch_size, num_kpts, -1)
         tags = tags.view(batch_size, num_kpts, w * h, -1)
         tag_emb_dim = tags.shape[-1]
@@ -182,9 +181,12 @@ class MPPEHeatmapParser:
             dim=3,
         )
 
-        joints_tags = tags_k.cpu().numpy()
-        joints_coords = coords_k.cpu().numpy()
-        joints_scores = scores_k.cpu().numpy()
+        joints_tags = tags_k.detach().cpu().numpy()
+        joints_coords = coords_k.detach().cpu().numpy()
+        joints_scores = scores_k.detach().cpu().numpy()
+        # joints_tags = tags_k.numpy()
+        # joints_coords = coords_k.numpy()
+        # joints_scores = scores_k.numpy()
 
         return joints_tags, joints_coords, joints_scores
 
@@ -286,8 +288,9 @@ class MPPEHeatmapParser:
         Return joints array of shape [num_person, num_kpts, 4], where 4 is for
         (x, y, score, tag) of each keypoint
         """
-        heatmaps_npy = heatmaps.cpu().numpy()
-        tags_npy = tags.cpu().numpy()
+        num_kpts = heatmaps.shape[1]
+        heatmaps_npy = heatmaps.detach().cpu().numpy()
+        tags_npy = tags.detach().cpu().numpy()
 
         joints_tags, joints_coords, joints_scores = self.top_k(heatmaps, tags)
         joints_tags = joints_tags[0]
@@ -297,6 +300,10 @@ class MPPEHeatmapParser:
         tags_npy = tags_npy[0]
 
         joints = self.match(joints_tags, joints_coords, joints_scores)
+
+        if len(joints) == 0:
+            joints = np.zeros((1, num_kpts, 4))
+            return joints
 
         if adjust:
             joints = self.adjust(joints, heatmaps_npy)

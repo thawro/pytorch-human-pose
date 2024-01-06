@@ -5,7 +5,7 @@ from albumentations.pytorch.transforms import ToTensorV2
 from PIL import Image
 import torch
 
-_normalize = tuple[float, float, float] | list[float]
+_normalize = tuple[float, float, float] | list[float] | float | int
 
 
 class ImageTransform:

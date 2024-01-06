@@ -30,6 +30,12 @@ from ..architectures.higher_hrnet import HigherHRNet
 from ..module import BaseKeypointsModule, SPPEKeypointsModule, MPPEKeypointsModule
 from ..callbacks import KeypointsExamplesPlotterCallback
 from ..config import Config
+from ..results import (
+    SppeMpiiKeypointsResults,
+    SppeCocoKeypointsResults,
+    MppeMpiiKeypointsResults,
+    MppeCocoKeypointsResults,
+)
 
 
 log = get_pylogger(__name__)
@@ -38,18 +44,23 @@ log = get_pylogger(__name__)
 def create_callbacks(cfg: Config) -> list[BaseCallback]:
     log.info("..Creating Callbacks..")
     callbacks = [
-        KeypointsExamplesPlotterCallback("keypoints", ["train", "val"]),
+        KeypointsExamplesPlotterCallback("keypoints"),
         MetricsPlotterCallback(),
         MetricsSaverCallback(),
         ModelSummary(depth=4),
-        # SaveModelCheckpoint(name="best", metric="MAE", mode="min", stage="val"),
-        SaveModelCheckpoint(name="last", last=True, top_k=0, stage="val"),
+        SaveModelCheckpoint(
+            name="best", metric="loss", last=True, mode="min", stage="eval_val"
+        ),
     ]
     if cfg.setup.ckpt_path is not None:
         callbacks.append(LoadModelCheckpoint(cfg.setup.ckpt_path, lr=cfg.optimizer.lr))
 
     if not cfg.setup.is_debug:
-        callbacks.extend([SaveLastAsOnnx(every_n_minutes=60)])
+        callbacks.extend(
+            [
+                # SaveLastAsOnnx(every_n_minutes=60),
+            ]
+        )
     return callbacks
 
 
@@ -70,7 +81,7 @@ def create_datamodule(cfg: Config) -> KeypointsDataModule:
     else:
         TransformClass = MPPEKeypointsTransform
         ds_subdir = "HumanPose"
-        hm_resolutions = [1 / 2]
+        hm_resolutions = [1 / 4, 1 / 2]
 
     ds_root = str(DS_ROOT / ds_name / ds_subdir)
 
@@ -116,7 +127,7 @@ def create_model(cfg: Config) -> BaseKeypointsModel:
 
     net = torch.nn.DataParallel(net, device_ids=[0, 1])
 
-    model = ModelClass(net)
+    model = ModelClass(net, num_keypoints=cfg.setup.num_keypoints)
     return model
 
 
@@ -125,13 +136,27 @@ def create_module(cfg: Config, labels: list[str]) -> BaseKeypointsModule:
     if cfg.setup.is_sppe:
         loss_fn = KeypointsLoss()
         ModuleClass = SPPEKeypointsModule
+        if cfg.setup.is_mpii:
+            ResultsClass = SppeMpiiKeypointsResults
+        else:
+            ResultsClass = SppeCocoKeypointsResults
     else:
-        loss_fn = AEKeypointsLoss()
+        if cfg.setup.is_sppe:
+            hm_resolutions = [1 / 4, 1 / 4]
+        else:
+            hm_resolutions = [1 / 4, 1 / 2]
+
+        loss_fn = AEKeypointsLoss(hm_resolutions)
         ModuleClass = MPPEKeypointsModule
+        if cfg.setup.is_mpii:
+            ResultsClass = MppeMpiiKeypointsResults
+        else:
+            ResultsClass = MppeCocoKeypointsResults
+
     model = create_model(cfg)
 
     optimizer = optim.Adam(model.parameters(), **cfg.optimizer.to_dict())
-    scheduler = None
+    scheduler = {}
     # scheduler = optim.lr_scheduler.MultiStepLR(
     #     optimizer, milestones=[10, 20, 30], gamma=0.1
     # )
@@ -140,6 +165,7 @@ def create_module(cfg: Config, labels: list[str]) -> BaseKeypointsModule:
         loss_fn=loss_fn,
         labels=labels,
         optimizers={"optim": optimizer},
-        schedulers={},  # {"optim": scheduler},
+        schedulers=scheduler,  # {"optim": scheduler},
+        ResultsClass=ResultsClass,
     )
     return module

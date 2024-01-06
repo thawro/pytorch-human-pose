@@ -40,19 +40,20 @@ if __name__ == "__main__":
 # TODO: add lr scheduler
 # TODO: add halfbody augmentation
 # TODO: create training schemes same as in articles for each approach
-# TODO: zrobic osobna klase datasetu per dataset (MPII, COCO) i w nich zaimplementowac metryki do ewaluacji:
-# MPII: PCKh@0.5
-# COCO: OKS
+
 # TODO: dodac do inferencji model pytorchowy
 # TODO: dodac do inferecji dockera
 # TODO: zrobic apke (gradio?), ktora bedzie korzystac z dockera
-# TODO: odpalic MPPE
-# TODO: logowanie metryk nie w liscie, tylko w slowniku, zeby mozna bylo sprecyzowac krok logowania
 
+# TODO: ewaluacja SPPE stosujac detektor obiektow (dla COCO wtedy uzyc cocoapi)
+# TODO: sprawdzic COCO val split (dziwnie ciezkie przypadki tam sa)
+
+# TODO: robienie lossu na val po kazdej epoce na train
 
 # TODO!!!: wyliczanie PCKh@0.5 i OKS dla wersji SPPE i MPPE
 #  PCKh: [X] SPPE   [ ] MPPE
-#   OKS: [ ] SPPE   [ ] MPPE
+#   OKS: [X] SPPE   [ ] MPPE
+
 
 """
 Hourglass:

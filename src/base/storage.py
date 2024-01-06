@@ -1,12 +1,20 @@
 from collections import defaultdict
 import torch
+from itertools import groupby
+from typing import Literal
+
+_metric = dict[str, list[dict[str, int | float]]]
+_metrics = dict[str, _metric]
 
 
 class MetricsStorage:
-    metrics: dict[str, dict[str, list]]
+    metrics: _metrics
 
-    def __init__(self) -> None:
-        self.metrics = defaultdict(lambda: defaultdict(lambda: [], {}))
+    def __init__(self, name: str = "", metrics: _metrics | None = None) -> None:
+        if metrics is None:
+            metrics = defaultdict(lambda: defaultdict(lambda: [], {}))
+        self.metrics = metrics
+        self.name = name
 
     @property
     def logged_metrics(self) -> list[str]:
@@ -21,36 +29,50 @@ class MetricsStorage:
     def clear(self):
         self.metrics = defaultdict(lambda: defaultdict(lambda: [], {}))
 
-    def get(self, metric_name: str, stage: str) -> list:
+    def get(self, metric_name: str, stage: str) -> list[dict]:
         return self.metrics[metric_name][stage]
 
-    def inverse_nest(self) -> dict[str, dict[str, list]]:
+    def aggregate_over_key(self, key: Literal["epoch", "step"]) -> "MetricsStorage":
+        epochs_metrics = {}
+        for metric_name, splits_metrics in self.metrics.items():
+            epochs_metrics[metric_name] = {}
+            for split_name, logged_values in splits_metrics.items():
+                key_fn = lambda v: v[key]
+                logged_values = sorted(logged_values, key=key_fn)
+                key_aggregated_values = []
+                for key_step, grouped in groupby(logged_values, key_fn):
+                    grouped = list(grouped)
+                    values = [el["value"] for el in grouped]
+                    avg_value = sum(values) / len(values)
+                    agg_values = {key: key_step, "value": avg_value}
+                    if key != "epoch":
+                        agg_values["epoch"] = grouped[0]["epoch"]
+                    key_aggregated_values.append(agg_values)
+                epochs_metrics[metric_name][split_name] = key_aggregated_values
+        return MetricsStorage(name=key, metrics=epochs_metrics)
+
+    def inverse_nest(self) -> _metrics:
         inverse_metrics = defaultdict(lambda: defaultdict(lambda: [], {}))
         for metric_name, splits_metrics in self.metrics.items():
             for split_name, values in splits_metrics.items():
                 inverse_metrics[split_name][metric_name] = values
         return inverse_metrics
 
-    def __getitem__(self, metric_name: str) -> dict[str, list]:
+    def __getitem__(self, metric_name: str) -> _metric:
         return self.metrics[metric_name]
 
-    def append(self, metrics: dict[str, float], split: str = "") -> None:
+    def append(
+        self, metrics: dict[str, float], step: int, epoch: int, split: str
+    ) -> None:
         for metric, value in metrics.items():
             if isinstance(value, torch.Tensor):
                 value = value.item()
-            if metric not in self.metrics and not isinstance(self.metrics, defaultdict):
-                already_logged_metrics = list(self.metrics.keys())
-                if len(already_logged_metrics) > 0:
-                    other_metric = already_logged_metrics[0]
-                    splits = list(self.metrics[other_metric].keys())
-                    self.metrics[metric] = {
-                        _split: [0] * len(self.metrics[other_metric][_split])
-                        for _split in splits
-                    }
-                else:
-                    self.metrics = defaultdict(lambda: defaultdict(lambda: [], {}))
-
-            self.metrics[metric][split].append(value)
+            values = {"step": step, "value": value, "epoch": epoch}
+            if metric not in self.metrics:
+                self.metrics[metric] = {}
+            if split not in self.metrics[metric]:
+                self.metrics[metric][split] = []
+            self.metrics[metric][split].append(values)
 
     def to_dict(self) -> dict:
         """For state saving"""

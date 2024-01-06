@@ -53,11 +53,7 @@ class BaseLogger:
         self.model_dir = self.log_path / "model"
         self.model_summary_dir = self.log_path / "model/summary"
         self.model_onnx_dir = self.log_path / "model/onnx"
-        self.steps_examples_dir = self.log_path / "steps_examples"
-        self.epochs_examples_dir = self.log_path / "epochs_examples"
-        for split in ["train", "val", "test"]:
-            (self.steps_examples_dir / split).mkdir(parents=True, exist_ok=True)
-            (self.epochs_examples_dir / split).mkdir(parents=True, exist_ok=True)
+        self.eval_examples_dir = self.log_path / "eval_examples"
 
         self.ckpt_dir.mkdir(parents=True, exist_ok=True)
         self.model_summary_dir.mkdir(parents=True, exist_ok=True)
