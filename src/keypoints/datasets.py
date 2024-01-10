@@ -14,16 +14,23 @@ from src.keypoints.utils import (
 from typing import Callable
 import torchvision.transforms.functional as F
 from abc import abstractmethod
-from geda.data_providers.coco import LABELS as coco_labels, LIMBS as coco_limbs
-from geda.data_providers.mpii import LABELS as mpii_labels, LIMBS as mpii_limbs
-
+from geda.data_providers.coco import (
+    LABELS as coco_labels,
+    LIMBS as coco_limbs,
+    SYMMETRIC_LABELS as coco_symmetric_labels,
+)
+import glob
+from geda.data_providers.mpii import (
+    LABELS as mpii_labels,
+    LIMBS as mpii_limbs,
+    SYMMETRIC_LABELS as mpii_symmetric_labels,
+)
 
 from src.keypoints.transforms import (
     KeypointsTransform,
     SPPEKeypointsTransform,
     MPPEKeypointsTransform,
 )
-
 
 from src.keypoints.visualization import plot_heatmaps, plot_connections
 
@@ -62,14 +69,12 @@ class HeatmapGenerator:
         for kpts, vis in zip(keypoints, visibilities):
             for idx in range(len(kpts)):
                 x, y = kpts[idx]
+                if x < 0 or y < 0 or x >= max_w or y >= max_h:
+                    continue
                 x = int((x / max_w) * self.w)
                 y = int((y / max_h) * self.h)
 
-                v = vis[idx]
-
-                if v > 0:
-                    if x < 0 or y < 0 or x >= self.w or y >= self.h:
-                        continue
+                if vis[idx] > 0:
                     xmin = int(np.round(x - 3 * self.sigma - 1))
                     ymin = int(np.round(y - 3 * self.sigma - 1))
                     xmax = int(np.round(x + 3 * self.sigma + 2))
@@ -91,15 +96,16 @@ class MPIIDataset:
     fn_coords2masks = xyxy_to_mask
     labels = mpii_labels
     limbs = mpii_limbs
+    symmetric_labels = mpii_symmetric_labels
 
     @classmethod
     def fn_masks2coords(cls, mask: np.ndarray):
         return [mask_to_head_xyxy(mask)]
 
     def plot_extra_coords(self, image: np.ndarray, heads_bboxes: list[list[int]]):
-        for head_bbox in heads_bboxes:
+        for i, head_bbox in enumerate(heads_bboxes):
             xmin, ymin, xmax, ymax = head_bbox[0]
-            cv2.rectangle(image, (xmin, ymin), (xmax, ymax), (100, 255, 100), 2)
+            cv2.rectangle(image, (xmin, ymin), (xmax, ymax), get_color(i).tolist(), 2)
         return image
 
 
@@ -108,14 +114,19 @@ class COCODataset:
     fn_masks2coords = mask_to_polygons
     labels = coco_labels
     limbs = coco_limbs
+    symmetric_labels = coco_symmetric_labels
 
     def plot_extra_coords(self, image: np.ndarray, objects_polygons) -> np.ndarray:
         h, w = image.shape[:2]
 
         seg_masks = [polygons_to_mask(polygons, h, w) for polygons in objects_polygons]
         for i, mask in enumerate(seg_masks):
-            _mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR) * get_color(i)
-            image = cv2.addWeighted(image, 1, _mask, 1, 0)
+            _mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2RGB)
+            _colored_mask = _mask / 255 * get_color(i)
+            masked_image = cv2.addWeighted(
+                image, 0.7, _colored_mask.astype(np.uint8), 0.3, 0
+            )
+            image = np.where(_mask == (255, 255, 255), masked_image, image)
         return image
 
 
@@ -126,6 +137,7 @@ class BaseKeypointsDataset(BaseImageDataset):
     fn_masks2coords: Callable
     labels: list[str]
     limbs: list[tuple[int, int]]
+    symmetric_labels: list[tuple[int, int]]
 
     def __init__(
         self,
@@ -141,9 +153,10 @@ class BaseKeypointsDataset(BaseImageDataset):
             (int(res * out_size[0]), int(res * out_size[1])) for res in hm_resolutions
         ]
         self.is_train = split == "train"
-        self.annots_filepaths = [
-            path.replace(".jpg", ".yaml").replace("images", "annots")
-            for path in self.images_filepaths
+        self.annots_filepaths = sorted(glob.glob(f"{str(self.root)}/annots/{split}/*"))
+        self.images_filepaths = [
+            path.replace(".yaml", ".jpg").replace("annots", "images")
+            for path in self.annots_filepaths
         ]
         hm_generators = []
         for hm_size in self.hm_sizes:
@@ -188,12 +201,26 @@ class BaseKeypointsDataset(BaseImageDataset):
         transformed = transform(
             image=image, keypoints=keypoints, visibilities=visibilities, masks=masks
         )
+
+        if self.transform.horizontal_flip is not None:
+            transformed = self.transform.horizontal_flip(num_obj, **transformed)
+
         transformed = self.transform.preprocessing(**transformed)
         transformed = self.transform.postprocessing(**transformed)
         _image = transformed["image"]
         _masks = transformed["masks"]
         _keypoints = np.array(transformed["keypoints"]).astype(np.int32)
         _visibilities = np.array(transformed["visibilities"])
+
+        # fix visibilities:
+        # kpts that werent visible are still not visible
+        # kpts that were visible, but due to transforms became invisible need to be fixed
+        h, w = _image.shape[-2:]
+        for i in range(len(_keypoints)):
+            was_visible = _visibilities[i] == 1
+            x, y = _keypoints[i]
+            is_visible_now = x >= 0 and x < w and y >= 0 and y < h
+            _visibilities[i] = int(was_visible and is_visible_now)
         _keypoints = _keypoints.reshape(num_obj, -1, 2)
         _visibilities = _visibilities.reshape(num_obj, -1)
         return _image, _keypoints, _visibilities, _masks
@@ -247,21 +274,21 @@ class BaseKeypointsDataset(BaseImageDataset):
                 obj_scores.append(score)
             scores.append(obj_scores)
 
-        image = plot_connections(image.copy(), keypoints, scores, self.limbs, thr=0.5)
-
         image = self.plot_extra_coords(image, extra_coords)
+        image = plot_connections(image.copy(), keypoints, scores, self.limbs, thr=0.5)
 
         kpts_heatmaps.insert(0, image)
 
         images = [raw_image]
-        for kpt_heatmap, label in zip(kpts_heatmaps[1:], self.labels):
-            put_txt(kpt_heatmap, [label])
+        for i, (kpt_heatmap, label) in enumerate(zip(kpts_heatmaps[1:], self.labels)):
+            vis = [visibilities[j][i] for j in range(len(visibilities))]
+            put_txt(kpt_heatmap, [label, f"num visible = {sum(vis)}"])
         images.extend(kpts_heatmaps)
 
         hms_grid = make_grid(images, nrows=3, resize=0.5)
         img_txt = self.images_filepaths[idx].split("/")[-1] + f" ({idx}/{len(self)})"
         put_txt(hms_grid, [img_txt], font_scale=0.25)
-        hms_grid = cv2.resize(hms_grid, dsize=(0, 0), fx=2, fy=2)
+        hms_grid = cv2.resize(hms_grid, dsize=(0, 0), fx=1.5, fy=1.5)
         return hms_grid
 
     def get_raw_data(self, idx) -> tuple[np.ndarray, dict]:
@@ -296,7 +323,6 @@ class BaseKeypointsDataset(BaseImageDataset):
                 keypoints, visibilities, max_h, max_w
             )
             scales_heatmaps.append(heatmaps)
-
         return (
             image,
             scales_heatmaps,
@@ -436,38 +462,13 @@ class MppeCocoDataset(MPPEKeypointsDataset, COCODataset):
 
 
 if __name__ == "__main__":
-    from src.utils.config import DS_ROOT
+    from src.keypoints.bin.config import create_config
 
-    Datasets = {
-        "SPPE": {"COCO": SppeCocoDataset, "MPII": SppeMpiiDataset},
-        "MPPE": {"COCO": MppeCocoDataset, "MPII": MppeMpiiDataset},
-    }
-    mode = "SPPE"
-    mode = "MPPE"
+    cfg = create_config("COCO", "MPPE", "HigherHRNet", 0)
 
-    # ds_name = "MPII"
-    ds_name = "COCO"
+    transform = cfg.dataset.TransformClass(**cfg.dataloader.transform.to_dict())
 
-    Dataset = Datasets[mode][ds_name]
-    split = "val"
-    split = "train"
-
-    mean = [0.485, 0.456, 0.406]
-    std = [0.229, 0.224, 0.225]
-
-    if mode == "SPPE":
-        ds_subdir = "SPPEHumanPose"
-        out_size = (256, 256)
-        transform = SPPEKeypointsTransform(mean=mean, std=std, out_size=out_size)
-
-    else:
-        ds_subdir = "HumanPose"
-        out_size = (512, 512)
-        transform = MPPEKeypointsTransform(mean=mean, std=std, out_size=out_size)
-
-    ds_root = str(DS_ROOT / ds_name / ds_subdir)
-
-    hm_resolutions = [1 / 2, 1 / 4]
-
-    ds = Dataset(ds_root, split, transform, hm_resolutions)
-    ds.explore(idx=0, hm_idx=0)
+    ds = cfg.dataset.DatasetClass(
+        cfg.dataset.root, "val", transform, cfg.hm_resolutions
+    )
+    ds.explore(idx=40, hm_idx=1)

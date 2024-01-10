@@ -7,7 +7,7 @@ ckpt_name = "last"
 cfg.setup.ckpt_path = f"{RUN_PATH}/checkpoints/{ckpt_name}.pt"
 cfg.setup.mode = "SPPE"
 cfg.setup.arch = "HRNet"
-cfg.setup.device = "cuda:0"
+cfg.trainer.device = "cuda:0"
 
 
 def main():

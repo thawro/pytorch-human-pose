@@ -1,17 +1,24 @@
 import torch
+import math
+from typing import Literal
 from torch import Tensor
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
-import math
+
 from src.logging import get_pylogger
 from src.logging.loggers import BaseLogger
-from src.utils.model import save_checkpoint
+import torch.distributed as dist
 
-from src.base.datamodule import DataModule
-from src.base.module import BaseModule
-from src.base.callbacks import BaseCallback, Callbacks
+from .datamodule import DataModule
+from .module import BaseModule
+from .callbacks import BaseCallback, Callbacks
+from .meters import Meters
+from .storage import MetricsStorage
 
 log = get_pylogger(__name__)
+
+
+_stage = Literal["train", "val", "eval_val"]
 
 
 class Trainer:
@@ -21,21 +28,24 @@ class Trainer:
     def __init__(
         self,
         logger: BaseLogger,
-        device: torch.device | str,
+        device_id: int,
         callbacks: list[BaseCallback],
         max_epochs: int = 100,
         limit_batches: int = -1,
         log_every_n_steps: int = -1,
     ):
+        self.meters = {stage: Meters() for stage in ["train", "val", "eval_val"]}
         self.logger = logger
-        self.device = device
-        self.callbacks = Callbacks(callbacks)
+        self.device = f"cuda:{device_id}"
+        self.device_id = device_id
+        self.callbacks = Callbacks(callbacks, device_id=device_id)
         self.max_epochs = max_epochs
         self._limit_batches = limit_batches
         self.log_every_n_steps = log_every_n_steps
         self.current_step = 0
         self.current_epoch = 0
-        self.best_metrics = {}
+        self.epochs_metrics = MetricsStorage(name="Epochs")  # every step metrics
+        self.validation_metrics = MetricsStorage(name="LogStep")  # validation metrics
 
     def batch_to_device(self, batch) -> None:
         for j in range(len(batch)):
@@ -50,17 +60,41 @@ class Trainer:
         else:
             return int(self._limit_batches)
 
-    def evaluate(self, dataloader: DataLoader, stage: str):
+    def _update_metrics(self, stages: list[_stage]):
+        if "eval_val" in stages:
+            storage = self.validation_metrics
+        else:
+            storage = self.epochs_metrics
+        if "train" in stages:
+            optizers_lr = {
+                f"{name}_LR": optimizer.param_groups[0]["lr"]
+                for name, optimizer in self.module.optimizers.items()
+            }
+            storage.append(
+                optizers_lr, self.current_step, self.current_epoch, split="train"
+            )
+        for stage in stages:
+            metrics = {
+                name: meter.avg for name, meter in self.meters[stage].meters.items()
+            }
+            storage.append(metrics, self.current_step, self.current_epoch, stage)
+
+    def evaluate(self, dataloader: DataLoader, stage: _stage):
         """Evaluate on validation set"""
+        meters = self.meters[stage]
+        meters.reset()
+
         with torch.no_grad():
             loop = tqdm(dataloader, leave=True, desc=stage)
             limit_batches = self.get_limit_batches()
             for i, batch in enumerate(loop):
                 self.batch_to_device(batch)
-                self.module.validation_step(batch, i, stage=stage)
+                val_metrics = self.module.validation_step(batch, i, stage=stage)
+                meters.update(val_metrics, batch[0].shape[0])
                 limit_batches -= 1
                 if limit_batches == 0:
                     break
+        meters.all_reduce()
 
     def sanity_check(self, dataloader: DataLoader):
         """Run sanity check"""
@@ -74,27 +108,31 @@ class Trainer:
                 break
 
     def single_epoch(self):
-        self.callbacks.on_epoch_start(self)
+        meters = self.meters["train"]
+        meters.reset()
+
         loop = tqdm(self.datamodule.train_dataloader, leave=True, desc="Train")
         limit_batches = int(self._limit_batches)
         for i, batch in enumerate(loop):
             self.batch_to_device(batch)
-            self.module.training_step(batch, i)
-            self.module.log_optimizer_params()
+            train_metrics = self.module.training_step(batch, i)
+            meters.update(train_metrics, batch[0].shape[0])
             self.current_step += 1
             self.module.set_attributes(current_step=self.current_step)
             if self.current_step % self.log_every_n_steps == 0:
                 self.callbacks.on_validation_start(self)
                 self.evaluate(self.datamodule.val_dataloader, stage="eval_val")
-                self.evaluate(self.datamodule.train_dataloader, stage="eval_train")
+                self._update_metrics(stages=["eval_val"])
                 self.callbacks.on_validation_end(self)
+
             limit_batches -= 1
             if limit_batches == 0:
                 break
-        self.module.on_epoch_end()
-        self.callbacks.on_epoch_end(self)
+        meters.all_reduce()
 
-    def fit(self, module: BaseModule, datamodule: DataModule):
+    def fit(
+        self, module: BaseModule, datamodule: DataModule, ckpt_path: str | None = None
+    ):
         n_train_batches = datamodule.total_batches["train"] - 1
         limit_batches = (
             self._limit_batches if self._limit_batches > 0 else n_train_batches
@@ -104,9 +142,10 @@ class Trainer:
                 n_train_batches, limit_batches
             )
         self.datamodule = datamodule
-        module.model = module.model.to(self.device)
+
         self.module = module
         self.module.pass_attributes(
+            device_id=self.device_id,
             device=self.device,
             logger=self.logger,
             callbacks=self.callbacks,
@@ -114,53 +153,82 @@ class Trainer:
             limit_batches=int(self._limit_batches),
             log_every_n_steps=self.log_every_n_steps,
         )
-        self.callbacks.on_fit_start(self)
-        self.module.set_attributes(current_step=self.current_step)
 
+        self.callbacks.on_fit_start(self)
+        if ckpt_path is not None:
+            self.load_checkpoint(ckpt_path)
+        self.module.set_attributes(current_step=self.current_step)
         self.sanity_check(self.datamodule.val_dataloader)
         try:
             for epoch in range(
                 self.current_epoch, self.current_epoch + self.max_epochs
             ):
+                self.datamodule.train_dataloader.sampler.set_epoch(epoch)  # DDP
                 self.current_epoch = epoch
+                self.callbacks.on_epoch_start(self)
                 module.set_attributes(current_epoch=epoch)
                 self.single_epoch()
+                self.evaluate(self.datamodule.val_dataloader, stage="val")
+                self._update_metrics(stages=["train", "val"])
+                self.module.on_epoch_end()
                 self.callbacks.on_epoch_end(self)
-                print()
+                log.info(f" <<<  {self.device_info} epoch finished  >>> ")
+                dist.barrier()
         except KeyboardInterrupt as e:
             self.callbacks.on_failure(self)
             raise e
 
     def load_checkpoint(self, ckpt_path: str, lr: float | None = None):
-        log.info(f"Loading checkpoint from {ckpt_path}")
-        ckpt_state = torch.load(ckpt_path)
+        log.info(f"{self.device_info}Loading checkpoint from {ckpt_path}")
+        map_location = {"cuda:0": self.device}
+
+        ckpt_state = torch.load(ckpt_path, map_location=map_location)
+        self.epochs_metrics.load_state_dict(ckpt_state["metrics"]["steps"])
+        self.validation_metrics.load_state_dict(ckpt_state["metrics"]["validation"])
         self.module.load_state_dict(ckpt_state["module"], lr=lr)
         self.datamodule.load_state_dict(ckpt_state["datamodule"])
         self.callbacks.load_state_dict(ckpt_state["callbacks"])
         self.current_step = ckpt_state["step"]
-        self.current_epoch = math.ceil(
-            self.current_step / self.datamodule.total_batches["train"]
+
+        n_train_batches = self.datamodule.total_batches["train"] - 1
+        limit_batches = (
+            self._limit_batches if self._limit_batches > 0 else n_train_batches
         )
+        self.current_epoch = math.ceil(self.current_step / limit_batches)
         log.info(
-            f"The training is resumed at: "
+            f"{self.device_info}The training is resumed at: "
             f"epoch={self.current_epoch}, "
             f"step={self.current_step}"
         )
 
+    @property
+    def device_info(self) -> str:
+        return f"[{self.device}] "
+
     def save_checkpoint(self, ckpt_path: str):
+        log.info(f"{self.device_info}Saving checkpoint to {ckpt_path}")
+        if self.device_id != 0:  # save only for cuda:0 (DDP)
+            return
         module_state = self.module.state_dict()
         datamodule_state = self.datamodule.state_dict()
         callbacks_state = self.callbacks.state_dict()
+        metrics_state = {
+            "steps": self.epochs_metrics.state_dict(),
+            "validation": self.validation_metrics.state_dict(),
+        }
+
         ckpt_state = {
             "module": module_state,
             "datamodule": datamodule_state,
+            "metrics": metrics_state,
             "callbacks": callbacks_state,
             "epoch": self.current_epoch,
             "step": self.current_step,
         }
-        save_checkpoint(ckpt_state, ckpt_path)
+        torch.save(ckpt_state, ckpt_path)
         log.info(
+            f"{self.device_info}"
             f"The training is saved at: "
             f"epoch={self.current_epoch}, "
-            f"step={self.current_step}"
+            f"step={self.current_step}",
         )

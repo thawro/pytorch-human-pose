@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from .trainer import Trainer
-    from src.base.module import BaseModule
     from src.base.storage import MetricsStorage
 
 import math
@@ -23,13 +22,11 @@ from .visualization import plot_metrics
 _log_mode = Literal["step", "epoch", "validation"]
 
 
-def get_metrics_storage(module: BaseModule, mode: _log_mode) -> MetricsStorage:
-    if mode == "step":
-        return module.steps_metrics.aggregate_over_key(key="step")
-    elif mode == "validation":
-        return module.validation_metrics.aggregate_over_key(key="step")
+def get_metrics_storage(trainer: Trainer, mode: _log_mode) -> MetricsStorage:
+    if mode == "validation":
+        return trainer.validation_metrics.aggregate_over_key(key="step")
     elif mode == "epoch":
-        return module.steps_metrics.aggregate_over_key(key="epoch")
+        return trainer.epochs_metrics.aggregate_over_key(key="epoch")
     else:
         raise ValueError("Wrong logging mode")
 
@@ -75,30 +72,43 @@ class BaseCallback:
 
 
 class Callbacks:
-    def __init__(self, callbacks: list[BaseCallback]):
+    def __init__(self, callbacks: list[BaseCallback], device_id: int):
         self.callbacks = callbacks
+        self.device_id = device_id
 
     def on_fit_start(self, trainer: Trainer):
+        if self.device_id != 0:
+            return
         for callback in self.callbacks:
             callback.on_fit_start(trainer)
 
     def on_epoch_start(self, trainer: Trainer):
+        if self.device_id != 0:
+            return
         for callback in self.callbacks:
             callback.on_epoch_start(trainer)
 
     def on_epoch_end(self, trainer: Trainer):
+        if self.device_id != 0:
+            return
         for callback in self.callbacks:
             callback.on_epoch_end(trainer)
 
     def on_validation_start(self, trainer: Trainer):
+        if self.device_id != 0:
+            return
         for callback in self.callbacks:
             callback.on_validation_start(trainer)
 
     def on_validation_end(self, trainer: Trainer):
+        if self.device_id != 0:
+            return
         for callback in self.callbacks:
             callback.on_validation_end(trainer)
 
     def on_failure(self, trainer: Trainer):
+        if self.device_id != 0:
+            return
         log.warn("Failure mode detected. Running callbacks `on_failure` methods")
         for callback in self.callbacks:
             callback.on_failure(trainer)
@@ -148,7 +158,7 @@ class SaveModelCheckpoint(BaseCallback):
         if self.save_last:
             trainer.save_checkpoint(str(ckpt_dir / f"last.pt"))
         if self.metric is not None and self.stage is not None:
-            metrics = trainer.module.validation_metrics
+            metrics = trainer.epochs_metrics.aggregate_over_key("epoch")
             stage_metric_values = metrics.get(self.metric, self.stage)
             if len(stage_metric_values) == 0:
                 raise ValueError(
@@ -157,30 +167,23 @@ class SaveModelCheckpoint(BaseCallback):
             last = stage_metric_values[-1]["value"]
             if self.compare(last, self.best) and self.top_k == 1:
                 self.best = last
-                log.info(f"Found new best value for {self.metric} ({self.stage})")
+                log.info(
+                    f"{trainer.device_info}Found new best value for {self.metric} ({self.stage})"
+                )
                 trainer.save_checkpoint(str(ckpt_dir / f"{self.name}.pt"))
 
-    def on_validation_end(self, trainer: Trainer):
+    def on_epoch_end(self, trainer: Trainer):
         self.save_model(trainer)
 
-    def on_failure(self, trainer: Trainer):
-        log.warn(f"`on_failure`: Saving {self.callback_name}")
-        self.save_model(trainer)
+    # def on_failure(self, trainer: Trainer):
+    #     log.warn(f"`on_failure`: Saving {self.callback_name}")
+    #     self.save_model(trainer)
 
     def state_dict(self) -> dict:
         return {f"best_{self.stage}_{self.metric}": self.best}
 
     def load_state_dict(self, state_dict: dict):
         self.best = state_dict.get(f"best_{self.stage}_{self.metric}", self.best)
-
-
-class LoadModelCheckpoint(BaseCallback):
-    def __init__(self, ckpt_path: str, lr: float | None = None):
-        self.ckpt_path = ckpt_path
-        self.lr = lr
-
-    def on_fit_start(self, trainer: Trainer):
-        trainer.load_checkpoint(self.ckpt_path, lr=self.lr)
 
 
 class BaseExamplesPlotterCallback(BaseCallback):
@@ -218,7 +221,7 @@ class MetricsPlotterCallback(BaseCallback):
 
     def plot(self, trainer: Trainer, mode: _log_mode) -> None:
         filepath = f"{trainer.logger.log_path}/{mode}_metrics.jpg"
-        storage = get_metrics_storage(trainer.module, mode)
+        storage = get_metrics_storage(trainer, mode)
         if len(storage.metrics) > 0:
             step_name = "epoch" if mode == "epoch" else "step"
             plot_metrics(storage, step_name, filepath=filepath)
@@ -230,14 +233,13 @@ class MetricsPlotterCallback(BaseCallback):
 
     def on_validation_end(self, trainer: Trainer) -> None:
         self.plot(trainer, mode="validation")
-        self.plot(trainer, mode="step")
 
 
 class MetricsSaverCallback(BaseCallback):
     """Plot per epoch metrics"""
 
     def save(self, trainer: Trainer, mode: _log_mode) -> None:
-        storage = get_metrics_storage(trainer.module, mode)
+        storage = get_metrics_storage(trainer, mode)
         filepath = filepath = f"{trainer.logger.log_path}/{mode}_metrics.yaml"
 
         if len(storage.metrics) > 0:
@@ -251,7 +253,21 @@ class MetricsSaverCallback(BaseCallback):
 
     def on_validation_end(self, trainer: Trainer) -> None:
         self.save(trainer, mode="validation")
-        self.save(trainer, mode="step")
+
+
+class MetricsLogger(BaseCallback):
+    """Log per epoch metrics to terminal"""
+
+    def on_epoch_end(self, trainer: Trainer) -> None:
+        for stage, metrics in trainer.epochs_metrics.inverse_nest().items():
+            last_epoch_metrics = {
+                name: values[-1]["value"] for name, values in metrics.items()
+            }
+            msg = [f"Epoch: {trainer.current_epoch}"]
+            for name, value in last_epoch_metrics.items():
+                msg.append(f"{stage}/{name}: {round(value, 3)}")
+            msg = "  ".join(msg)
+            log.info(f"{trainer.device_info}{msg}")
 
 
 class ModelSummary(BaseCallback):
@@ -275,7 +291,7 @@ class SaveLastAsOnnx(BaseCallback):
     def on_fit_start(self, trainer: Trainer):
         model = trainer.module.model
         dirpath = str(trainer.logger.model_onnx_dir)
-        log.info("Saving model to onnx")
+        log.info(f"{trainer.device_info}Saving model to onnx")
         filepath = f"{dirpath}/model.onnx"
         model.export_to_onnx(filepath)
 
@@ -289,7 +305,7 @@ class SaveLastAsOnnx(BaseCallback):
         if diff_min / self.every_n_minutes > 1 or self.num_saved == 0:
             self.start_time = curr_time
             log.info(
-                f"{diff_min} minutes have passed. Saving model components to ONNX."
+                f"{trainer.device_info}{diff_min} minutes have passed. Saving model components to ONNX."
             )
             model.export_to_onnx(filepath)
             self.num_saved += 1

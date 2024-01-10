@@ -12,27 +12,6 @@ from src.logging import get_pylogger
 log = get_pylogger(__name__)
 
 
-def save_checkpoint(ckpt: dict[str, dict[str, Any]], path: str = "ckpt.pt") -> None:
-    log.info(f"Saving checkpoint to {path}")
-    torch.save(ckpt, path)
-
-
-def load_checkpoint(
-    path: str,
-    model: torch.nn.Module,
-    optimizer: torch.optim.Optimizer | None = None,
-    scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
-) -> dict:
-    log.info(f"Loading checkpoint from {path}")
-    ckpt = torch.load(path)
-    model.load_state_dict(ckpt["model"])
-    if optimizer is not None and "optimizer" in ckpt:
-        optimizer.load_state_dict(ckpt["optimizer"])
-    if scheduler is not None and "scheduler" in ckpt:
-        scheduler.load_state_dict(ckpt["scheduler"])
-    return ckpt
-
-
 def export_to_onnx(
     net: nn.Module,
     dummy_input: Tensor,

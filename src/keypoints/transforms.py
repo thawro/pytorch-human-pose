@@ -4,6 +4,7 @@ from PIL import Image
 import albumentations as A
 from albumentations.pytorch.transforms import ToTensorV2
 import cv2
+import random
 
 from src.base.transforms import _normalize
 
@@ -18,6 +19,46 @@ compose_params = dict(
 )
 
 
+class SymmetricKeypointsHorizontalFlip:
+    def __init__(self, symmetric_keypoints: list[int], p: float = 0.5):
+        self.symmetric_keypoints = symmetric_keypoints
+        self.p = p
+
+    def __call__(
+        self,
+        num_obj: int,
+        image: np.ndarray,
+        masks: list[np.ndarray],
+        keypoints: list[tuple[int, int]],
+        visibilities: list[list[int]],
+    ):
+        if random.random() < self.p:
+            h, w = image.shape[:2]
+            keypoints = [list(kpt) for kpt in keypoints]
+            # horizontal flip
+            image = np.fliplr(image)
+            masks = [np.fliplr(mask).copy() for mask in masks]
+
+            for k in range(len(keypoints)):
+                keypoints[k][0] = abs(keypoints[k][0] - w)
+
+            _keypoints = np.array(keypoints).reshape(num_obj, -1, 2)
+            _visibilities = np.array(visibilities).reshape(num_obj, -1)
+
+            for j in range(num_obj):
+                _keypoints[j] = _keypoints[j][self.symmetric_keypoints]
+                _visibilities[j] = _visibilities[j][self.symmetric_keypoints]
+
+            keypoints = _keypoints.reshape(-1, 2).tolist()
+            visibilities = _visibilities.reshape(-1, 1).tolist()
+        return {
+            "image": image,
+            "masks": masks,
+            "keypoints": keypoints,
+            "visibilities": visibilities,
+        }
+
+
 class KeypointsTransform:
     def __init__(
         self,
@@ -26,6 +67,7 @@ class KeypointsTransform:
         preprocessing: list[A.BasicTransform],
         random: A.Compose,
         inference: A.Compose,
+        symmetric_keypoints: list[int] | None,
         out_size: tuple[int, int] = (256, 192),
     ):
         if isinstance(mean, (float, int)):
@@ -42,6 +84,13 @@ class KeypointsTransform:
             [A.Normalize(mean, std, max_pixel_value=255), *preprocessing],
             **compose_params,
         )
+
+        if symmetric_keypoints is not None:
+            self.horizontal_flip = SymmetricKeypointsHorizontalFlip(
+                symmetric_keypoints, p=0.5
+            )
+        else:
+            self.horizontal_flip = None
 
         self.random = random
         self.inference = inference
@@ -70,6 +119,7 @@ class SPPEKeypointsTransform(KeypointsTransform):
         self,
         mean: _normalize,
         std: _normalize,
+        symmetric_keypoints: list[int] | None,
         input_size: tuple[int, int] = (256, 256),
         out_size: tuple[int, int] = (256, 192),
     ):
@@ -86,25 +136,39 @@ class SPPEKeypointsTransform(KeypointsTransform):
 
         random = A.Compose(
             [
-                A.Affine(scale=(0.75, 1.25), rotate=(-30, 30), keep_ratio=True, p=1),
+                A.Affine(scale=(0.75, 1.25), rotate=(-30, 30), keep_ratio=True, p=0.7),
             ],
             **compose_params,
         )
 
         inference = A.Compose([], **compose_params)
 
-        super().__init__(mean, std, preprocessing, random, inference, out_size)
+        super().__init__(
+            mean, std, preprocessing, random, inference, symmetric_keypoints, out_size
+        )
 
 
 class MPPEKeypointsTransform(KeypointsTransform):
-    def __init__(self, mean: _normalize, std: _normalize, out_size: tuple[int, int]):
+    def __init__(
+        self,
+        mean: _normalize,
+        std: _normalize,
+        symmetric_keypoints: list[int] | None,
+        out_size: tuple[int, int],
+    ):
         preprocessing = []
 
         random = A.Compose(
             [
                 A.LongestMaxSize(max(out_size)),
                 A.PadIfNeeded(*out_size, border_mode=cv2.BORDER_CONSTANT),
-                A.Affine(scale=(0.75, 1.5), rotate=(-40, 40), keep_ratio=True, p=1),
+                A.Affine(
+                    scale=(0.75, 1.5),
+                    rotate=(-30, 30),
+                    translate_px=[-40, 40],
+                    keep_ratio=True,
+                    p=0.7,
+                ),
             ],
             **compose_params,
         )
@@ -117,4 +181,6 @@ class MPPEKeypointsTransform(KeypointsTransform):
             **compose_params,
         )
 
-        super().__init__(mean, std, preprocessing, random, inference, out_size)
+        super().__init__(
+            mean, std, preprocessing, random, inference, symmetric_keypoints, out_size
+        )

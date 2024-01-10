@@ -2,12 +2,13 @@ from torch import Tensor, nn
 from torchinfo import summary
 from abc import abstractmethod
 import torch
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 
 class BaseModel(nn.Module):
     def __init__(
         self,
-        net: nn.DataParallel,
+        net: nn.Module,
         input_names: list[str] = ["input"],
         output_names: list[str] = ["output"],
     ):
@@ -15,6 +16,9 @@ class BaseModel(nn.Module):
         self.net = net
         self.input_names = input_names
         self.output_names = output_names
+
+    def forward(self, x: Tensor):
+        return self.net(x)
 
     @property
     def device(self):
@@ -31,7 +35,7 @@ class BaseModel(nn.Module):
 
     def export_to_onnx(self, filepath: str = "model.onnx"):
         torch.onnx.export(
-            self.net.module,
+            self,
             self.example_input(),
             filepath,
             export_params=True,
@@ -51,15 +55,12 @@ class BaseModel(nn.Module):
             )
         )
 
-    def forward(self, x: Tensor) -> Tensor:
-        return self.net(x)
-
     def freeze(self) -> None:
         for param in self.parameters():
             param.requires_grad = False
 
     def export_layers_description_to_txt(self, filepath: str) -> str:
-        return str(self.net)
+        return str(self)
 
 
 class BaseImageModel(BaseModel):
@@ -83,6 +84,3 @@ class BaseImageModel(BaseModel):
                 batch_size, num_channels, height, width, device=self.device
             )
         }
-
-    def forward(self, images: Tensor) -> Tensor:
-        return self.net(images)

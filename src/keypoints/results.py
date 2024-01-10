@@ -12,6 +12,7 @@ import torch
 def match_preds_to_targets(
     pred_kpts: np.ndarray,
     target_kpts: np.ndarray,
+    target_visibilities: np.ndarray,
     extra_coords: list,
     match_fn: Callable,
 ) -> np.ndarray:
@@ -29,11 +30,13 @@ def match_preds_to_targets(
     matched_idxs = []
     for pred_idx in sorted_idxs:
         p_kpts = pred_kpts[pred_idx]
-        for target_idx, t_kpts in enumerate(target_kpts):
+        for target_idx in range(len(target_kpts)):
+            t_kpts = target_kpts[target_idx]
+            t_vis = target_visibilities[target_idx]
             if target_idx in matched_idxs:
                 continue
             match_val = match_fn(
-                p_kpts[..., :2], t_kpts[..., :2], extra_coords[target_idx]
+                p_kpts[..., :2], t_kpts[..., :2], t_vis, extra_coords[target_idx]
             )
             if match_val > target_matches_vals[target_idx]:
                 target_matches_vals[target_idx] = match_val
@@ -50,15 +53,19 @@ class KeypointsResults:
     target_heatmaps: np.ndarray
     pred_heatmaps: np.ndarray
     target_keypoints: np.ndarray
+    target_visibilities: np.ndarray
     pred_keypoints: list[np.ndarray]
     pred_scores: list[np.ndarray]
     extra_coords: list
     match_preds_to_targets: Callable = field(init=False)
     metric: EvaluationMetric = field(init=False)
 
-    def evaluate(self) -> dict[str, float]:
+    def evaluate(self) -> dict[str, float] | float:
         return self.metric.evaluate_results(
-            self.pred_keypoints, self.target_keypoints, self.extra_coords
+            self.pred_keypoints,
+            self.target_keypoints,
+            self.target_visibilities,
+            self.extra_coords,
         )
 
 
@@ -71,6 +78,7 @@ class SPPEKeypointsResults(KeypointsResults):
         target_heatmaps: Tensor,
         pred_heatmaps: Tensor,
         target_keypoints: list,
+        target_visibilities: np.ndarray,
         extra_coords: list,
         det_thr: float = 0.2,
     ) -> "SPPEKeypointsResults":
@@ -84,7 +92,10 @@ class SPPEKeypointsResults(KeypointsResults):
             _heatmaps = pred_heatmaps[i]
             parsed_joints = parser.parse(_heatmaps.unsqueeze(0))
             joints = cls.match_preds_to_targets(
-                parsed_joints, target_keypoints[i], extra_coords[i]
+                parsed_joints,
+                target_keypoints[i],
+                target_visibilities[i],
+                extra_coords[i],
             )
             pred_joints.append(joints)
         # pred_joints = np.stack(pred_joints)
@@ -98,6 +109,7 @@ class SPPEKeypointsResults(KeypointsResults):
             target_heatmaps.cpu().numpy(),
             npy_pred_heatmaps,
             np.array(target_keypoints),
+            target_visibilities,
             pred_kpts_coords,
             pred_kpts_scores,
             extra_coords,
@@ -113,57 +125,60 @@ class MPPEKeypointsResults(KeypointsResults):
         cls,
         images: np.ndarray,
         stages_target_heatmaps: list[Tensor],
-        stages_pred_heatmaps: list[Tensor],
+        stages_pred_kpts_heatmaps: list[Tensor],
+        stages_pred_tags_heatmaps: list[Tensor],
         target_keypoints: np.ndarray,
+        target_visibilities: np.ndarray,
         extra_coords: list,
+        max_num_people: int = 10,
         det_thr: float = 0.2,
         tag_thr: float = 1,
     ) -> "MPPEKeypointsResults":
         h, w = images.shape[1:3]
-        num_stages = len(stages_target_heatmaps)
+
+        stages_pred_kpts_heatmaps = [
+            F.resize(hm, [h, w], antialias=True) for hm in stages_pred_kpts_heatmaps
+        ]
+        stages_pred_tags_heatmaps = [
+            F.resize(hm, [h, w], antialias=True) for hm in stages_pred_tags_heatmaps
+        ]
         num_kpts = stages_target_heatmaps[0].shape[1]
 
-        # Average across resolutions
-        pred_heatmaps = []
-        pred_tags = []
-        for i in range(num_stages):
-            stage_pred_heatmaps = F.resize(
-                stages_pred_heatmaps[i], [h, w], antialias=True
-            )
-            kpts_heatmaps = stage_pred_heatmaps[:, :num_kpts]
-            tags_heatmaps = stage_pred_heatmaps[:, num_kpts:]
-            pred_heatmaps.append(kpts_heatmaps)
-            pred_tags.append(tags_heatmaps)
+        pred_kpts_heatmaps = torch.stack(stages_pred_kpts_heatmaps).mean(0)
+        pred_tags_heatmaps = torch.stack(stages_pred_tags_heatmaps).mean(0)
 
-        pred_heatmaps = torch.stack(pred_heatmaps).mean(0)
-        pred_tags = torch.stack(pred_tags).mean(0)
-
-        batch_size, num_kpts = pred_heatmaps.shape[:2]
-        parser = MPPEHeatmapParser(num_kpts, det_thr=det_thr, tag_thr=tag_thr)
+        batch_size, num_kpts = pred_kpts_heatmaps.shape[:2]
+        parser = MPPEHeatmapParser(
+            num_kpts, max_num_people=max_num_people, det_thr=det_thr, tag_thr=tag_thr
+        )
 
         pred_joints = []
         for i in range(batch_size):
-            _heatmaps = pred_heatmaps[i]
-            _tags = pred_tags[i]
+            _heatmaps = pred_kpts_heatmaps[i]
+            _tags = pred_tags_heatmaps[i]
             parsed_joints = parser.parse(
                 _heatmaps.unsqueeze(0), _tags.unsqueeze(0), adjust=True, refine=True
             )
             joints = cls.match_preds_to_targets(
-                parsed_joints, target_keypoints[i], extra_coords[i]
+                parsed_joints,
+                target_keypoints[i],
+                target_visibilities[i],
+                extra_coords[i],
             )
             pred_joints.append(joints)
-        # pred_joints = np.stack(pred_joints)
+
         pred_kpts_coords = [joints[..., :2] for joints in pred_joints]
         pred_kpts_scores = [joints[..., 2] for joints in pred_joints]
 
-        npy_pred_heatmaps = pred_heatmaps.detach().cpu().numpy()
-        npy_pred_tags = pred_tags.detach().cpu().numpy()
+        npy_pred_heatmaps = pred_kpts_heatmaps.detach().cpu().numpy()
+        npy_pred_tags = pred_tags_heatmaps.detach().cpu().numpy()
 
         return cls(
             images,
             stages_target_heatmaps[-1].cpu().numpy(),
             npy_pred_heatmaps,
             target_keypoints,
+            target_visibilities,
             pred_kpts_coords,
             pred_kpts_scores,
             extra_coords,
@@ -193,3 +208,61 @@ class MppeMpiiKeypointsResults(MPPEKeypointsResults):
 class MppeCocoKeypointsResults(MPPEKeypointsResults):
     match_preds_to_targets = match_coco_preds_to_targets
     metric = OKS()
+
+
+### Inference
+
+
+@dataclass
+class InferenceMPPEKeypointsResult:
+    image: np.ndarray
+    pred_kpts_heatmaps: np.ndarray
+    pred_tags_heatmaps: np.ndarray
+    pred_keypoints: np.ndarray
+    pred_scores: np.ndarray
+
+    @classmethod
+    def from_preds(
+        cls,
+        image: np.ndarray,
+        stages_pred_kpts_heatmaps: list[Tensor],
+        stages_pred_tags_heatmaps: list[Tensor],
+        max_num_people: int = 10,
+        det_thr: float = 0.2,
+        tag_thr: float = 1,
+    ) -> "InferenceMPPEKeypointsResult":
+        h, w = image.shape[:2]
+
+        stages_pred_kpts_heatmaps = [
+            F.resize(hm, [h, w], antialias=True) for hm in stages_pred_kpts_heatmaps
+        ]
+        stages_pred_tags_heatmaps = [
+            F.resize(hm, [h, w], antialias=True) for hm in stages_pred_tags_heatmaps
+        ]
+        num_kpts = stages_pred_kpts_heatmaps[0].shape[1]
+
+        pred_kpts_heatmaps = torch.stack(stages_pred_kpts_heatmaps).mean(0)
+        pred_tags_heatmaps = torch.stack(stages_pred_tags_heatmaps).mean(0)
+
+        batch_size, num_kpts = pred_kpts_heatmaps.shape[:2]
+        parser = MPPEHeatmapParser(
+            num_kpts, max_num_people=max_num_people, det_thr=det_thr, tag_thr=tag_thr
+        )
+
+        joints = parser.parse(
+            pred_kpts_heatmaps, pred_tags_heatmaps, adjust=True, refine=True
+        )
+
+        pred_kpts_coords = joints[..., :2]
+        pred_kpts_scores = joints[..., 2]
+
+        npy_pred_kpts_heatmaps = pred_kpts_heatmaps.detach().cpu().numpy()
+        npy_pred_tags_heatmaps = pred_tags_heatmaps.detach().cpu().numpy()
+
+        return cls(
+            image,
+            npy_pred_kpts_heatmaps,
+            npy_pred_tags_heatmaps,
+            pred_kpts_coords,
+            pred_kpts_scores,
+        )

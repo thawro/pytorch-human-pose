@@ -46,7 +46,6 @@ def get_video_size(filename: str) -> tuple[int, int]:
 
 def process_video(
     processing_fn: Callable[[np.ndarray], dict[str, Any]],
-    prev_frames: torch.Tensor,
     filename: str | int = "video.mp4",
     start_frame: int = 0,
     end_frame: int = -1,
@@ -69,9 +68,7 @@ def process_video(
         if count == end_frame:
             break
         if ret:
-            result, prev_frames = processing_fn(
-                frame=frame_rgb, prev_frames=prev_frames
-            )
+            result = processing_fn(frame=frame_rgb)
             for name, out in result.items():
                 results[name].append(out)
             if cv2.waitKey(1) == 27:

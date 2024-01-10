@@ -1,65 +1,66 @@
 from src.keypoints.config import (
     TransformConfig,
+    DatasetConfig,
     DataloaderConfig,
     SetupConfig,
-    OptimizerConfig,
+    TrainerConfig,
     Config,
+    _dataset_name,
+    _mode,
+    _architectures,
 )
-from src.utils.config import RESULTS_PATH
-
 
 EXPERIMENT_NAME = "test"
 
-# DATASET = "COCO"
-DATASET = "MPII"
-
-MODE = "SPPE"
-MODE = "MPPE"
-
 LIMIT_BATCHES = -1
-LOG_EVERY_N_STEPS = -7
-
-CKPT_PATH = f"{str(RESULTS_PATH)}/{EXPERIMENT_NAME}/01-06_16:21__sigmoid_MPPE_MPII/01-06_16:21/checkpoints/last.pt"
-CKPT_PATH = None
-
-NAME_PREFIX = "sigmoid"
-
-# ARCHITECTURE = "HRNet"
-ARCHITECTURE = "HigherHRNet"
-
-LR = 1e-3
-
-if MODE == "SPPE":
-    OUT_SIZE = (256, 256)
-    BATCH_SIZE = 184
-else:
-    OUT_SIZE = (512, 512)
-    BATCH_SIZE = 36
-
+LOG_EVERY_N_STEPS = -5
 
 if LIMIT_BATCHES != -1:
     EXPERIMENT_NAME = "debug"
 
-transform_cfg = TransformConfig(
-    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], out_size=list(OUT_SIZE)
-)
 
-dataloader_cfg = DataloaderConfig(batch_size=BATCH_SIZE, transform=transform_cfg)
+NAME_PREFIX = "sigmoid"
+BATCH_SIZE = 18
 
-setup_cfg = SetupConfig(
-    experiment_name=EXPERIMENT_NAME,
-    name_prefix=NAME_PREFIX,
-    seed=42,
-    device="cuda",
-    dataset=DATASET,
-    max_epochs=300,
-    limit_batches=LIMIT_BATCHES,
-    log_every_n_steps=LOG_EVERY_N_STEPS,
-    ckpt_path=CKPT_PATH,
-    mode=MODE,
-    arch=ARCHITECTURE,
-)
 
-optimizer_cfg = OptimizerConfig(lr=LR)
+def create_config(
+    dataset_name: _dataset_name,
+    mode: _mode,
+    arch: _architectures,
+    device_id: int,
+    ckpt_path: str | None = None,
+) -> Config:
+    dataset_cfg = DatasetConfig(name=dataset_name, mode=mode)
 
-cfg = Config(setup_cfg, dataloader_cfg, optimizer_cfg)
+    transform_cfg = TransformConfig(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225],
+        out_size=dataset_cfg.out_size,
+        symmetric_keypoints=dataset_cfg.symmetric_keypoints,
+    )
+
+    dataloader_cfg = DataloaderConfig(batch_size=BATCH_SIZE, transform=transform_cfg)
+
+    trainer_cfg = TrainerConfig(
+        device_id=device_id,
+        max_epochs=300,
+        limit_batches=LIMIT_BATCHES,
+        log_every_n_steps=LOG_EVERY_N_STEPS,
+    )
+
+    setup_cfg = SetupConfig(
+        experiment_name=EXPERIMENT_NAME,
+        name_prefix=NAME_PREFIX,
+        seed=42,
+        dataset=dataset_cfg.name,
+        ckpt_path=ckpt_path,
+        mode=dataset_cfg.mode,
+        arch=arch,
+    )
+
+    return Config(
+        setup=setup_cfg,
+        dataloader=dataloader_cfg,
+        dataset=dataset_cfg,
+        trainer=trainer_cfg,
+    )

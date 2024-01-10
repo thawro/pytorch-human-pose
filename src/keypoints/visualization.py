@@ -9,8 +9,8 @@ def plot_connections(
     image: np.ndarray,
     all_kpts_coords: np.ndarray,
     all_kpts_scores: np.ndarray,
-    limbs: list[tuple[int, int]],
-    thr: float = -100,
+    limbs: list[tuple[int, int]] | None,
+    thr: float = 0.2,
 ):
     """
     all_kpts_coords is of shape [num_obj, num_kpts, 2]
@@ -30,15 +30,15 @@ def plot_connections(
         for (x, y), score in zip(kpts_coords, kpts_scores):
             if score < thr:
                 continue
+            x, y = int(x), int(y)
             cv2.circle(image, (x, y), radius, (0, 128, 255), -1)
-
-        for id_1, id_2 in limbs:
-            if kpts_scores[id_1] < thr or kpts_scores[id_2] < thr:
-                continue
-            x1, y1 = kpts_coords[id_1]
-
-            x2, y2 = kpts_coords[id_2]
-            cv2.line(image, (x1, y1), (x2, y2), color, thickness)
+        if limbs is not None:
+            for id_1, id_2 in limbs:
+                if kpts_scores[id_1] < thr or kpts_scores[id_2] < thr:
+                    continue
+                x1, y1 = kpts_coords[id_1]
+                x2, y2 = kpts_coords[id_2]
+                cv2.line(image, (x1, y1), (x2, y2), color, thickness)
     return image
 
 
@@ -66,7 +66,7 @@ def plot_sppe_results_heatmaps(
     results: SPPEKeypointsResults,
     limbs: list[tuple[int, int]],
     filepath: str | None = None,
-    thr: float = -100,
+    thr: float = 0.2,
 ):
     n_rows = min(10, len(results.pred_heatmaps))
     fig, axes = plt.subplots(n_rows, 1, figsize=(24, n_rows * 8))
@@ -99,7 +99,7 @@ def plot_mppe_results_heatmaps(
     results: MPPEKeypointsResults,
     limbs: list[tuple[int, int]],
     filepath: str | None = None,
-    thr: float = -100,
+    thr: float = 0.2,
 ):
     n_rows = min(10, len(results.pred_heatmaps))
     fig, axes = plt.subplots(n_rows, 1, figsize=(24, n_rows * 16))

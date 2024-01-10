@@ -25,6 +25,23 @@ imgaug = ["imgaug (>=0.4.0)"]
 tests = ["pytest"]
 
 [[package]]
+name = "albumentations-experimental"
+version = "0.0.1"
+description = "Experimental functionality for the Albumentaions library."
+optional = false
+python-versions = ">=3.5"
+files = [
+    {file = "albumentations_experimental-0.0.1-py3-none-any.whl", hash = "sha256:639a2222af4941435eebc1c0350af6eb70c10b4efa16c5c09db69492c69dfbac"},
+    {file = "albumentations_experimental-0.0.1.tar.gz", hash = "sha256:4093aa7df6c20d7b42806af9e962fccb83ad3f64dbb9c2b7c176e30ff8f2933c"},
+]
+
+[package.dependencies]
+albumentations = "*"
+
+[package.extras]
+tests = ["pytest"]
+
+[[package]]
 name = "alembic"
 version = "1.12.1"
 description = "A database migration tool for SQLAlchemy."
@@ -4559,4 +4576,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<3.13"
-content-hash = "6fb24cfca570906750610af2cfc5284d9c6d90f184894af4396cc94df043e161"
+content-hash = "4204a79d1c561e26e81abfcebab5a0ae6dd330fd35e30457ad7eea57a61388fc"

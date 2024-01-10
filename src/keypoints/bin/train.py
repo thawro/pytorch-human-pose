@@ -1,43 +1,67 @@
 """Train the model"""
 
 import torch
-from src.logging import TerminalLogger, get_pylogger
+
+from src.logging import TerminalLogger
 from src.base.trainer import Trainer
 from src.utils.model import seed_everything
 
-from src.keypoints.bin.utils import create_datamodule, create_callbacks, create_module
-from src.keypoints.bin.config import cfg
+from src.keypoints.bin.utils import (
+    create_datamodule,
+    create_callbacks,
+    create_module,
+    create_model,
+)
+from src.keypoints.bin.config import create_config, EXPERIMENT_NAME
 
-log = get_pylogger(__name__)
+from torch.distributed import init_process_group, destroy_process_group
+import os
+from src.utils.config import RESULTS_PATH
 
 
-def main() -> None:
+def ddp_setup():
+    init_process_group(backend="nccl")
+    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+
+
+def main(dataset, mode, arch, ckpt_path) -> None:
+    ddp_setup()
+    rank = int(os.environ["LOCAL_RANK"])
+
+    cfg = create_config(dataset, mode, arch, device_id=rank, ckpt_path=ckpt_path)
+
     seed_everything(cfg.setup.seed)
     torch.set_float32_matmul_precision("medium")
 
     datamodule = create_datamodule(cfg)
     labels = datamodule.train_ds.labels
-    module = create_module(cfg, labels)
+
+    model = create_model(cfg)
+
+    module = create_module(cfg, model, labels)
 
     logger = TerminalLogger(cfg.logs_path, config=cfg.to_dict())
     callbacks = create_callbacks(cfg)
 
-    trainer = Trainer(
-        logger=logger,
-        device=cfg.setup.device,
-        callbacks=callbacks,
-        max_epochs=cfg.setup.max_epochs,
-        limit_batches=cfg.setup.limit_batches,
-        log_every_n_steps=cfg.setup.log_every_n_steps,
-    )
-    trainer.fit(module, datamodule)
+    trainer = Trainer(logger=logger, callbacks=callbacks, **cfg.trainer.to_dict())
+    trainer.fit(module, datamodule, ckpt_path=cfg.setup.ckpt_path)
+    destroy_process_group()
 
 
 if __name__ == "__main__":
-    main()
+    MODE = "MPPE"
+    DATASET = "MPII"
+    ARCH = "HigherHRNet"
+
+    RUN_NAME = "01-10_12:53"
+    RUN_SUBDIR = "01-10_12:53"
+    EXP_RUN_NAME = f"{RUN_NAME}__sigmoid_{MODE}_{DATASET}_{ARCH}"
+    CKPT_PATH = f"{str(RESULTS_PATH)}/{EXPERIMENT_NAME}/{EXP_RUN_NAME}/{RUN_SUBDIR}/checkpoints/last.pt"
+    CKPT_PATH = None
+
+    main(DATASET, MODE, ARCH, CKPT_PATH)
 
 
-# TODO: add lr scheduler
 # TODO: add halfbody augmentation
 # TODO: create training schemes same as in articles for each approach
 
@@ -48,13 +72,7 @@ if __name__ == "__main__":
 # TODO: ewaluacja SPPE stosujac detektor obiektow (dla COCO wtedy uzyc cocoapi)
 # TODO: sprawdzic COCO val split (dziwnie ciezkie przypadki tam sa)
 
-# TODO: robienie lossu na val po kazdej epoce na train
-
-# TODO!!!: wyliczanie PCKh@0.5 i OKS dla wersji SPPE i MPPE
-#  PCKh: [X] SPPE   [ ] MPPE
-#   OKS: [X] SPPE   [ ] MPPE
-
-
+# TODO: cos sie wywala przy wznawianiu treningow?
 """
 Hourglass:
 	1:1 aspect ratio

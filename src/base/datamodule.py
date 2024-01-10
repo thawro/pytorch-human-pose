@@ -4,6 +4,7 @@ import torch
 import random
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
+from torch.utils.data.distributed import DistributedSampler
 
 
 from .transforms import BaseTransform
@@ -41,8 +42,18 @@ class DataModule:
             collate_fn=collate_fn,
         )
 
-        self.train_dataloader = DataLoader(train_ds, shuffle=True, **dl_params)
-        self.val_dataloader = DataLoader(val_ds, shuffle=False, **dl_params)
+        self.train_dataloader = DataLoader(
+            train_ds,
+            shuffle=False,  # DDP
+            sampler=DistributedSampler(train_ds),  # DDP
+            **dl_params,
+        )
+        self.val_dataloader = DataLoader(
+            val_ds,
+            shuffle=False,
+            sampler=DistributedSampler(val_ds),  # DDP
+            **dl_params,
+        )
         self.total_batches = {
             "train": len(self.train_dataloader),
             "val": len(self.val_dataloader),
@@ -56,10 +67,12 @@ class DataModule:
         return {
             "random_state": random.getstate(),
             "torch_random_state": torch.random.get_rng_state(),
+            "torch_cuda_random_state": torch.cuda.get_rng_state_all(),
             "numpy_random_state": np.random.get_state(),
         }
 
     def load_state_dict(self, state_dict: dict) -> None:
         random.setstate(state_dict["random_state"])
-        torch.random.set_rng_state(state_dict["torch_random_state"])
+        torch.random.set_rng_state(state_dict["torch_random_state"].cpu())
+        torch.cuda.set_rng_state_all(state_dict["torch_cuda_random_state"])
         np.random.set_state(state_dict["numpy_random_state"])

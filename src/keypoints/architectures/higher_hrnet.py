@@ -68,7 +68,7 @@ class HigherHRNet(nn.Module):
 
         self.deconv_layers = nn.ModuleList(deconv_layers)
 
-    def forward(self, images: Tensor) -> list[Tensor]:
+    def forward(self, images: Tensor) -> tuple[list[Tensor], list[Tensor]]:
         x = self.stem(images)
         high_res_out = self.hrnet_backbone([x])[0]
         feats = high_res_out
@@ -80,8 +80,15 @@ class HigherHRNet(nn.Module):
             deconv_layer = self.deconv_layers[i]
             feats, out = deconv_layer(deconv_input)
             heatmaps.append(out)
+
+        stages_tags_heatmaps = []
+        stages_kpts_heatmaps = []
         for i in range(len(heatmaps)):
-            heatmaps[i][:, : self.num_keypoints] = F.sigmoid(
-                heatmaps[i][:, : self.num_keypoints]
-            )
-        return heatmaps
+            kpts_heatmaps = heatmaps[i][:, : self.num_keypoints]
+            kpts_heatmaps = F.sigmoid(kpts_heatmaps)
+            tags_heatmaps = heatmaps[i][:, self.num_keypoints :]
+
+            stages_kpts_heatmaps.append(kpts_heatmaps)
+            stages_tags_heatmaps.append(tags_heatmaps)
+
+        return stages_kpts_heatmaps, stages_tags_heatmaps

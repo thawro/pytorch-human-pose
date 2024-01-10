@@ -214,18 +214,18 @@ class AEHourglassNet(BaseHourglassNet):
 
     def forward(self, images: Tensor) -> tuple[list[Tensor], list[Tensor]]:
         out = super().forward(images)
-        stages_heatmaps = []
-        stages_tags = []
+        stages_kpts_heatmaps = []
+        stages_tags_heatmaps = []
         for i in range(self.num_stages):
             residual = out
             hg_out = self.stages[i](out)
             after_hg_feats, heatmaps, tags, heatmaps_feats = self.heatmap_heads[i](
                 hg_out
             )
-            stages_heatmaps.append(heatmaps)
-            stages_tags.append(tags)
+            stages_kpts_heatmaps.append(heatmaps)
+            stages_tags_heatmaps.append(tags)
             out = residual + after_hg_feats + heatmaps_feats
-        return stages_tags, stages_heatmaps
+        return stages_kpts_heatmaps, stages_tags_heatmaps
 
 
 class SMPHourglassNet(BaseHourglassNet):
