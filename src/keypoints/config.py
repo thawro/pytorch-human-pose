@@ -126,6 +126,7 @@ class TrainerConfig(BaseConfig):
 
 @dataclass
 class SetupConfig(BaseConfig):
+    distributed: bool
     experiment_name: str
     name_prefix: str
     seed: int

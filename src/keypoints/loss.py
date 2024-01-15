@@ -7,7 +7,8 @@ import torch
 class HeatmapsLoss(_Loss):
     def __init__(self):
         super().__init__()
-        self.criterion = nn.MSELoss(reduction="none")
+        # self.criterion = nn.MSELoss(reduction="none")
+        self.criterion = nn.MSELoss()
 
     def forward(
         self,
@@ -15,14 +16,10 @@ class HeatmapsLoss(_Loss):
         target_heatmaps: Tensor,
         target_weights: Tensor,
     ) -> Tensor:
-        # TODO: sth not working right , maybe data parallel?
-        # target_masks = target_weights > 0
-        # return self.criterion(
-        #     pred_heatmaps[target_masks], target_heatmaps[target_masks]
-        # )
-        return (
-            self.criterion(pred_heatmaps, target_heatmaps).mean((2, 3)) * target_weights
-        ).mean()
+        target_masks = target_weights > 0
+        return self.criterion(
+            pred_heatmaps[target_masks], target_heatmaps[target_masks]
+        )
 
 
 class StagesHeatmapsLoss(_Loss):

@@ -19,7 +19,7 @@ if LIMIT_BATCHES != -1:
     EXPERIMENT_NAME = "debug"
 
 
-NAME_PREFIX = "sigmoid"
+NAME_PREFIX = "sigmoid_AELoss_1e-2"
 BATCH_SIZE = 18
 
 
@@ -29,6 +29,7 @@ def create_config(
     arch: _architectures,
     device_id: int,
     ckpt_path: str | None = None,
+    distributed: bool = True,
 ) -> Config:
     dataset_cfg = DatasetConfig(name=dataset_name, mode=mode)
 
@@ -49,6 +50,7 @@ def create_config(
     )
 
     setup_cfg = SetupConfig(
+        distributed=distributed,
         experiment_name=EXPERIMENT_NAME,
         name_prefix=NAME_PREFIX,
         seed=42,

@@ -215,16 +215,21 @@ class MppeCocoKeypointsResults(MPPEKeypointsResults):
 
 @dataclass
 class InferenceMPPEKeypointsResult:
+    raw_image: np.ndarray
     image: np.ndarray
     pred_kpts_heatmaps: np.ndarray
     pred_tags_heatmaps: np.ndarray
     pred_keypoints: np.ndarray
+    scaled_pred_keypoints: np.ndarray
     pred_scores: np.ndarray
 
     @classmethod
     def from_preds(
         cls,
+        raw_image: np.ndarray,
         image: np.ndarray,
+        scale: float,
+        pad: tuple[int, int, int, int],
         stages_pred_kpts_heatmaps: list[Tensor],
         stages_pred_tags_heatmaps: list[Tensor],
         max_num_people: int = 10,
@@ -242,7 +247,9 @@ class InferenceMPPEKeypointsResult:
         num_kpts = stages_pred_kpts_heatmaps[0].shape[1]
 
         pred_kpts_heatmaps = torch.stack(stages_pred_kpts_heatmaps).mean(0)
-        pred_tags_heatmaps = torch.stack(stages_pred_tags_heatmaps).mean(0)
+
+        # pred_tags_heatmaps = torch.stack(stages_pred_tags_heatmaps).mean(0)
+        pred_tags_heatmaps = torch.stack(stages_pred_tags_heatmaps, dim=-1)
 
         batch_size, num_kpts = pred_kpts_heatmaps.shape[:2]
         parser = MPPEHeatmapParser(
@@ -256,13 +263,20 @@ class InferenceMPPEKeypointsResult:
         pred_kpts_coords = joints[..., :2]
         pred_kpts_scores = joints[..., 2]
 
-        npy_pred_kpts_heatmaps = pred_kpts_heatmaps.detach().cpu().numpy()
-        npy_pred_tags_heatmaps = pred_tags_heatmaps.detach().cpu().numpy()
+        print(scale)
+        scaled_pred_kpts_coords = (pred_kpts_coords * scale).astype(np.int32)
+        scaled_pred_kpts_coords[..., 0] -= pad[2]
+        scaled_pred_kpts_coords[..., 1] -= pad[0]
+
+        npy_pred_kpts_heatmaps = pred_kpts_heatmaps.cpu().numpy()[0]
+        npy_pred_tags_heatmaps = pred_tags_heatmaps.cpu().numpy()[0]
 
         return cls(
+            raw_image,
             image,
             npy_pred_kpts_heatmaps,
             npy_pred_tags_heatmaps,
             pred_kpts_coords,
+            scaled_pred_kpts_coords,
             pred_kpts_scores,
         )

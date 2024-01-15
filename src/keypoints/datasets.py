@@ -2,7 +2,10 @@ import numpy as np
 from torch import Tensor
 import torch
 import cv2
-from src.utils.files import load_yaml
+from pathlib import Path
+import shutil
+from tqdm.auto import tqdm
+from src.utils.files import load_yaml, save_yaml
 from src.utils.image import make_grid, put_txt, get_color
 from src.base.datasets import BaseImageDataset
 from src.keypoints.utils import (
@@ -31,8 +34,12 @@ from src.keypoints.transforms import (
     SPPEKeypointsTransform,
     MPPEKeypointsTransform,
 )
+from joblib import delayed, Parallel
 
 from src.keypoints.visualization import plot_heatmaps, plot_connections
+from src.logging.pylogger import get_pylogger
+
+log = get_pylogger(__file__)
 
 
 class HeatmapGenerator:
@@ -153,7 +160,8 @@ class BaseKeypointsDataset(BaseImageDataset):
             (int(res * out_size[0]), int(res * out_size[1])) for res in hm_resolutions
         ]
         self.is_train = split == "train"
-        self.annots_filepaths = sorted(glob.glob(f"{str(self.root)}/annots/{split}/*"))
+
+        self.annots_filepaths = self.get_annots_filepaths()
         self.images_filepaths = [
             path.replace(".yaml", ".jpg").replace("annots", "images")
             for path in self.annots_filepaths
@@ -162,6 +170,48 @@ class BaseKeypointsDataset(BaseImageDataset):
         for hm_size in self.hm_sizes:
             hm_generators.append(HeatmapGenerator(hm_size, sigma=2))
         self.hm_generators = hm_generators
+
+    def _rename_filepaths(self, annot_filepaths: list[str]):
+        def process_annot_filepath(annot_filepath: str) -> str | None:
+            image_filepath = annot_filepath.replace(".yaml", ".jpg").replace(
+                "annots", "images"
+            )
+            path_stem = Path(annot_filepath).stem
+            annot = load_yaml(annot_filepath)
+            total_vis_kpts = 0
+            for obj in annot["objects"]:
+                kpts = obj["keypoints"]
+                kpts_vis = [kpt["visibility"] for kpt in kpts]
+                total_vis_kpts += sum(kpts_vis)
+            is_valid_kpts = total_vis_kpts > 0
+
+            new_suffix = "valid" if is_valid_kpts else "invalid"
+            new_stem = f"{path_stem}_{new_suffix}"
+
+            new_annot_filepath = annot_filepath.replace(path_stem, new_stem)
+            new_image_filepath = image_filepath.replace(path_stem, new_stem)
+            shutil.move(annot_filepath, new_annot_filepath)
+            shutil.move(image_filepath, new_image_filepath)
+
+        Parallel(n_jobs=16)(
+            delayed(process_annot_filepath)(annot_path)
+            for annot_path in tqdm(
+                annot_filepaths,
+                desc="Renaming filepaths based on keypoints annot validity",
+            )
+        )
+
+    def get_annots_filepaths(self) -> list[str]:
+        annots_filepaths = sorted(glob.glob(f"{str(self.root)}/annots/{self.split}/*"))
+        is_checked_annots_filepaths = [
+            path for path in annots_filepaths if "valid" in path
+        ]
+        if len(is_checked_annots_filepaths) == 0:
+            self._rename_filepaths(annots_filepaths)
+        annots_filepaths = sorted(glob.glob(f"{str(self.root)}/annots/{self.split}/*"))
+        annots_filepaths = [path for path in annots_filepaths if "invalid" not in path]
+        log.info(f"{len(annots_filepaths)} filepaths found for {self.split} split")
+        return annots_filepaths
 
     @property
     def is_mpii(self) -> bool:
@@ -241,6 +291,7 @@ class BaseKeypointsDataset(BaseImageDataset):
 
     def plot(self, idx: int, hm_idx: int = 0):
         raw_image, raw_annot = self.get_raw_data(idx)
+
         image, all_heatmaps, _, keypoints, visibilities, extra_coords = self[idx]
 
         heatmaps = all_heatmaps[hm_idx]
@@ -288,7 +339,8 @@ class BaseKeypointsDataset(BaseImageDataset):
         hms_grid = make_grid(images, nrows=3, resize=0.5)
         img_txt = self.images_filepaths[idx].split("/")[-1] + f" ({idx}/{len(self)})"
         put_txt(hms_grid, [img_txt], font_scale=0.25)
-        hms_grid = cv2.resize(hms_grid, dsize=(0, 0), fx=1.5, fy=1.5)
+        f_xy = 1.2
+        hms_grid = cv2.resize(hms_grid, dsize=(0, 0), fx=f_xy, fy=f_xy)
         return hms_grid
 
     def get_raw_data(self, idx) -> tuple[np.ndarray, dict]:
@@ -469,6 +521,6 @@ if __name__ == "__main__":
     transform = cfg.dataset.TransformClass(**cfg.dataloader.transform.to_dict())
 
     ds = cfg.dataset.DatasetClass(
-        cfg.dataset.root, "val", transform, cfg.hm_resolutions
+        cfg.dataset.root, "train", transform, cfg.hm_resolutions
     )
-    ds.explore(idx=40, hm_idx=1)
+    ds.explore(idx=81, hm_idx=1)

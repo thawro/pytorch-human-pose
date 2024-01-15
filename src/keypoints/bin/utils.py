@@ -107,8 +107,9 @@ def create_model(cfg: Config) -> BaseKeypointsModel:
             raise ValueError("MPPE implemented only for Hourglass and HigherHRNet")
 
     # for multi-GPU DDP
-    net = torch.nn.SyncBatchNorm.convert_sync_batchnorm(net)
-    net = DDP(net.cuda(cfg.trainer.device_id), device_ids=[cfg.trainer.device_id])
+    if cfg.setup.distributed:
+        net = torch.nn.SyncBatchNorm.convert_sync_batchnorm(net)
+        net = DDP(net.cuda(cfg.trainer.device_id), device_ids=[cfg.trainer.device_id])
     model = ModelClass(net, num_keypoints=cfg.num_keypoints)
     return model
 

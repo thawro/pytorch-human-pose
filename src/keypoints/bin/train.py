@@ -50,11 +50,10 @@ def main(dataset, mode, arch, ckpt_path) -> None:
 
 if __name__ == "__main__":
     MODE = "MPPE"
-    DATASET = "MPII"
+    DATASET = "COCO"
     ARCH = "HigherHRNet"
-
-    RUN_NAME = "01-10_12:53"
-    RUN_SUBDIR = "01-10_12:53"
+    RUN_NAME = "01-12_15:17"
+    RUN_SUBDIR = "01-14_13:05"
     EXP_RUN_NAME = f"{RUN_NAME}__sigmoid_{MODE}_{DATASET}_{ARCH}"
     CKPT_PATH = f"{str(RESULTS_PATH)}/{EXPERIMENT_NAME}/{EXP_RUN_NAME}/{RUN_SUBDIR}/checkpoints/last.pt"
     CKPT_PATH = None
@@ -72,7 +71,11 @@ if __name__ == "__main__":
 # TODO: ewaluacja SPPE stosujac detektor obiektow (dla COCO wtedy uzyc cocoapi)
 # TODO: sprawdzic COCO val split (dziwnie ciezkie przypadki tam sa)
 
-# TODO: cos sie wywala przy wznawianiu treningow?
+# TODO: sprawdzic jak zadziala nowo napisany OKS
+# TODO: work on the COCO inference
+# TODO: odpalic cocoapi dla val
+
+
 """
 Hourglass:
 	1:1 aspect ratio

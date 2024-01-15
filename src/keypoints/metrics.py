@@ -5,9 +5,9 @@ from abc import abstractmethod
 _polygons = list[list[int]]
 _head_coords = list[list[int]]  # one-element list (to match COCO polygons)
 
-sigmas = [26, 25, 25, 35, 35, 79, 79, 72, 72, 62, 62, 107, 107, 87, 87, 89, 89]
-sigmas = np.array(sigmas) / 1000
-variances = (sigmas * 2) ** 2
+
+k_i = [26, 25, 25, 35, 35, 79, 79, 72, 72, 62, 62, 107, 107, 87, 87, 89, 89]
+k_i = np.array(k_i) / 1000
 
 
 def object_PCKh(
@@ -49,16 +49,16 @@ def object_OKS(
     if target_visibilities.sum() <= 0:
         return -1
 
-    num_kpts = len(target_kpts)
-
-    # kpts_vis = np.array([x > 0 or y > 0 for x, y in target_kpts[..., :2]])
     kpts_vis = target_visibilities > 0
 
     area = sum(cv2.contourArea(np.array(poly).reshape(-1, 2)) for poly in obj_polygons)
+    area += np.spacing(1)
     dist = ((pred_kpts - target_kpts) ** 2).sum(-1)
-    e = dist / variances / (area + np.spacing(1)) / 2
+    # dist is already squared (euclidean distance has square root)
+    e = dist / (2 * (k_i**2) * (area**2))
     e = e[kpts_vis]
-    return np.sum(np.exp(-e)) / num_kpts
+    num_vis_kpts = kpts_vis.sum()
+    return np.sum(np.exp(-e)) / num_vis_kpts
 
 
 class EvaluationMetric:

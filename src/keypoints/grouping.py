@@ -117,9 +117,8 @@ class MPPEHeatmapParser:
             if len(joint_dict) == 0:
                 for tag_idx, tag in enumerate(joint_tags):
                     joint = joints[tag_idx]
-                    key = tag[
-                        0
-                    ]  # getting 0th element in case of multidim tag embedding
+                    # getting 0th element in case of multidim tag embedding
+                    key = tag[0]  # TODO
                     joint_dict[key][idx] = joint.copy()
                     tag_dict[key] = [tag]
             else:
@@ -127,7 +126,7 @@ class MPPEHeatmapParser:
                 grouped_tags = np.array(
                     [np.mean(tag_dict[key], axis=0) for key in grouped_keys]
                 )
-                diff = np.expand_dims(joint_tags, -1) - np.expand_dims(grouped_tags, 0)
+                diff = np.expand_dims(joint_tags, 1) - np.expand_dims(grouped_tags, 0)
                 diff = np.linalg.norm(diff, ord=2, axis=2)
 
                 _diff = np.copy(diff)
@@ -158,7 +157,7 @@ class MPPEHeatmapParser:
                         tag_dict[key] = [joint_tags[row]]
 
         joints = np.array([joint_dict[i] for i in joint_dict]).astype(np.float32)
-        return joints[: self.max_num_people]
+        return joints  # [: self.max_num_people]
 
     def top_k(
         self, heatmaps: Tensor, tags: Tensor
@@ -166,6 +165,9 @@ class MPPEHeatmapParser:
         batch_size, num_kpts, h, w = heatmaps.shape
 
         heatmaps = self.nms(heatmaps)
+
+        # tag_emb_dim = tags.shape[-1]
+
         heatmaps = heatmaps.view(batch_size, num_kpts, -1)
         tags = tags.view(batch_size, num_kpts, w * h, -1)
         tag_emb_dim = tags.shape[-1]
@@ -187,7 +189,6 @@ class MPPEHeatmapParser:
         # joints_tags = tags_k.numpy()
         # joints_coords = coords_k.numpy()
         # joints_scores = scores_k.numpy()
-
         return joints_tags, joints_coords, joints_scores
 
     def adjust(self, joints: np.ndarray, heatmaps: np.ndarray) -> np.ndarray:
@@ -195,7 +196,7 @@ class MPPEHeatmapParser:
         num_kpts, h, w = heatmaps.shape
         for person_idx, person_joints in enumerate(joints):
             for joint_idx, joint in enumerate(person_joints):
-                y, x, score, tag = joint
+                y, x, score = joint[:3]
                 if score > 0:
                     xx, yy = int(x), int(y)
                     tmp = heatmaps[joint_idx]
@@ -289,15 +290,13 @@ class MPPEHeatmapParser:
         (x, y, score, tag) of each keypoint
         """
         num_kpts = heatmaps.shape[1]
-        heatmaps_npy = heatmaps.detach().cpu().numpy()
-        tags_npy = tags.detach().cpu().numpy()
+        heatmaps_npy = heatmaps.detach().cpu().numpy()[0]
+        tags_npy = tags.detach().cpu().numpy()[0]
 
         joints_tags, joints_coords, joints_scores = self.top_k(heatmaps, tags)
         joints_tags = joints_tags[0]
         joints_coords = joints_coords[0]
         joints_scores = joints_scores[0]
-        heatmaps_npy = heatmaps_npy[0]
-        tags_npy = tags_npy[0]
 
         joints = self.match(joints_tags, joints_coords, joints_scores)
 

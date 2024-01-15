@@ -38,6 +38,8 @@ def plot_connections(
                     continue
                 x1, y1 = kpts_coords[id_1]
                 x2, y2 = kpts_coords[id_2]
+                x1, y1 = int(x1), int(y1)
+                x2, y2 = int(x2), int(y2)
                 cv2.line(image, (x1, y1), (x2, y2), color, thickness)
     return image
 

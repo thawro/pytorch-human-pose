@@ -55,3 +55,26 @@ class BaseImageDataset(BaseDataset):
         if len(image.shape) == 2:
             image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
         return image
+
+    def perform_inference(
+        self,
+        callback: Callable[[np.ndarray], Any],
+        idx: int = 0,
+    ):
+        image = self.load_image(idx)
+        callback(frame=image)
+        k = cv2.waitKeyEx(0)
+        # change according to your system
+        left_key = 65361
+        right_key = 65363
+        if k % 256 == 27:  # ESC pressed
+            print("Escape hit, closing")
+            cv2.destroyAllWindows()
+            return
+        elif k % 256 == 32 or k == right_key:  # SPACE or right arrow pressed
+            print("Space or right arrow hit, exploring next sample")
+            idx += 1
+        elif k == left_key:  # SPACE or right arrow pressed
+            print("Left arrow hit, exploring previous sample")
+            idx -= 1
+        self.perform_inference(callback, idx)

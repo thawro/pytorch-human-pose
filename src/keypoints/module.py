@@ -145,7 +145,7 @@ class MPPEKeypointsModule(BaseKeypointsModule):
                 stages_pred_kpts_heatmaps,
                 stages_pred_tags_heatmaps,
                 target_keypoints,
-                target_weights,
+                target_visibilities,
                 extra_coords,
                 max_num_people=10,
                 det_thr=0.2,

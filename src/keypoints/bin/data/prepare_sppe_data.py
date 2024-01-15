@@ -5,7 +5,7 @@ from src.keypoints.utils import (
     xyxy_to_mask,
     coco_polygons_to_mask,
     mask_to_polygons,
-    mask_to_bounding_xyxy_coords,
+    mask_to_head_xyxy,
 )
 from PIL import Image
 import cv2
@@ -165,7 +165,7 @@ def parse_single_file(
 
         if ds_name == "MPII":  # adjust MPII head_xyxy coords wrt the new scale and pad
             # head_xyxy
-            extras = {"head_xyxy": mask_to_bounding_xyxy_coords(new_mask)}
+            extras = {"head_xyxy": mask_to_head_xyxy(new_mask)}
         else:  # COCO
             # segmentation polygons
             extras = {"segmentation": mask_to_polygons(new_mask)}
