@@ -56,6 +56,7 @@ class TransformConfig(BaseConfig):
 class DatasetConfig(BaseConfig):
     name: _dataset_name
     mode: _mode
+    out_size: tuple[int, int]
 
     @property
     def DatasetClass(self) -> Type[BaseKeypointsDataset]:
@@ -86,13 +87,6 @@ class DatasetConfig(BaseConfig):
     @property
     def root(self) -> str:
         return str(DS_ROOT / self.name / self.subdir)
-
-    @property
-    def out_size(self) -> list[int]:
-        if self.mode == "SPPE":
-            return [256, 256]
-        else:
-            return [512, 512]
 
     @property
     def symmetric_keypoints(self) -> list[int]:

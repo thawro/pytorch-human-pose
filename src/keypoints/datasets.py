@@ -14,6 +14,7 @@ from src.keypoints.utils import (
     polygons_to_mask,
     mask_to_polygons,
 )
+import random
 from typing import Callable
 import torchvision.transforms.functional as F
 from abc import abstractmethod
@@ -155,6 +156,7 @@ class BaseKeypointsDataset(BaseImageDataset):
     ):
         super().__init__(root, split, transform)
         out_size = transform.out_size
+        self.out_size = out_size
         self.hm_resolutions = hm_resolutions
         self.hm_sizes = [
             (int(res * out_size[0]), int(res * out_size[1])) for res in hm_resolutions
@@ -172,6 +174,7 @@ class BaseKeypointsDataset(BaseImageDataset):
         self.hm_generators = hm_generators
 
     def _rename_filepaths(self, annot_filepaths: list[str]):
+        # used to get rid of images without keypoints annotations
         def process_annot_filepath(annot_filepath: str) -> str | None:
             image_filepath = annot_filepath.replace(".yaml", ".jpg").replace(
                 "annots", "images"
@@ -348,6 +351,153 @@ class BaseKeypointsDataset(BaseImageDataset):
         annot = self.load_annot(idx)
         return image, annot
 
+    def get_raw_mosaiced_data(self, idx):
+        out_size = self.out_size
+        img_size = (out_size[0] // 2, out_size[1] // 2)
+        idxs = [idx] + [random.randint(0, len(self) - 1) for _ in range(3)]
+        images = [self.load_image(i) for i in idxs]
+        annots = [self.load_annot(i) for i in idxs]
+        new_annot = {"objects": []}
+
+        out_img = np.zeros([out_size[0], out_size[1], 3], dtype=np.uint8)
+
+        # Randomly select scales for dividing the output image
+
+        # Calculate the dividing points based on the selected scales
+        new_h, new_w = img_size
+
+        for i in range(4):
+            img = images[i]
+            img_h, img_w = img.shape[:2]
+            annot = annots[i]
+
+            if i == 0:  # top-left
+                s_y, s_x = 0, 0
+            elif i == 1:  # top-right
+                s_y, s_x = 0, new_w
+            elif i == 2:  # bottom-left
+                s_y, s_x = new_h, 0
+            else:
+                s_y, s_x = new_h, new_w
+
+            new_img = cv2.resize(img, (new_w, new_h))
+
+            scale_y, scale_x = new_h / img_h, new_w / img_w
+            objects = []
+            for obj in annot["objects"]:
+                bbox = obj["bbox"]
+                bbox[0] = int(bbox[0] * scale_x + s_x)
+                bbox[2] = int(bbox[2] * scale_x + s_x)
+                bbox[1] = int(bbox[1] * scale_y + s_y)
+                bbox[3] = int(bbox[3] * scale_y + s_y)
+
+                kpts = obj["keypoints"]
+                for j in range(len(kpts)):
+                    if kpts[j]["visibility"] > 0:
+                        kpt_x = int(kpts[j]["x"] * scale_x + s_x)
+                        kpt_y = int(kpts[j]["y"] * scale_y + s_y)
+                        vis = kpts[j]["visibility"]
+                    else:
+                        kpt_x = 0
+                        kpt_y = 0
+                        vis = 0
+                    kpts[j]["x"] = kpt_x
+                    kpts[j]["y"] = kpt_y
+                    kpts[j]["visibility"] = vis
+
+                segmentation = obj["segmentation"]
+                if isinstance(segmentation, dict):
+                    segmentation = mask_to_polygons(
+                        polygons_to_mask(segmentation, img_h, img_w)
+                    )
+                for j in range(len(segmentation)):
+                    seg = np.array(segmentation[j])
+                    seg[::2] = seg[::2] * scale_x + s_x
+                    seg[1::2] = seg[1::2] * scale_y + s_y
+                    segmentation[j] = seg.astype(np.int32).tolist()
+
+                objects.append(
+                    {
+                        "bbox": bbox,
+                        "iscrowd": obj["iscrowd"],
+                        "keypoints": kpts,
+                        "num_keypoints": obj["num_keypoints"],
+                        "segmentation": segmentation,
+                    }
+                )
+
+            out_img[s_y : s_y + new_h, s_x : s_x + new_w] = new_img
+
+            new_annot["objects"].extend(objects)
+        return out_img, new_annot
+
+    def get_raw_mixup_data(self, idx):
+        new_h, new_w = self.out_size
+        alpha = 1.5
+        mixup_lambda = np.random.beta(alpha, alpha)
+
+        images = [self.load_image(idx + i) for i in range(2)]
+        annots = [self.load_annot(idx + i) for i in range(2)]
+        new_annot = {"objects": []}
+
+        new_images = []
+        for i in range(2):
+            img = images[i]
+            annot = annots[i]
+
+            img_h, img_w = img.shape[:2]
+
+            new_img = cv2.resize(img, (new_w, new_h))
+            new_images.append(new_img)
+
+            scale_y, scale_x = new_h / img_h, new_w / img_w
+
+            objects = []
+            for obj in annot["objects"]:
+                bbox = obj["bbox"]
+                bbox[0] = int(bbox[0] * scale_x)
+                bbox[2] = int(bbox[2] * scale_x)
+                bbox[1] = int(bbox[1] * scale_y)
+                bbox[3] = int(bbox[3] * scale_y)
+
+                kpts = obj["keypoints"]
+                for j in range(len(kpts)):
+                    if kpts[j]["visibility"] > 0:
+                        kpt_x = int(kpts[j]["x"] * scale_x)
+                        kpt_y = int(kpts[j]["y"] * scale_y)
+                        vis = kpts[j]["visibility"]
+                    else:
+                        kpt_x = 0
+                        kpt_y = 0
+                        vis = 0
+                    kpts[j]["x"] = kpt_x
+                    kpts[j]["y"] = kpt_y
+                    kpts[j]["visibility"] = vis
+
+                segmentation = obj["segmentation"]
+                if isinstance(segmentation, dict):
+                    segmentation = mask_to_polygons(
+                        polygons_to_mask(segmentation, img_h, img_w)
+                    )
+                for j in range(len(segmentation)):
+                    seg = np.array(segmentation[j])
+                    seg[::2] = seg[::2] * scale_x
+                    seg[1::2] = seg[1::2] * scale_y
+                    segmentation[j] = seg.astype(np.int32).tolist()
+
+                objects.append(
+                    {
+                        "bbox": bbox,
+                        "iscrowd": obj["iscrowd"],
+                        "keypoints": kpts,
+                        "num_keypoints": obj["num_keypoints"],
+                        "segmentation": segmentation,
+                    }
+                )
+            new_annot["objects"].extend(objects)
+        out_img = mixup_lambda * new_images[0] + (1 - mixup_lambda) * new_images[1]
+        return out_img, new_annot
+
     def __getitem__(
         self, idx: int
     ) -> tuple[
@@ -358,7 +508,12 @@ class BaseKeypointsDataset(BaseImageDataset):
         np.ndarray,
         list[list[int]],
     ]:
-        image, annot = self.get_raw_data(idx)
+        use_mixup = random.random() <= 0.3
+        if use_mixup and self.is_train:
+            image, annot = self.get_raw_mosaiced_data(idx)
+        else:
+            image, annot = self.get_raw_data(idx)
+
         h, w = image.shape[:2]
         keypoints, visibilities, num_obj, extra_coords = self.parse_annot(annot)
         masks = self.extra_coords_to_masks(extra_coords, h, w)
@@ -523,4 +678,5 @@ if __name__ == "__main__":
     ds = cfg.dataset.DatasetClass(
         cfg.dataset.root, "train", transform, cfg.hm_resolutions
     )
-    ds.explore(idx=81, hm_idx=1)
+
+    ds.explore(idx=0, hm_idx=1)

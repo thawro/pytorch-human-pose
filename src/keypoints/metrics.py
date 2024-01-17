@@ -8,6 +8,7 @@ _head_coords = list[list[int]]  # one-element list (to match COCO polygons)
 
 k_i = [26, 25, 25, 35, 35, 79, 79, 72, 72, 62, 62, 107, 107, 87, 87, 89, 89]
 k_i = np.array(k_i) / 1000
+variances = (k_i * 2) ** 2
 
 
 def object_PCKh(
@@ -50,15 +51,20 @@ def object_OKS(
         return -1
 
     kpts_vis = target_visibilities > 0
-
-    area = sum(cv2.contourArea(np.array(poly).reshape(-1, 2)) for poly in obj_polygons)
+    area = sum(
+        cv2.contourArea(np.array(poly).reshape(-1, 2).astype(np.int32))
+        for poly in obj_polygons
+    )
     area += np.spacing(1)
+
     dist = ((pred_kpts - target_kpts) ** 2).sum(-1)
     # dist is already squared (euclidean distance has square root)
-    e = dist / (2 * (k_i**2) * (area**2))
+    e = dist / (2 * variances * area)
     e = e[kpts_vis]
     num_vis_kpts = kpts_vis.sum()
-    return np.sum(np.exp(-e)) / num_vis_kpts
+    e = np.exp(-e)
+    oks = np.sum(e) / num_vis_kpts
+    return oks
 
 
 class EvaluationMetric:
@@ -109,15 +115,17 @@ class OKS(EvaluationMetric):
         num_obj = len(seg_polygons)
         oks_values = []
         for j in range(num_obj):
+            dist = ((pred_kpts[j] - target_kpts[j]) ** 2).sum(-1) ** 0.5
             oks = object_OKS(
                 pred_kpts[j], target_kpts[j], target_visibilities[j], seg_polygons[j]
             )
             oks_values.append(oks)
-        oks_values = np.array(oks_values)
 
+        oks_values = np.array(oks_values).round(3)
         valid_oks_mask = oks_values != -1
         if valid_oks_mask.sum() > 0:
-            return oks_values[valid_oks_mask].mean()
+            oks_avg = oks_values[valid_oks_mask].mean()
+            return oks_avg
         return -1
 
     def evaluate_results(

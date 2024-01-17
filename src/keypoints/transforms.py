@@ -129,6 +129,7 @@ class SPPEKeypointsTransform(KeypointsTransform):
         ymin = (input_w - h) // 2
         xmax = xmin + w
         ymax = ymin + h
+        fill_value = (np.array(mean) * 255).astype(np.uint8).tolist()
 
         preprocessing = [
             A.Crop(xmin, ymin, xmax, ymax, p=1),
@@ -136,7 +137,14 @@ class SPPEKeypointsTransform(KeypointsTransform):
 
         random = A.Compose(
             [
-                A.Affine(scale=(0.75, 1.25), rotate=(-30, 30), keep_ratio=True, p=0.7),
+                A.Affine(
+                    scale=(0.75, 1.25),
+                    rotate=(-30, 30),
+                    keep_ratio=True,
+                    p=0.7,
+                    mode=cv2.BORDER_CONSTANT,
+                    cval=fill_value,
+                ),
             ],
             **compose_params,
         )
@@ -158,16 +166,21 @@ class MPPEKeypointsTransform(KeypointsTransform):
     ):
         preprocessing = []
 
+        fill_value = (np.array(mean) * 255).astype(np.uint8).tolist()
         random = A.Compose(
             [
                 A.LongestMaxSize(max(out_size)),
-                A.PadIfNeeded(*out_size, border_mode=cv2.BORDER_CONSTANT),
+                A.PadIfNeeded(
+                    *out_size, border_mode=cv2.BORDER_CONSTANT, value=fill_value
+                ),
                 A.Affine(
                     scale=(0.75, 1.5),
                     rotate=(-30, 30),
                     translate_px=[-40, 40],
                     keep_ratio=True,
                     p=0.7,
+                    cval=fill_value,
+                    mode=cv2.BORDER_CONSTANT,
                 ),
             ],
             **compose_params,
@@ -176,7 +189,9 @@ class MPPEKeypointsTransform(KeypointsTransform):
         inference = A.Compose(
             [
                 A.LongestMaxSize(max(out_size)),
-                A.PadIfNeeded(*out_size, border_mode=cv2.BORDER_CONSTANT),
+                A.PadIfNeeded(
+                    *out_size, border_mode=cv2.BORDER_CONSTANT, value=fill_value
+                ),
             ],
             **compose_params,
         )

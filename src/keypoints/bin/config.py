@@ -12,15 +12,20 @@ from src.keypoints.config import (
 
 EXPERIMENT_NAME = "test"
 
-LIMIT_BATCHES = -1
-LOG_EVERY_N_STEPS = -5
+EXP_MODE = "test"
+NAME_PREFIX = "sigmoid"
+BATCH_SIZE = 18
+
+
+if EXP_MODE == "debug":
+    LIMIT_BATCHES = 5
+    LOG_EVERY_N_STEPS = -1
+else:
+    LIMIT_BATCHES = -1
+    LOG_EVERY_N_STEPS = -5
 
 if LIMIT_BATCHES != -1:
     EXPERIMENT_NAME = "debug"
-
-
-NAME_PREFIX = "sigmoid_AELoss_1e-2"
-BATCH_SIZE = 18
 
 
 def create_config(
@@ -31,7 +36,7 @@ def create_config(
     ckpt_path: str | None = None,
     distributed: bool = True,
 ) -> Config:
-    dataset_cfg = DatasetConfig(name=dataset_name, mode=mode)
+    dataset_cfg = DatasetConfig(name=dataset_name, mode=mode, out_size=[512, 512])
 
     transform_cfg = TransformConfig(
         mean=[0.485, 0.456, 0.406],

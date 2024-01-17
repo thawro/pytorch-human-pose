@@ -161,4 +161,5 @@ colors = [
     (255, 165, 0),  # Orange
     (218, 112, 214),  # Orchid
 ]
+colors = colors + colors + colors
 get_color = lambda i: np.array(colors[i]).astype(np.uint8)

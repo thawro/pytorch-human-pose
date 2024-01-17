@@ -8,6 +8,7 @@ import numpy as np
 import cv2
 import glob
 from typing import Callable, Any
+from src.utils.files import load_yaml
 
 
 class BaseDataset(Dataset):
@@ -50,11 +51,22 @@ class BaseImageDataset(BaseDataset):
         super().__init__(root, split, transform)
         self.images_filepaths = sorted(glob.glob(f"{str(self.root)}/images/{split}/*"))
 
+    def __len__(self) -> int:
+        return len(self.images_filepaths)
+
     def load_image(self, idx: int) -> np.ndarray:
         image = np.asarray(Image.open(self.images_filepaths[idx]))
         if len(image.shape) == 2:
             image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
         return image
+
+    def load_annot(self, idx: int) -> dict:
+        annot_path = (
+            self.images_filepaths[idx]
+            .replace(".jpg", ".yaml")
+            .replace("images/", "annots/")
+        )
+        return load_yaml(annot_path)
 
     def perform_inference(
         self,
@@ -62,7 +74,8 @@ class BaseImageDataset(BaseDataset):
         idx: int = 0,
     ):
         image = self.load_image(idx)
-        callback(frame=image)
+        annot = self.load_annot(idx)
+        callback(frame=image, annot=annot)
         k = cv2.waitKeyEx(0)
         # change according to your system
         left_key = 65361

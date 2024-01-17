@@ -75,7 +75,7 @@ def create_datamodule(cfg: Config) -> KeypointsDataModule:
         transform=transform,
         batch_size=cfg.dataloader.batch_size,
         pin_memory=True,
-        num_workers=1,
+        num_workers=16,
         collate_fn=collate_fn,
     )
 

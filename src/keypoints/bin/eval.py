@@ -1,55 +1,75 @@
 import torch
 from tqdm.auto import tqdm
 
-from src.utils.config import ROOT
+from src.utils.config import DS_ROOT
 from src.utils.model import seed_everything
-from src.keypoints.visualization import plot_heatmaps
-from src.keypoints.bin.utils import create_datamodule, create_model
-from src.keypoints.bin.config import cfg
-from src.keypoints.metrics import KeypointsMetrics
+from src.keypoints.bin.inference import load_model
+from src.base.datasets import BaseImageDataset
 
-EVAL_RUN_NAME = "18-11-2023_17:25:54_train_MPII_LR(0.001)"
-cfg.setup.ckpt_path = str(ROOT / f"results/test/{EVAL_RUN_NAME}/checkpoints/last.pt")
-
-eps = 1e-8
-
-
-"""Train the model"""
+import numpy as np
+from PIL import Image
+from src.utils.files import load_yaml, save_json
+import cv2
 
 
 def main() -> None:
-    seed_everything(cfg.setup.seed)
+    dataset = "COCO"
+    model = load_model(dataset)
+    ds = BaseImageDataset(
+        root=str(DS_ROOT / f"{dataset}/HumanPose"),
+        split="val",
+        transform=None,
+    )
+
+    seed_everything(42)
     torch.set_float32_matmul_precision("medium")
 
-    datamodule = create_datamodule(cfg)
-    val_dl = datamodule.val_dataloader
-    model = create_model(cfg)
-    metrics = KeypointsMetrics()
+    n_examples = len(ds)
+    n_examples = 100
+    results = []
+    with torch.no_grad():
+        for idx in tqdm(range(n_examples)):
+            image_path = ds.images_filepaths[idx + 1]
+            annot_path = image_path.replace(".jpg", ".yaml").replace(
+                "images/", "annots/"
+            )
+            image = np.asarray(Image.open(image_path))
+            if len(image.shape) == 2:
+                image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+            annot = load_yaml(annot_path)
+            image_id = int(
+                annot["filename"].replace(".jpg", "").replace("_valid", "").lstrip("0")
+            )
 
-    ckpt = torch.load(cfg.setup.ckpt_path)["module"]["model"]
-    model.load_state_dict(ckpt)
-    model.to(cfg.setup.device)
-    avg_accuracies = []
-    for batch in tqdm(val_dl):
-        images, stages_target_heatmaps, target_weights = batch
-        images = images.to(cfg.setup.device)
+            result = model(image, None)
+            # final_plot, raw_image = result.plot()
+            # cv2.imshow("KPTS", raw_image)
 
-        with torch.no_grad():
-            stages_pred_heatmaps = model(images)
+            # cv2.waitKey()
+            pred_kpts = result.pred_keypoints
 
-        inv_processing = datamodule.transform.inverse_preprocessing
+            pred_scores = result.pred_scores
 
-        numpy_images = inv_processing(images.detach().cpu().numpy())
-        h, w = numpy_images.shape[:2]
+            num_obj = len(pred_scores)
 
-        pred_heatmaps = stages_pred_heatmaps[-1]
-        target_heatmaps = stages_target_heatmaps[-1].to(cfg.setup.device)
+            for i in range(num_obj):
+                kpts = pred_kpts[i]
+                scores = pred_scores[i]
+                num_kpts = len(kpts)
 
-        m = metrics.calculate_metrics(pred_heatmaps, target_heatmaps)
+                coco_kpts = np.zeros((num_kpts * 3,), dtype=np.int32)
+                coco_kpts[::3] = kpts[:, 0]  # x
+                coco_kpts[1::3] = kpts[:, 1]  # y
+                coco_kpts[2::3] = 1  # v
 
-        avg_accuracies.append(m["PCK"])
-    print(avg_accuracies)
-    print(sum(avg_accuracies) / len(avg_accuracies))
+                coco_result = {
+                    "image_id": image_id,
+                    "category_id": 1,
+                    "keypoints": coco_kpts.tolist(),
+                    "score": scores.mean().item(),
+                }
+                results.append(coco_result)
+    save_json(results, "results.json")
 
 
 if __name__ == "__main__":

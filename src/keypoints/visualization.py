@@ -2,7 +2,10 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from src.utils.image import make_grid, get_color
-from .results import SPPEKeypointsResults, MPPEKeypointsResults
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .results import SPPEKeypointsResults, MPPEKeypointsResults
 
 
 def plot_connections(
@@ -10,7 +13,7 @@ def plot_connections(
     all_kpts_coords: np.ndarray,
     all_kpts_scores: np.ndarray,
     limbs: list[tuple[int, int]] | None,
-    thr: float = 0.2,
+    thr: float = 0.05,
 ):
     """
     all_kpts_coords is of shape [num_obj, num_kpts, 2]
@@ -18,8 +21,8 @@ def plot_connections(
 
     """
     h, w = image.shape[:2]
-    radius = max(h, w) // 100 + 1
-    thickness = max(h, w) // 100 + 2
+    radius = max(h, w) // 100 + -2
+    thickness = max(h, w) // 100
 
     for i in range(len(all_kpts_coords)):
         kpts_coords = all_kpts_coords[i]
@@ -27,11 +30,6 @@ def plot_connections(
 
         color = get_color(i).tolist()
 
-        for (x, y), score in zip(kpts_coords, kpts_scores):
-            if score < thr:
-                continue
-            x, y = int(x), int(y)
-            cv2.circle(image, (x, y), radius, (0, 128, 255), -1)
         if limbs is not None:
             for id_1, id_2 in limbs:
                 if kpts_scores[id_1] < thr or kpts_scores[id_2] < thr:
@@ -41,6 +39,13 @@ def plot_connections(
                 x1, y1 = int(x1), int(y1)
                 x2, y2 = int(x2), int(y2)
                 cv2.line(image, (x1, y1), (x2, y2), color, thickness)
+
+        for (x, y), score in zip(kpts_coords, kpts_scores):
+            if score < thr:
+                continue
+            x, y = int(x), int(y)
+            cv2.circle(image, (x, y), radius, color, -1)
+            cv2.circle(image, (x, y), radius + 1, (0, 0, 0), 1)
     return image
 
 
@@ -65,7 +70,7 @@ def plot_heatmaps(
 
 
 def plot_sppe_results_heatmaps(
-    results: SPPEKeypointsResults,
+    results: "SPPEKeypointsResults",
     limbs: list[tuple[int, int]],
     filepath: str | None = None,
     thr: float = 0.2,
@@ -98,40 +103,52 @@ def plot_sppe_results_heatmaps(
 
 
 def plot_mppe_results_heatmaps(
-    results: MPPEKeypointsResults,
+    results: "MPPEKeypointsResults",
     limbs: list[tuple[int, int]],
     filepath: str | None = None,
-    thr: float = 0.2,
+    thr: float = 0.05,
 ):
     n_rows = min(10, len(results.pred_heatmaps))
     fig, axes = plt.subplots(n_rows, 1, figsize=(24, n_rows * 16))
     grids = []
     for i in range(n_rows):
         ax = axes[i]
-        pred_heatmaps = results.pred_heatmaps[i]
-        pred_tags = results.pred_tags[i]
+        pred_kpts_heatmaps = results.pred_heatmaps[i]
+        pred_tags_heatmaps = results.pred_tags[i]
 
         image = results.images[i]
-        kpts_coords = results.pred_keypoints[i].astype(np.int32)
-        kpts_scores = results.pred_scores[i]
+        pred_keypoints = results.pred_keypoints[i].astype(np.int32)
+        pred_scores = results.pred_scores[i]
 
-        pred_kpts_heatmaps = plot_heatmaps(
-            image, pred_heatmaps, clip_0_1=True, minmax=False
+        image = plot_connections(
+            image.copy(),
+            pred_keypoints,
+            pred_scores,
+            limbs,
+            thr=thr,
         )
-        pred_tags_heatmaps = plot_heatmaps(
-            image, pred_tags, clip_0_1=False, minmax=True
-        )
 
-        image = plot_connections(image.copy(), kpts_coords, kpts_scores, limbs, thr)
-        pred_kpts_heatmaps.insert(0, image)
-        pred_tags_heatmaps.insert(0, image)
+        final_plots = []
+        num_stages = 2
+        for i in range(num_stages):
+            kpts_heatmaps_plots = plot_heatmaps(
+                image, pred_kpts_heatmaps[..., i], clip_0_1=True, minmax=False
+            )
+            tags_heatmaps_plots = plot_heatmaps(
+                image, pred_tags_heatmaps[..., i], clip_0_1=False, minmax=True
+            )
+            kpts_heatmaps_plots.insert(0, image)
+            tags_heatmaps_plots.insert(0, image)
 
-        pred_kpts_grid = make_grid(pred_kpts_heatmaps, nrows=2, pad=5)
-        pred_tags_grid = make_grid(pred_tags_heatmaps, nrows=2, pad=5)
+            kpts_grid = make_grid(kpts_heatmaps_plots, nrows=2, pad=5)
+            tags_grid = make_grid(tags_heatmaps_plots, nrows=2, pad=5)
+            final_plots.extend([kpts_grid, tags_grid])
 
-        preds_grid = np.concatenate([pred_kpts_grid, pred_tags_grid], axis=0)
-        grids.append(preds_grid)
-        ax.imshow(preds_grid)
+        final_plot = np.concatenate(final_plots, axis=0)
+        final_plot = cv2.resize(final_plot, dsize=(0, 0), fx=0.4, fy=0.4)
+
+        grids.append(final_plot)
+        ax.imshow(final_plot)
 
     if filepath is not None:
         fig.savefig(filepath, bbox_inches="tight")

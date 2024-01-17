@@ -57,8 +57,8 @@ class SPPEHeatmapParser:
         """
         heatmaps = heatmaps[0]
         joints = self.match(heatmaps)
-        mask = joints[..., 2] < self.det_thr
-        joints[mask][..., :2] = (0, 0)
+        # mask = joints[..., 2] < self.det_thr
+        # joints[mask][..., :2] = (0, 0)
         return joints
 
 
@@ -107,7 +107,7 @@ class MPPEHeatmapParser:
             # shape: [num_person, joints_dim]
             joints = np.concatenate((joint_coords, joint_scores, joint_tags), 1)
 
-            mask = joint_scores.squeeze() > self.det_thr
+            mask = joint_scores.squeeze() >= self.det_thr
             joints = joints[mask]
             joint_tags = joint_tags[mask]
 
@@ -186,9 +186,6 @@ class MPPEHeatmapParser:
         joints_tags = tags_k.detach().cpu().numpy()
         joints_coords = coords_k.detach().cpu().numpy()
         joints_scores = scores_k.detach().cpu().numpy()
-        # joints_tags = tags_k.numpy()
-        # joints_coords = coords_k.numpy()
-        # joints_scores = scores_k.numpy()
         return joints_tags, joints_coords, joints_scores
 
     def adjust(self, joints: np.ndarray, heatmaps: np.ndarray) -> np.ndarray:

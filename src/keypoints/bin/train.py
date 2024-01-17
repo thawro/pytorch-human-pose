@@ -52,9 +52,10 @@ if __name__ == "__main__":
     MODE = "MPPE"
     DATASET = "COCO"
     ARCH = "HigherHRNet"
-    RUN_NAME = "01-12_15:17"
-    RUN_SUBDIR = "01-14_13:05"
-    EXP_RUN_NAME = f"{RUN_NAME}__sigmoid_{MODE}_{DATASET}_{ARCH}"
+    RUN_NAME = "01-15_20:28"
+    RUN_SUBDIR = "01-16_09:28"
+    EXP_RUN_NAME = f"{RUN_NAME}___{MODE}_{DATASET}_{ARCH}"
+    EXPERIMENT_NAME = "test"
     CKPT_PATH = f"{str(RESULTS_PATH)}/{EXPERIMENT_NAME}/{EXP_RUN_NAME}/{RUN_SUBDIR}/checkpoints/last.pt"
     CKPT_PATH = None
 
@@ -74,6 +75,7 @@ if __name__ == "__main__":
 # TODO: sprawdzic jak zadziala nowo napisany OKS
 # TODO: work on the COCO inference
 # TODO: odpalic cocoapi dla val
+# TODO: dodac mozaic aug (dla idx brac idx+1, idx+2, itd.)
 
 
 """
