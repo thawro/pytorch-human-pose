@@ -13,8 +13,10 @@ from src.keypoints.config import (
 EXPERIMENT_NAME = "test"
 
 EXP_MODE = "test"
+# EXP_MODE = "debug"
+
 NAME_PREFIX = "sigmoid"
-BATCH_SIZE = 18
+BATCH_SIZE = 40
 
 
 if EXP_MODE == "debug":

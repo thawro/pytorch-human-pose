@@ -17,6 +17,7 @@ from src.keypoints.bin.config import create_config, EXPERIMENT_NAME
 from torch.distributed import init_process_group, destroy_process_group
 import os
 from src.utils.config import RESULTS_PATH
+import torch.backends.cudnn as cudnn
 
 
 def ddp_setup():
@@ -26,6 +27,15 @@ def ddp_setup():
 
 def main(dataset, mode, arch, ckpt_path) -> None:
     ddp_setup()
+
+    # if fp16_enabled:
+    cudnn.benchmark = True
+    torch.backends.cudnn.deterministic = False
+    torch.backends.cudnn.enabled = True
+    assert (
+        torch.backends.cudnn.enabled
+    ), "fp16 mode requires cudnn backend to be enabled."
+
     rank = int(os.environ["LOCAL_RANK"])
 
     cfg = create_config(dataset, mode, arch, device_id=rank, ckpt_path=ckpt_path)
@@ -52,9 +62,10 @@ if __name__ == "__main__":
     MODE = "MPPE"
     DATASET = "COCO"
     ARCH = "HigherHRNet"
-    RUN_NAME = "01-15_20:28"
-    RUN_SUBDIR = "01-16_09:28"
-    EXP_RUN_NAME = f"{RUN_NAME}___{MODE}_{DATASET}_{ARCH}"
+    RUN_NAME = "01-17_16:04"
+    RUN_SUBDIR = "01-18_11:10"
+    PREFIX = "_sigmoid"
+    EXP_RUN_NAME = f"{RUN_NAME}_{PREFIX}_{MODE}_{DATASET}_{ARCH}"
     EXPERIMENT_NAME = "test"
     CKPT_PATH = f"{str(RESULTS_PATH)}/{EXPERIMENT_NAME}/{EXP_RUN_NAME}/{RUN_SUBDIR}/checkpoints/last.pt"
     CKPT_PATH = None
@@ -71,12 +82,16 @@ if __name__ == "__main__":
 
 # TODO: ewaluacja SPPE stosujac detektor obiektow (dla COCO wtedy uzyc cocoapi)
 # TODO: sprawdzic COCO val split (dziwnie ciezkie przypadki tam sa)
+# TODO: dodac te transformy z wycinaniem losowych kwadracikow
+# TODO: pretrain on the imagenet
 
-# TODO: sprawdzic jak zadziala nowo napisany OKS
-# TODO: work on the COCO inference
-# TODO: odpalic cocoapi dla val
-# TODO: dodac mozaic aug (dla idx brac idx+1, idx+2, itd.)
-
+# TODO: zoptymalizowac train loopa - wywalic extra coordsy itp
+# TODO: dodac pin memory na heatmapach, keypointsach i visibilities
+# TODO: zmienic ewaluacje, tak zeby co X krokow byl odpalany model ewaluacyjny - na pelnych obrazach + podanie OKS
+# TODO: wywalic liczenie OKS/pckh z train loopa
+# TODO: upewnic sie ze pipeline dobrze trenuje po zmianach z fp16
+# TODO: dodac oryginalny model hrnet, tak zeby dalo sie ladowac wagi z ImageNeta
+# TODO: zrobic init sieci tak jak w paperze
 
 """
 Hourglass:

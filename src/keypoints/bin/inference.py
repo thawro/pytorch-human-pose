@@ -7,6 +7,7 @@ from src.keypoints.bin.config import create_config
 from src.keypoints.config import Config
 from src.keypoints.transforms import MPPEKeypointsTransform
 from src.keypoints.results import InferenceMPPEKeypointsResult
+from src.keypoints.datasets import coco_symmetric_labels
 import cv2
 import numpy as np
 from src.utils.config import RESULTS_PATH, DS_ROOT
@@ -21,9 +22,9 @@ class MPPEInferenceKeypointsModel(nn.Module):
     def __init__(
         self,
         net: nn.Module,
-        det_thr: float = 0.2,
+        det_thr: float = 0.1,
         tag_thr: float = 1.0,
-        device: str = "cuda:0",
+        device: str = "cuda:1",
         limbs: list[tuple[int, int]] = coco_limbs,
     ):
         super().__init__()
@@ -48,6 +49,7 @@ class MPPEInferenceKeypointsModel(nn.Module):
         aspect_ratio = h / w
         size = max(h, w)
         mode = "shortest"  # shortest/longest max size
+        mode = "longest"
         compared_size = h if mode == "shortest" else w
         divider = 32
         if size == compared_size:
@@ -78,7 +80,24 @@ class MPPEInferenceKeypointsModel(nn.Module):
         x, scale, pad = self.prepare_input(frame)
         x = x.unsqueeze(0).to(self.device)
         input_image = self.transform.inverse_preprocessing(x.cpu().numpy()[0])
+        x_fliplr = torch.flip(x, (3,))
         stages_pred_kpts_heatmaps, stages_pred_tags_heatmaps = self.net(x)
+        # stages_pred_kpts_heatmaps_flip, stages_pred_tags_heatmaps_flip = self.net(
+        #     x_fliplr
+        # )
+        # for i, (kpts_hms_flipped, tags_hms_flipped) in enumerate(
+        #     zip(stages_pred_kpts_heatmaps_flip, stages_pred_tags_heatmaps_flip)
+        # ):
+        #     kpts_hms = kpts_hms_flipped.flip((3,))[0][coco_symmetric_labels].unsqueeze(
+        #         0
+        #     )
+        #     tags_hms = tags_hms_flipped.flip((3,))[0][coco_symmetric_labels]
+
+        #     stages_pred_kpts_heatmaps[i] = (stages_pred_kpts_heatmaps[i] + kpts_hms) / 2
+        #     stages_pred_tags_heatmaps[i] = torch.stack(
+        #         [stages_pred_tags_heatmaps[i][0], tags_hms], dim=0
+        #     )
+
         return InferenceMPPEKeypointsResult.from_preds(
             annot,
             input_image,
@@ -116,7 +135,7 @@ def load_model(dataset: str = "COCO"):
             RESULTS_PATH
             / "test/01-12_15:17__sigmoid_MPPE_COCO_HigherHRNet/01-14_20:44/checkpoints/last.pt"
         )
-        ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/test/01-17_16:04__sigmoid_MPPE_COCO_HigherHRNet/01-17_16:04/checkpoints/last.pt"
+        ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/test/01-17_16:04__sigmoid_MPPE_COCO_HigherHRNet/01-18_11:10/checkpoints/best.pt"
     else:
         ckpt_path = str(
             RESULTS_PATH

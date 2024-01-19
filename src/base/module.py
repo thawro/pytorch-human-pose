@@ -67,7 +67,6 @@ class BaseModule:
             setattr(self, name, attr)
 
     def load_state_dict(self, state_dict: dict, lr: float | None = None):
-        # self.model.to_DDP(self.device_id)
         self.model.load_state_dict(state_dict["model"])
         self.optimizers, self.schedulers = self.create_optimizers()
         for name, optimizer in self.optimizers.items():

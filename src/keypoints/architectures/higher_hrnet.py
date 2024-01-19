@@ -1,7 +1,6 @@
 from .hrnet import HRNet, BasicBlock
 from torch import nn, Tensor
 import torch
-import torch.nn.functional as F
 
 
 class DeconvHeatmapsHead(nn.Module):
@@ -85,7 +84,6 @@ class HigherHRNet(nn.Module):
         stages_kpts_heatmaps = []
         for i in range(len(heatmaps)):
             kpts_heatmaps = heatmaps[i][:, : self.num_keypoints]
-            kpts_heatmaps = F.sigmoid(kpts_heatmaps)
             tags_heatmaps = heatmaps[i][:, self.num_keypoints :]
 
             stages_kpts_heatmaps.append(kpts_heatmaps)

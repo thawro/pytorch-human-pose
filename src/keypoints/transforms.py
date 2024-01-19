@@ -28,7 +28,7 @@ class SymmetricKeypointsHorizontalFlip:
         self,
         num_obj: int,
         image: np.ndarray,
-        masks: list[np.ndarray],
+        # masks: list[np.ndarray],
         keypoints: list[tuple[int, int]],
         visibilities: list[list[int]],
     ):
@@ -37,7 +37,7 @@ class SymmetricKeypointsHorizontalFlip:
             keypoints = [list(kpt) for kpt in keypoints]
             # horizontal flip
             image = np.fliplr(image)
-            masks = [np.fliplr(mask).copy() for mask in masks]
+            # masks = [np.fliplr(mask).copy() for mask in masks]
 
             for k in range(len(keypoints)):
                 keypoints[k][0] = abs(keypoints[k][0] - w)
@@ -53,7 +53,7 @@ class SymmetricKeypointsHorizontalFlip:
             visibilities = _visibilities.reshape(-1, 1).tolist()
         return {
             "image": image,
-            "masks": masks,
+            # "masks": masks,
             "keypoints": keypoints,
             "visibilities": visibilities,
         }
@@ -173,6 +173,8 @@ class MPPEKeypointsTransform(KeypointsTransform):
                 A.PadIfNeeded(
                     *out_size, border_mode=cv2.BORDER_CONSTANT, value=fill_value
                 ),
+                # A.SmallestMaxSize(max(out_size)),
+                # A.RandomCrop(*out_size),
                 A.Affine(
                     scale=(0.75, 1.5),
                     rotate=(-30, 30),
@@ -188,6 +190,8 @@ class MPPEKeypointsTransform(KeypointsTransform):
 
         inference = A.Compose(
             [
+                # A.SmallestMaxSize(max(out_size)),
+                # A.CenterCrop(*out_size),
                 A.LongestMaxSize(max(out_size)),
                 A.PadIfNeeded(
                     *out_size, border_mode=cv2.BORDER_CONSTANT, value=fill_value

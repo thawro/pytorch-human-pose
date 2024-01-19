@@ -147,8 +147,6 @@ class MPPEKeypointsResults(KeypointsResults):
         ]
         num_kpts = stages_target_heatmaps[0].shape[1]
 
-        # pred_kpts_heatmaps = torch.stack(stages_pred_kpts_heatmaps).mean(0)
-
         pred_kpts_heatmaps = torch.stack(stages_pred_kpts_heatmaps, dim=-1)
 
         pred_tags_heatmaps = torch.stack(stages_pred_tags_heatmaps, dim=-1)
@@ -158,12 +156,15 @@ class MPPEKeypointsResults(KeypointsResults):
             num_kpts, max_num_people=max_num_people, det_thr=det_thr, tag_thr=tag_thr
         )
 
+        kpts_hms_to_parse = torch.nn.functional.sigmoid(pred_kpts_heatmaps.mean(-1))
+
         pred_joints = []
         for i in range(batch_size):
-            _heatmaps = pred_kpts_heatmaps[i]
+            _heatmaps = kpts_hms_to_parse[i]
+
             _tags = pred_tags_heatmaps[i]
             parsed_joints = parser.parse(
-                _heatmaps.unsqueeze(0).mean(-1),
+                _heatmaps.unsqueeze(0),
                 _tags.unsqueeze(0),
                 adjust=True,
                 refine=True,
@@ -258,28 +259,35 @@ class InferenceMPPEKeypointsResult:
         ]
         num_kpts = stages_pred_kpts_heatmaps[0].shape[1]
 
-        # pred_kpts_heatmaps = torch.stack(stages_pred_kpts_heatmaps).mean(0)
         pred_kpts_heatmaps = torch.stack(stages_pred_kpts_heatmaps, dim=-1)
-
-        # pred_tags_heatmaps = torch.stack(stages_pred_tags_heatmaps).mean(0)
         pred_tags_heatmaps = torch.stack(stages_pred_tags_heatmaps, dim=-1)
+
+        if pred_tags_heatmaps.shape[0] > 1:
+            pred_tags_heatmaps = [hm for hm in pred_tags_heatmaps]
+            pred_tags_heatmaps = torch.concat(pred_tags_heatmaps, dim=-1).unsqueeze(0)
 
         batch_size, num_kpts = pred_kpts_heatmaps.shape[:2]
         parser = MPPEHeatmapParser(
             num_kpts, max_num_people=max_num_people, det_thr=det_thr, tag_thr=tag_thr
         )
 
+        # kpts_hms_to_parse = torch.nn.functional.sigmoid(pred_kpts_heatmaps).mean(-1)
+        kpts_hms_to_parse = torch.nn.functional.sigmoid(pred_kpts_heatmaps.mean(-1))
+
         joints = parser.parse(
-            pred_kpts_heatmaps.mean(-1), pred_tags_heatmaps, adjust=True, refine=True
+            kpts_hms_to_parse, pred_tags_heatmaps, adjust=True, refine=True
         )
 
         pred_kpts_coords = joints[..., :2]
         pred_kpts_scores = joints[..., 2]
-        scaled_pred_kpts_coords = (pred_kpts_coords * scale).astype(np.int32)
+        scaled_pred_kpts_coords = pred_kpts_coords.copy()
         scaled_pred_kpts_coords[..., 0] -= pad[2]
         scaled_pred_kpts_coords[..., 1] -= pad[0]
+        scaled_pred_kpts_coords = (scaled_pred_kpts_coords * scale).astype(np.int32)
 
-        npy_pred_kpts_heatmaps = pred_kpts_heatmaps.cpu().numpy()[0]
+        npy_pred_kpts_heatmaps = (
+            torch.nn.functional.sigmoid(pred_kpts_heatmaps).cpu().numpy()[0]
+        )
         npy_pred_tags_heatmaps = pred_tags_heatmaps.cpu().numpy()[0]
 
         return cls(

@@ -66,11 +66,11 @@ class MPPEHeatmapParser:
     def __init__(
         self,
         num_kpts: int,
-        max_num_people: int = 3,
-        det_thr: float = 0.2,
+        max_num_people: int = 20,
+        det_thr: float = 0.1,
         tag_thr: float = 1.0,
     ):
-        self.pool = torch.nn.MaxPool2d(3, 1, 1)
+        self.pool = torch.nn.MaxPool2d(5, 1, 2)
         self.max_num_people = max_num_people
         self.num_kpts = num_kpts
         self.joints_order = JOINTS_ORDER

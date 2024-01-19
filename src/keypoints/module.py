@@ -9,9 +9,11 @@ from .loss import KeypointsLoss, AEKeypointsLoss
 from .results import SPPEKeypointsResults, MPPEKeypointsResults
 from .datamodule import KeypointsDataModule
 from src.base.lr_scheduler import LRScheduler
+import torch.nn.functional as F
+from src.utils.fp16_utils.fp16_optimizer import FP16_Optimizer
 
 
-_batch = tuple[Tensor, list[Tensor], Tensor, list, list, list]
+_batch = tuple[Tensor, list[Tensor], Tensor, list, list]
 
 
 class BaseKeypointsModule(BaseModule):
@@ -31,11 +33,19 @@ class BaseKeypointsModule(BaseModule):
     def create_optimizers(
         self,
     ) -> tuple[dict[str, optim.Optimizer], dict[str, LRScheduler]]:
-        optimizers = {"optim": optim.Adam(self.model.parameters(), lr=1e-3)}
+        fp16_enabled = True
+        optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
+        # if fp16_enabled:
+        optimizer = FP16_Optimizer(
+            optimizer,
+            dynamic_loss_scale=True,
+        )
+
+        optimizers = {"optim": optimizer}
         schedulers = {
             "optim": LRScheduler(
                 optim.lr_scheduler.MultiStepLR(
-                    optimizers["optim"],
+                    optimizers["optim"].optimizer,
                     milestones=[130, 170, 200],
                     gamma=0.1,
                 ),
@@ -61,7 +71,6 @@ class SPPEKeypointsModule(BaseKeypointsModule):
             target_weights,
             target_keypoints,
             target_visibilities,
-            extra_coords,
         ) = batch
 
         stages_pred_heatmaps = self.model(images)
@@ -102,9 +111,6 @@ class MPPEKeypointsModule(BaseKeypointsModule):
     ResultsClass: Type[MPPEKeypointsResults]
 
     def _common_step(self, batch: _batch, batch_idx: int) -> dict[str, float]:
-        if self.stage == "train":
-            self.optimizers["optim"].zero_grad()
-
         inv_processing = self.datamodule.transform.inverse_preprocessing
 
         (
@@ -113,12 +119,14 @@ class MPPEKeypointsModule(BaseKeypointsModule):
             target_weights,
             target_keypoints,
             target_visibilities,
-            extra_coords,
         ) = batch
         stages_pred_kpts_heatmaps, stages_pred_tags_heatmaps = self.model(images)
+        sigmoid_stages_pred_kpts_heatmaps = [
+            F.sigmoid(hms) for hms in stages_pred_kpts_heatmaps
+        ]
 
         hm_loss, tags_loss = self.loss_fn.calculate_loss(
-            stages_pred_kpts_heatmaps,
+            sigmoid_stages_pred_kpts_heatmaps,
             stages_pred_tags_heatmaps,
             stages_target_heatmaps,
             target_weights,
@@ -127,7 +135,12 @@ class MPPEKeypointsModule(BaseKeypointsModule):
         )
         loss = hm_loss + tags_loss
         if self.stage == "train":
-            loss.backward()
+            self.optimizers["optim"].zero_grad()
+            # if fp16:
+            self.optimizers["optim"].backward(loss)
+            # else:
+            # loss.backward()
+
             self.optimizers["optim"].step()
 
         metrics = {
@@ -136,21 +149,21 @@ class MPPEKeypointsModule(BaseKeypointsModule):
             "tags_loss": tags_loss.item(),
         }
 
-        if self.is_log_step and "eval" in self.stage:
-            numpy_images = inv_processing(images.detach().cpu().numpy())
+        # if self.is_log_step and "eval" in self.stage:
+        #     numpy_images = inv_processing(images.detach().cpu().numpy())
 
-            results = self.ResultsClass.from_preds(
-                numpy_images,
-                stages_target_heatmaps,
-                stages_pred_kpts_heatmaps,
-                stages_pred_tags_heatmaps,
-                target_keypoints,
-                target_visibilities,
-                extra_coords,
-                max_num_people=10,
-                det_thr=0.2,
-                tag_thr=1,
-            )
-            self.results[self.stage] = results
-            metrics.update(results.evaluate())
+        #     results = self.ResultsClass.from_preds(
+        #         numpy_images,
+        #         stages_target_heatmaps,
+        #         stages_pred_kpts_heatmaps,
+        #         stages_pred_tags_heatmaps,
+        #         target_keypoints,
+        #         target_visibilities,
+        #         extra_coords,
+        #         max_num_people=20,
+        #         det_thr=0.1,
+        #         tag_thr=1,
+        #     )
+        #     self.results[self.stage] = results
+        #     metrics.update(results.evaluate())
         return metrics

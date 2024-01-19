@@ -243,7 +243,7 @@ class BaseKeypointsDataset(BaseImageDataset):
         image: np.ndarray,
         keypoints: list[tuple[int, int]],
         visibilities: list[int],
-        masks: list[np.ndarray],
+        # masks: list[np.ndarray],
         num_obj: int,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[np.ndarray]]:
         if self.is_train:
@@ -251,8 +251,11 @@ class BaseKeypointsDataset(BaseImageDataset):
         else:
             transform = self.transform.inference
 
+        # transformed = transform(
+        #     image=image, keypoints=keypoints, visibilities=visibilities, masks=masks
+        # )
         transformed = transform(
-            image=image, keypoints=keypoints, visibilities=visibilities, masks=masks
+            image=image, keypoints=keypoints, visibilities=visibilities
         )
 
         if self.transform.horizontal_flip is not None:
@@ -261,7 +264,7 @@ class BaseKeypointsDataset(BaseImageDataset):
         transformed = self.transform.preprocessing(**transformed)
         transformed = self.transform.postprocessing(**transformed)
         _image = transformed["image"]
-        _masks = transformed["masks"]
+        # _masks = transformed["masks"]
         _keypoints = np.array(transformed["keypoints"]).astype(np.int32)
         _visibilities = np.array(transformed["visibilities"])
 
@@ -276,7 +279,8 @@ class BaseKeypointsDataset(BaseImageDataset):
             _visibilities[i] = int(was_visible and is_visible_now)
         _keypoints = _keypoints.reshape(num_obj, -1, 2)
         _visibilities = _visibilities.reshape(num_obj, -1)
-        return _image, _keypoints, _visibilities, _masks
+        # return _image, _keypoints, _visibilities, _masks
+        return _image, _keypoints, _visibilities
 
     @abstractmethod
     def parse_annot(
@@ -295,7 +299,8 @@ class BaseKeypointsDataset(BaseImageDataset):
     def plot(self, idx: int, hm_idx: int = 0):
         raw_image, raw_annot = self.get_raw_data(idx)
 
-        image, all_heatmaps, _, keypoints, visibilities, extra_coords = self[idx]
+        # image, all_heatmaps, _, keypoints, visibilities, extra_coords = self[idx]
+        image, all_heatmaps, _, keypoints, visibilities = self[idx]
 
         heatmaps = all_heatmaps[hm_idx]
 
@@ -328,7 +333,7 @@ class BaseKeypointsDataset(BaseImageDataset):
                 obj_scores.append(score)
             scores.append(obj_scores)
 
-        image = self.plot_extra_coords(image, extra_coords)
+        # image = self.plot_extra_coords(image, extra_coords)
         image = plot_connections(image.copy(), keypoints, scores, self.limbs, thr=0.5)
 
         kpts_heatmaps.insert(0, image)
@@ -508,7 +513,7 @@ class BaseKeypointsDataset(BaseImageDataset):
         np.ndarray,
         list[list[int]],
     ]:
-        use_mixup = random.random() <= 0.3
+        use_mixup = random.random() <= 0.0
         if use_mixup and self.is_train:
             image, annot = self.get_raw_mosaiced_data(idx)
         else:
@@ -516,12 +521,15 @@ class BaseKeypointsDataset(BaseImageDataset):
 
         h, w = image.shape[:2]
         keypoints, visibilities, num_obj, extra_coords = self.parse_annot(annot)
-        masks = self.extra_coords_to_masks(extra_coords, h, w)
-        image, keypoints, visibilities, masks = self._transform(
-            image, keypoints, visibilities, masks, num_obj
+        # masks = self.extra_coords_to_masks(extra_coords, h, w)
+        # image, keypoints, visibilities, masks = self._transform(
+        #     image, keypoints, visibilities, masks, num_obj
+        # )
+        image, keypoints, visibilities = self._transform(
+            image, keypoints, visibilities, num_obj
         )
-        masks = [mask.numpy() for mask in masks]
-        extra_coords = self.masks_to_extra_coords(masks)
+        # masks = [mask.numpy() for mask in masks]
+        # extra_coords = self.masks_to_extra_coords(masks)
 
         max_h, max_w = image.shape[-2:]
         scales_heatmaps = []
@@ -536,7 +544,7 @@ class BaseKeypointsDataset(BaseImageDataset):
             target_weights,
             keypoints,
             visibilities,
-            extra_coords,
+            # extra_coords,
         )
 
 
@@ -564,7 +572,7 @@ def collate_fn(
     target_weights = [item[2] for item in batch]
     target_keypoints = [item[3] for item in batch]
     target_visibilities = [item[4] for item in batch]
-    extra_coords = [item[5] for item in batch]
+    # extra_coords = [item[5] for item in batch]
 
     images = torch.from_numpy(np.stack(images))
     # scales_heatmaps = torch.from_numpy(np.stack(scales_heatmaps))
@@ -585,7 +593,7 @@ def collate_fn(
         target_weights,
         target_keypoints,
         target_visibilities,
-        extra_coords,
+        # extra_coords,
     )
 
 

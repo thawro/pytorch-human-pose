@@ -25,6 +25,8 @@ from ..architectures.higher_hrnet import HigherHRNet
 from ..module import SPPEKeypointsModule, MPPEKeypointsModule
 from ..callbacks import KeypointsExamplesPlotterCallback
 from ..config import Config
+from src.utils.fp16_utils.fp16util import network_to_half
+
 
 from torch.nn.parallel import DistributedDataParallel as DDP
 
@@ -108,6 +110,8 @@ def create_model(cfg: Config) -> BaseKeypointsModel:
 
     # for multi-GPU DDP
     if cfg.setup.distributed:
+        # if fp16_enabled
+        net = network_to_half(net)
         net = torch.nn.SyncBatchNorm.convert_sync_batchnorm(net)
         net = DDP(net.cuda(cfg.trainer.device_id), device_ids=[cfg.trainer.device_id])
     model = ModelClass(net, num_keypoints=cfg.num_keypoints)
