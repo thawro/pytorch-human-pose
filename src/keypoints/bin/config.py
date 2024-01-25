@@ -15,12 +15,12 @@ EXPERIMENT_NAME = "test"
 EXP_MODE = "test"
 # EXP_MODE = "debug"
 
-NAME_PREFIX = "sigmoid"
-BATCH_SIZE = 40
+NAME_PREFIX = ""
+BATCH_SIZE = 36
 
 
 if EXP_MODE == "debug":
-    LIMIT_BATCHES = 5
+    LIMIT_BATCHES = 10
     LOG_EVERY_N_STEPS = -1
 else:
     LIMIT_BATCHES = -1
@@ -37,6 +37,7 @@ def create_config(
     device_id: int,
     ckpt_path: str | None = None,
     distributed: bool = True,
+    is_train: bool = True,
 ) -> Config:
     dataset_cfg = DatasetConfig(name=dataset_name, mode=mode, out_size=[512, 512])
 
@@ -65,6 +66,7 @@ def create_config(
         ckpt_path=ckpt_path,
         mode=dataset_cfg.mode,
         arch=arch,
+        is_train=is_train,
     )
 
     return Config(

@@ -50,6 +50,8 @@ class BaseImageDataset(BaseDataset):
     def __init__(self, root: str, split: str, transform: A.Compose):
         super().__init__(root, split, transform)
         self.images_filepaths = sorted(glob.glob(f"{str(self.root)}/images/{split}/*"))
+        if len(self.images_filepaths) == 0:
+            self.images_filepaths = sorted(glob.glob(f"{str(self.root)}/{split}/*"))
 
     def __len__(self) -> int:
         return len(self.images_filepaths)

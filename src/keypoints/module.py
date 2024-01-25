@@ -6,8 +6,8 @@ from src.base.module import BaseModule
 
 from .model import BaseKeypointsModel, KeypointsModel, AEKeypointsModel
 from .loss import KeypointsLoss, AEKeypointsLoss
-from .results import SPPEKeypointsResults, MPPEKeypointsResults
 from .datamodule import KeypointsDataModule
+from .results import MPPEKeypointsResult
 from src.base.lr_scheduler import LRScheduler
 import torch.nn.functional as F
 from src.utils.fp16_utils.fp16_optimizer import FP16_Optimizer
@@ -24,11 +24,11 @@ class BaseKeypointsModule(BaseModule):
         model: BaseKeypointsModel,
         loss_fn: KeypointsLoss,
         labels: list[str],
-        ResultsClass: Type[SPPEKeypointsResults | MPPEKeypointsResults],
+        limbs: list[tuple[int, int]],
     ):
         super().__init__(model, loss_fn)
         self.labels = labels
-        self.ResultsClass = ResultsClass
+        self.limbs = limbs
 
     def create_optimizers(
         self,
@@ -36,10 +36,7 @@ class BaseKeypointsModule(BaseModule):
         fp16_enabled = True
         optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
         # if fp16_enabled:
-        optimizer = FP16_Optimizer(
-            optimizer,
-            dynamic_loss_scale=True,
-        )
+        optimizer = FP16_Optimizer(optimizer, dynamic_loss_scale=True, verbose=False)
 
         optimizers = {"optim": optimizer}
         schedulers = {
@@ -58,8 +55,6 @@ class BaseKeypointsModule(BaseModule):
 class SPPEKeypointsModule(BaseKeypointsModule):
     model: KeypointsModel
     loss_fn: KeypointsLoss
-    results: dict[str, SPPEKeypointsResults]
-    ResultsClass: Type[SPPEKeypointsResults]
 
     def _common_step(self, batch: _batch, batch_idx: int) -> dict[str, float]:
         if self.stage == "train":
@@ -82,37 +77,16 @@ class SPPEKeypointsModule(BaseKeypointsModule):
             loss.backward()
             self.optimizers["optim"].step()
 
-        pred_heatmaps = stages_pred_heatmaps[-1]
-        target_heatmaps = stages_target_heatmaps[-1]
-
         metrics = {"loss": loss.item()}
 
-        if self.is_log_step and "eval" in self.stage:
-            inv_processing = self.datamodule.transform.inverse_preprocessing
-            numpy_images = inv_processing(images.detach().cpu().numpy())
-            results = self.ResultsClass.from_preds(
-                numpy_images,
-                target_heatmaps,
-                pred_heatmaps.detach(),
-                target_keypoints,
-                target_weights,
-                extra_coords,
-                det_thr=0.2,
-            )
-            self.results[self.stage] = results
-            metrics.update(results.evaluate())
         return metrics
 
 
 class MPPEKeypointsModule(BaseKeypointsModule):
     model: AEKeypointsModel
     loss_fn: AEKeypointsLoss
-    results: dict[str, MPPEKeypointsResults]
-    ResultsClass: Type[MPPEKeypointsResults]
 
     def _common_step(self, batch: _batch, batch_idx: int) -> dict[str, float]:
-        inv_processing = self.datamodule.transform.inverse_preprocessing
-
         (
             images,
             stages_target_heatmaps,
@@ -121,12 +95,9 @@ class MPPEKeypointsModule(BaseKeypointsModule):
             target_visibilities,
         ) = batch
         stages_pred_kpts_heatmaps, stages_pred_tags_heatmaps = self.model(images)
-        sigmoid_stages_pred_kpts_heatmaps = [
-            F.sigmoid(hms) for hms in stages_pred_kpts_heatmaps
-        ]
 
         hm_loss, tags_loss = self.loss_fn.calculate_loss(
-            sigmoid_stages_pred_kpts_heatmaps,
+            stages_pred_kpts_heatmaps,
             stages_pred_tags_heatmaps,
             stages_target_heatmaps,
             target_weights,
@@ -149,21 +120,23 @@ class MPPEKeypointsModule(BaseKeypointsModule):
             "tags_loss": tags_loss.item(),
         }
 
-        # if self.is_log_step and "eval" in self.stage:
-        #     numpy_images = inv_processing(images.detach().cpu().numpy())
+        if self.stage == "train":
+            return metrics
 
-        #     results = self.ResultsClass.from_preds(
-        #         numpy_images,
-        #         stages_target_heatmaps,
-        #         stages_pred_kpts_heatmaps,
-        #         stages_pred_tags_heatmaps,
-        #         target_keypoints,
-        #         target_visibilities,
-        #         extra_coords,
-        #         max_num_people=20,
-        #         det_thr=0.1,
-        #         tag_thr=1,
-        #     )
-        #     self.results[self.stage] = results
-        #     metrics.update(results.evaluate())
-        return metrics
+        results = []
+        for i in range(len(images)):
+            _image = self.datamodule.transform.inverse_preprocessing(images[i].detach())
+            pred_kpts_heatmaps = [hms[i].detach() for hms in stages_pred_kpts_heatmaps]
+            pred_tags_heatmaps = [hms[i].detach() for hms in stages_pred_tags_heatmaps]
+
+            result = MPPEKeypointsResult(
+                image=_image,
+                stages_pred_kpts_heatmaps=pred_kpts_heatmaps,
+                stages_pred_tags_heatmaps=pred_tags_heatmaps,
+                limbs=self.limbs,
+                max_num_people=20,
+                det_thr=0.1,
+                tag_thr=1.0,
+            )
+            results.append(result)
+        return metrics, results

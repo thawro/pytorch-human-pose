@@ -172,6 +172,7 @@ class BaseKeypointsDataset(BaseImageDataset):
         for hm_size in self.hm_sizes:
             hm_generators.append(HeatmapGenerator(hm_size, sigma=2))
         self.hm_generators = hm_generators
+        self.raw_annots_cache = {}
 
     def _rename_filepaths(self, annot_filepaths: list[str]):
         # used to get rid of images without keypoints annotations
@@ -230,7 +231,14 @@ class BaseKeypointsDataset(BaseImageDataset):
         return len(self.annots_filepaths)
 
     def load_annot(self, idx: int):
-        return load_yaml(self.annots_filepaths[idx])
+        from copy import deepcopy
+
+        try:
+            return deepcopy(self.raw_annots_cache[idx])
+        except KeyError:
+            annot = load_yaml(self.annots_filepaths[idx])
+            self.raw_annots_cache[idx] = annot
+            return annot
 
     def extra_coords_to_masks(self, extra_coords, h: int, w: int) -> list[np.ndarray]:
         return [self.__class__.fn_coords2masks(coords, h, w) for coords in extra_coords]
@@ -243,28 +251,27 @@ class BaseKeypointsDataset(BaseImageDataset):
         image: np.ndarray,
         keypoints: list[tuple[int, int]],
         visibilities: list[int],
-        # masks: list[np.ndarray],
         num_obj: int,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[np.ndarray]]:
+        use_mosaiced: bool,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         if self.is_train:
-            transform = self.transform.random
+            if use_mosaiced:
+                transform = self.transform.random_mosaic
+            else:
+                transform = self.transform.random
         else:
             transform = self.transform.inference
 
-        # transformed = transform(
-        #     image=image, keypoints=keypoints, visibilities=visibilities, masks=masks
-        # )
-        transformed = transform(
-            image=image, keypoints=keypoints, visibilities=visibilities
-        )
-
         if self.transform.horizontal_flip is not None:
-            transformed = self.transform.horizontal_flip(num_obj, **transformed)
+            transformed = self.transform.horizontal_flip(
+                num_obj, image=image, keypoints=keypoints, visibilities=visibilities
+            )
+
+        transformed = transform(**transformed)
 
         transformed = self.transform.preprocessing(**transformed)
         transformed = self.transform.postprocessing(**transformed)
         _image = transformed["image"]
-        # _masks = transformed["masks"]
         _keypoints = np.array(transformed["keypoints"]).astype(np.int32)
         _visibilities = np.array(transformed["visibilities"])
 
@@ -279,13 +286,10 @@ class BaseKeypointsDataset(BaseImageDataset):
             _visibilities[i] = int(was_visible and is_visible_now)
         _keypoints = _keypoints.reshape(num_obj, -1, 2)
         _visibilities = _visibilities.reshape(num_obj, -1)
-        # return _image, _keypoints, _visibilities, _masks
         return _image, _keypoints, _visibilities
 
     @abstractmethod
-    def parse_annot(
-        self, annot: dict
-    ) -> tuple[list[tuple[int, int]], list[int], int, list[list[list[int]]]]:
+    def parse_annot(self, annot: dict) -> tuple[list[tuple[int, int]], list[int], int]:
         raise NotImplementedError()
 
     @abstractmethod
@@ -358,23 +362,20 @@ class BaseKeypointsDataset(BaseImageDataset):
 
     def get_raw_mosaiced_data(self, idx):
         out_size = self.out_size
+        out_size = (out_size[0] * 2, out_size[1] * 2)
         img_size = (out_size[0] // 2, out_size[1] // 2)
         idxs = [idx] + [random.randint(0, len(self) - 1) for _ in range(3)]
-        images = [self.load_image(i) for i in idxs]
-        annots = [self.load_annot(i) for i in idxs]
         new_annot = {"objects": []}
 
         out_img = np.zeros([out_size[0], out_size[1], 3], dtype=np.uint8)
 
-        # Randomly select scales for dividing the output image
-
-        # Calculate the dividing points based on the selected scales
         new_h, new_w = img_size
 
         for i in range(4):
-            img = images[i]
+            idx = idxs[i]
+            img = self.load_image(idx)
+            annot = self.load_annot(idx)
             img_h, img_w = img.shape[:2]
-            annot = annots[i]
 
             if i == 0:  # top-left
                 s_y, s_x = 0, 0
@@ -505,31 +506,18 @@ class BaseKeypointsDataset(BaseImageDataset):
 
     def __getitem__(
         self, idx: int
-    ) -> tuple[
-        np.ndarray,
-        list[np.ndarray],
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        list[list[int]],
-    ]:
-        use_mixup = random.random() <= 0.0
-        if use_mixup and self.is_train:
+    ) -> tuple[np.ndarray, list[np.ndarray], np.ndarray, np.ndarray, np.ndarray,]:
+        use_mosaiced = random.random() <= 0.35 and self.is_train
+        if use_mosaiced:
             image, annot = self.get_raw_mosaiced_data(idx)
         else:
             image, annot = self.get_raw_data(idx)
 
         h, w = image.shape[:2]
-        keypoints, visibilities, num_obj, extra_coords = self.parse_annot(annot)
-        # masks = self.extra_coords_to_masks(extra_coords, h, w)
-        # image, keypoints, visibilities, masks = self._transform(
-        #     image, keypoints, visibilities, masks, num_obj
-        # )
+        keypoints, visibilities, num_obj = self.parse_annot(annot)
         image, keypoints, visibilities = self._transform(
-            image, keypoints, visibilities, num_obj
+            image, keypoints, visibilities, num_obj, use_mosaiced
         )
-        # masks = [mask.numpy() for mask in masks]
-        # extra_coords = self.masks_to_extra_coords(masks)
 
         max_h, max_w = image.shape[-2:]
         scales_heatmaps = []
@@ -538,44 +526,20 @@ class BaseKeypointsDataset(BaseImageDataset):
                 keypoints, visibilities, max_h, max_w
             )
             scales_heatmaps.append(heatmaps)
-        return (
-            image,
-            scales_heatmaps,
-            target_weights,
-            keypoints,
-            visibilities,
-            # extra_coords,
-        )
+        return image, scales_heatmaps, target_weights, keypoints, visibilities
 
 
 def collate_fn(
-    batch: tuple[
-        np.ndarray,
-        list[np.ndarray],
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        list[list[list[list[int]]]],
-    ]
-) -> tuple[
-    Tensor,
-    list[Tensor],
-    Tensor,
-    list[list[list[tuple[int, int]]]],
-    list[list[list[float]]],
-    list[list[list[list[int]]]],
-]:
-    # extra_coords shape: [batch_size, num_obj, num_polygons, num_coords*2]
+    batch: list[tuple[np.ndarray, list[np.ndarray], np.ndarray, np.ndarray, np.ndarray]]
+) -> tuple[Tensor, list[Tensor], Tensor, list[np.ndarray], list[np.ndarray],]:
     images = [item[0] for item in batch]
     batch_size = len(images)
     scales_heatmaps = [item[1] for item in batch]
-    target_weights = [item[2] for item in batch]
-    target_keypoints = [item[3] for item in batch]
-    target_visibilities = [item[4] for item in batch]
-    # extra_coords = [item[5] for item in batch]
+    weights = [item[2] for item in batch]
+    keypoints = [item[3] for item in batch]
+    visibilities = [item[4] for item in batch]
 
     images = torch.from_numpy(np.stack(images))
-    # scales_heatmaps = torch.from_numpy(np.stack(scales_heatmaps))
 
     num_resolutions = len(scales_heatmaps[0])
     tensor_scales_heatmaps = []
@@ -585,47 +549,34 @@ def collate_fn(
         resolution_heatmaps = [scales_heatmaps[b][i] for b in range(batch_size)]
         resolution_heatmaps = torch.from_numpy(np.stack(resolution_heatmaps))
         tensor_scales_heatmaps.append(resolution_heatmaps)
-    target_weights = torch.from_numpy(np.stack(target_weights))
+    weights = torch.from_numpy(np.stack(weights))
 
-    return (
-        images,
-        tensor_scales_heatmaps,
-        target_weights,
-        target_keypoints,
-        target_visibilities,
-        # extra_coords,
-    )
+    return images, tensor_scales_heatmaps, weights, keypoints, visibilities
 
 
 class SPPEKeypointsDataset(BaseKeypointsDataset):
     transform: SPPEKeypointsTransform
     is_multiobj: bool = False
 
-    def parse_annot(
-        self, annot: dict
-    ) -> tuple[list[tuple[int, int]], list[int], int, list[list[list[int]]]]:
+    def parse_annot(self, annot: dict) -> tuple[list[tuple[int, int]], list[int], int]:
         num_objects = 1
         keypoints = []
         visibilities = []
-        extra_coords = self.get_extras_from_annot(annot)
         kpts = annot["keypoints"]
         for kpt in kpts:
             x, y = kpt["x"], kpt["y"]
-            visibility = int((x > 0 and y > 0) or kpt["visibility"] > 0)
+            visibility = int((x > 0 and y > 0) and kpt["visibility"] > 0)
             keypoints.append([x, y])
             visibilities.append(visibility)
-        return keypoints, visibilities, num_objects, extra_coords
+        return keypoints, visibilities, num_objects
 
 
 class MPPEKeypointsDataset(BaseKeypointsDataset):
     transform: MPPEKeypointsTransform
     is_multiobj: bool = True
 
-    def parse_annot(
-        self, annot: dict
-    ) -> tuple[list[tuple[int, int]], list[int], int, list[list[list[int]]]]:
+    def parse_annot(self, annot: dict) -> tuple[list[tuple[int, int]], list[int], int]:
         objects_annot = annot["objects"]
-        extra_coords = self.get_extras_from_annot(annot)
         num_objects = len(objects_annot)
         keypoints = []
         visibilities = []
@@ -633,11 +584,11 @@ class MPPEKeypointsDataset(BaseKeypointsDataset):
             kpts = obj["keypoints"]
             for kpt in kpts:
                 x, y = kpt["x"], kpt["y"]
-                visibility = int((x > 0 and y > 0) or kpt["visibility"] > 0)
+                visibility = int((x > 0 and y > 0) and kpt["visibility"] > 0)
                 keypoints.append([x, y])
                 visibilities.append(visibility)
 
-        return keypoints, visibilities, num_objects, extra_coords
+        return keypoints, visibilities, num_objects
 
 
 class SppeMpiiDataset(SPPEKeypointsDataset, MPIIDataset):

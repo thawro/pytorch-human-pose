@@ -163,11 +163,6 @@ class MPPEHeatmapParser:
         self, heatmaps: Tensor, tags: Tensor
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         batch_size, num_kpts, h, w = heatmaps.shape
-
-        heatmaps = self.nms(heatmaps)
-
-        # tag_emb_dim = tags.shape[-1]
-
         heatmaps = heatmaps.view(batch_size, num_kpts, -1)
         tags = tags.view(batch_size, num_kpts, w * h, -1)
         tag_emb_dim = tags.shape[-1]
@@ -183,10 +178,7 @@ class MPPEHeatmapParser:
             dim=3,
         )
 
-        joints_tags = tags_k.detach().cpu().numpy()
-        joints_coords = coords_k.detach().cpu().numpy()
-        joints_scores = scores_k.detach().cpu().numpy()
-        return joints_tags, joints_coords, joints_scores
+        return tags_k.numpy(), coords_k.numpy(), scores_k.numpy()
 
     def adjust(self, joints: np.ndarray, heatmaps: np.ndarray) -> np.ndarray:
         num_person, num_kpts, _ = joints.shape
@@ -286,11 +278,13 @@ class MPPEHeatmapParser:
         Return joints array of shape [num_person, num_kpts, 4], where 4 is for
         (x, y, score, tag) of each keypoint
         """
-        num_kpts = heatmaps.shape[1]
-        heatmaps_npy = heatmaps.detach().cpu().numpy()[0]
-        tags_npy = tags.detach().cpu().numpy()[0]
-
+        heatmaps = self.nms(heatmaps)
+        heatmaps = heatmaps.cpu()
+        tags = tags.cpu()
         joints_tags, joints_coords, joints_scores = self.top_k(heatmaps, tags)
+        tags = tags.numpy()[0]
+        heatmaps = heatmaps.numpy()[0]
+
         joints_tags = joints_tags[0]
         joints_coords = joints_coords[0]
         joints_scores = joints_scores[0]
@@ -298,18 +292,20 @@ class MPPEHeatmapParser:
         joints = self.match(joints_tags, joints_coords, joints_scores)
 
         if len(joints) == 0:
-            joints = np.zeros((1, num_kpts, 4))
-            return joints
+            joints = np.zeros((1, self.num_kpts, 4))
+            return [joints], np.zeros((1))
 
         if adjust:
-            joints = self.adjust(joints, heatmaps_npy)
+            joints = self.adjust(joints, heatmaps)
+
+        scores = np.array([i[:, 2].mean() for i in joints])
 
         num_person = len(joints)
         if refine:
             for i in range(num_person):
-                joints[i] = self.refine(heatmaps_npy, tags_npy, joints[i])
+                joints[i] = self.refine(heatmaps, tags, joints[i])
 
-        return joints
+        return [joints], scores
 
 
 if __name__ == "__main__":

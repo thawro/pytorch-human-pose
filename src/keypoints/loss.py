@@ -113,7 +113,7 @@ class AEGroupingLoss(_Loss):
 
                 diff = torch.pow(diff, 2)
                 _push_loss = torch.exp(-diff)
-                _push_loss = torch.sum(_push_loss)  # - num_obj
+                _push_loss = torch.sum(_push_loss) - num_obj
                 _push_loss = _push_loss / ((num_obj - 1) * num_obj) * 0.5
                 push_loss += _push_loss
         return (push_loss + pull_loss) / batch_size
@@ -123,10 +123,7 @@ class AEKeypointsLoss(_Loss):
     def __init__(self, hm_resolutions: list[float]) -> None:
         super().__init__()
         self.heatmaps_loss = WeightedLoss(HeatmapsLoss(), weight=1)
-        self.tags_losses = [
-            WeightedLoss(AEGroupingLoss(hm_res), weight=1e-3)
-            for hm_res in hm_resolutions
-        ]
+        self.tags_loss = WeightedLoss(AEGroupingLoss(hm_resolutions[0]), weight=1e-3)
 
     def calculate_loss(
         self,
@@ -139,17 +136,14 @@ class AEKeypointsLoss(_Loss):
     ) -> tuple[Tensor, Tensor]:
         num_stages = len(stages_target_heatmaps)
         heatmaps_loss = 0
-        ae_grouping_loss = 0
         for i in range(num_stages):
             hm_loss = self.heatmaps_loss(
                 stages_pred_kpts_heatmaps[i], stages_target_heatmaps[i], target_weights
             )
-
-            ae_loss = self.tags_losses[i](
-                stages_pred_tags_heatmaps[i], target_keypoints, target_visibilities
-            )
             heatmaps_loss += hm_loss
-            ae_grouping_loss += ae_loss
+        ae_grouping_loss = self.tags_loss(
+            stages_pred_tags_heatmaps[0], target_keypoints, target_visibilities
+        )
         return heatmaps_loss, ae_grouping_loss
 
 

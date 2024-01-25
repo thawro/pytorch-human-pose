@@ -13,16 +13,13 @@ from .datasets import (
     BaseKeypointsDataset,
 )
 from .transforms import SPPEKeypointsTransform, MPPEKeypointsTransform
-from .results import (
-    SPPEKeypointsResults,
-    MPPEKeypointsResults,
-    SppeMpiiKeypointsResults,
-    MppeMpiiKeypointsResults,
-    SppeCocoKeypointsResults,
-    MppeCocoKeypointsResults,
-)
 from .module import SPPEKeypointsModule, MPPEKeypointsModule
-from .datasets import mpii_symmetric_labels, coco_symmetric_labels
+from .datasets import (
+    mpii_symmetric_labels,
+    coco_symmetric_labels,
+    coco_limbs,
+    mpii_limbs,
+)
 
 _dataset_name = Literal["MPII", "COCO"]
 _mode = Literal["SPPE", "MPPE"]
@@ -97,6 +94,15 @@ class DatasetConfig(BaseConfig):
         else:
             raise ValueError("Wrong dataset name passed. Possible: ['MPII', 'COCO']")
 
+    @property
+    def limbs(self) -> list[tuple[int, int]]:
+        if self.name == "MPII":
+            return mpii_limbs
+        elif self.name == "COCO":
+            return coco_limbs
+        else:
+            raise ValueError("Wrong dataset name passed. Possible: ['MPII', 'COCO']")
+
     def to_dict(self) -> dict:
         dct = super().to_dict()
         dct["out_size"] = self.out_size
@@ -128,6 +134,7 @@ class SetupConfig(BaseConfig):
     ckpt_path: str | None
     mode: _mode
     arch: _architectures
+    is_train: bool
 
 
 @dataclass
@@ -181,7 +188,7 @@ class Config(BaseConfig):
         if self.is_sppe:
             return [1 / 4, 1 / 4]
         else:
-            if self.setup.arch == "HigherHRNet":
+            if self.setup.arch in ["HigherHRNet", "OriginalHigherHRNet"]:
                 return [1 / 4, 1 / 2]
             elif self.setup.arch == "Hourglass":
                 return [1 / 4, 1 / 4]  # for Hourglass
@@ -189,19 +196,6 @@ class Config(BaseConfig):
                 raise ValueError(
                     "For MPPE mode there are only HigherHRNet and Hourglass networks available"
                 )
-
-    @property
-    def ResultsClass(self) -> Type[SPPEKeypointsResults | MPPEKeypointsResults]:
-        if self.is_sppe:
-            if self.is_mpii:
-                return SppeMpiiKeypointsResults
-            else:
-                return SppeCocoKeypointsResults
-        else:
-            if self.is_mpii:
-                return MppeMpiiKeypointsResults
-            else:
-                return MppeCocoKeypointsResults
 
     @property
     def ModuleClass(self) -> Type[SPPEKeypointsModule | MPPEKeypointsModule]:

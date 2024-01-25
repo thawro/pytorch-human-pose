@@ -4,8 +4,6 @@ from src.utils.model import seed_everything
 
 from src.keypoints.bin.utils import create_model
 from src.keypoints.bin.config import create_config
-from src.keypoints.config import Config
-from src.keypoints.transforms import MPPEKeypointsTransform
 from src.keypoints.results import InferenceMPPEKeypointsResult
 from src.keypoints.datasets import coco_symmetric_labels
 import cv2
@@ -15,7 +13,115 @@ from functools import partial
 from src.base.datasets import BaseImageDataset
 from src.keypoints.datasets import coco_limbs, mpii_limbs
 import torch
-import math
+
+from src.logging.pylogger import get_pylogger
+
+log = get_pylogger(__name__)
+
+
+def transform_preds(coords, center, scale, output_size):
+    # target_coords = np.zeros(coords.shape)
+    target_coords = coords.copy()
+    trans = get_affine_transform(center, scale, 0, output_size, inv=1)
+    for p in range(coords.shape[0]):
+        target_coords[p, 0:2] = affine_transform(coords[p, 0:2], trans)
+    return target_coords
+
+
+def affine_transform(pt, t):
+    new_pt = np.array([pt[0], pt[1], 1.0]).T
+    new_pt = np.dot(t, new_pt)
+    return new_pt[:2]
+
+
+def get_3rd_point(a, b):
+    direct = a - b
+    return b + np.array([-direct[1], direct[0]], dtype=np.float32)
+
+
+def get_dir(src_point, rot_rad):
+    sn, cs = np.sin(rot_rad), np.cos(rot_rad)
+
+    src_result = [0, 0]
+    src_result[0] = src_point[0] * cs - src_point[1] * sn
+    src_result[1] = src_point[0] * sn + src_point[1] * cs
+
+    return src_result
+
+
+def get_affine_transform(
+    center, scale, rot, output_size, shift=np.array([0, 0], dtype=np.float32), inv=0
+):
+    if not isinstance(scale, np.ndarray) and not isinstance(scale, list):
+        print(scale)
+        scale = np.array([scale, scale])
+
+    src_w = scale[0]
+    dst_w = output_size[0]
+    dst_h = output_size[1]
+
+    rot_rad = np.pi * rot / 180
+    src_dir = get_dir([0, src_w * -0.5], rot_rad)
+    dst_dir = np.array([0, dst_w * -0.5], np.float32)
+
+    src = np.zeros((3, 2), dtype=np.float32)
+    dst = np.zeros((3, 2), dtype=np.float32)
+    src[0, :] = center + scale * shift
+    src[1, :] = center + src_dir + scale * shift
+    dst[0, :] = [dst_w * 0.5, dst_h * 0.5]
+    dst[1, :] = np.array([dst_w * 0.5, dst_h * 0.5]) + dst_dir
+
+    src[2:, :] = get_3rd_point(src[0, :], src[1, :])
+    dst[2:, :] = get_3rd_point(dst[0, :], dst[1, :])
+
+    if inv:
+        trans = cv2.getAffineTransform(np.float32(dst), np.float32(src))
+    else:
+        trans = cv2.getAffineTransform(np.float32(src), np.float32(dst))
+
+    return trans
+
+
+def get_multi_scale_size(image, input_size, current_scale, min_scale):
+    h, w, _ = image.shape
+    center = np.array([int(w / 2.0 + 0.5), int(h / 2.0 + 0.5)])
+
+    # calculate the size for min_scale
+    min_input_size = int((min_scale * input_size + 63) // 64 * 64)
+    if w < h:
+        w_resized = int(min_input_size * current_scale / min_scale)
+        h_resized = int(
+            int((min_input_size / w * h + 63) // 64 * 64) * current_scale / min_scale
+        )
+        scale_w = w
+        scale_h = h_resized / w_resized * w
+    else:
+        h_resized = int(min_input_size * current_scale / min_scale)
+        w_resized = int(
+            int((min_input_size / h * w + 63) // 64 * 64) * current_scale / min_scale
+        )
+        scale_h = h
+        scale_w = w_resized / h_resized * h
+
+    return (w_resized, h_resized), center, np.array([scale_w, scale_h])
+
+
+def resize_align_multi_scale(image, input_size, current_scale, min_scale):
+    size_resized, center, scale = get_multi_scale_size(
+        image, input_size, current_scale, min_scale
+    )
+    trans = get_affine_transform(center, scale, 0, size_resized)
+    image_resized = cv2.warpAffine(image, trans, size_resized)
+    return image_resized, center, scale
+
+
+def get_final_preds(grouped_joints, center, scale, heatmap_size):
+    final_results = []
+    for person in grouped_joints[0]:
+        joints = np.zeros((person.shape[0], 3))
+        joints = transform_preds(person, center, scale, heatmap_size)
+        final_results.append(joints)
+    return final_results
 
 
 class MPPEInferenceKeypointsModel(nn.Module):
@@ -32,82 +138,53 @@ class MPPEInferenceKeypointsModel(nn.Module):
         self.device = device
         self.det_thr = det_thr
         self.tag_thr = tag_thr
-        size = 512
+        self.input_size = 512
         self.limbs = limbs
-        self.transform = MPPEKeypointsTransform(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225],
-            symmetric_keypoints=None,
-            out_size=(size, size),
+
+    def prepare_input(self, image: np.ndarray) -> Tensor:
+        import torchvision
+
+        transforms = torchvision.transforms.Compose(
+            [
+                torchvision.transforms.ToTensor(),
+                torchvision.transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                ),
+            ]
         )
 
-    def prepare_input(self, frame: np.ndarray) -> Tensor:
-        mean = np.array([0.485, 0.456, 0.406]) * 255
-        std = np.array([0.229, 0.224, 0.225]) * 255
+        base_size, center, scale = get_multi_scale_size(image, self.input_size, 1.0, 1)
 
-        h, w = frame.shape[:2]
-        aspect_ratio = h / w
-        size = max(h, w)
-        mode = "shortest"  # shortest/longest max size
-        mode = "longest"
-        compared_size = h if mode == "shortest" else w
-        divider = 32
-        if size == compared_size:
-            new_h = 512
-            new_w = int(new_h / aspect_ratio)
-            pad_y = 0
-            pad_x = math.ceil(new_w / divider) * divider - new_w
-        else:
-            new_w = 512
-            new_h = int(new_w * aspect_ratio)
-            pad_x = 0
-            pad_y = math.ceil(new_h / divider) * divider - new_h
+        image_resized, center, scale = resize_align_multi_scale(
+            image, self.input_size, 1, 1
+        )
 
-        scale = h / new_h
-        pad_top = math.ceil(pad_y / 2)
-        pad_bot = pad_y - pad_top
-        pad_left = math.ceil(pad_x / 2)
-        pad_right = pad_x - pad_left
-        pad = [pad_top, pad_bot, pad_left, pad_right]
+        image_resized = transforms(image_resized)
+        x = image_resized.unsqueeze(0).to(self.device)
+        return x, center, scale
 
-        new_frame = cv2.resize(frame, (new_w, new_h))
-        new_frame = cv2.copyMakeBorder(new_frame, *pad, cv2.BORDER_CONSTANT, value=0)
-        new_frame = (new_frame - mean) / std
-        new_frame = torch.from_numpy(new_frame).permute(2, 0, 1).float()
-        return new_frame, scale, pad
+    def __call__(self, image: np.ndarray, annot) -> InferenceMPPEKeypointsResult:
+        x, center, scale = self.prepare_input(image)
 
-    def __call__(self, frame: np.ndarray, annot) -> InferenceMPPEKeypointsResult:
-        x, scale, pad = self.prepare_input(frame)
-        x = x.unsqueeze(0).to(self.device)
-        input_image = self.transform.inverse_preprocessing(x.cpu().numpy()[0])
-        x_fliplr = torch.flip(x, (3,))
         stages_pred_kpts_heatmaps, stages_pred_tags_heatmaps = self.net(x)
-        # stages_pred_kpts_heatmaps_flip, stages_pred_tags_heatmaps_flip = self.net(
-        #     x_fliplr
-        # )
-        # for i, (kpts_hms_flipped, tags_hms_flipped) in enumerate(
-        #     zip(stages_pred_kpts_heatmaps_flip, stages_pred_tags_heatmaps_flip)
-        # ):
-        #     kpts_hms = kpts_hms_flipped.flip((3,))[0][coco_symmetric_labels].unsqueeze(
-        #         0
-        #     )
-        #     tags_hms = tags_hms_flipped.flip((3,))[0][coco_symmetric_labels]
 
-        #     stages_pred_kpts_heatmaps[i] = (stages_pred_kpts_heatmaps[i] + kpts_hms) / 2
-        #     stages_pred_tags_heatmaps[i] = torch.stack(
-        #         [stages_pred_tags_heatmaps[i][0], tags_hms], dim=0
-        #     )
+        input_image = x[0].permute(1, 2, 0).cpu().numpy()
+        _mean = np.array([0.485, 0.456, 0.406]) * 255
+        _std = np.array([0.229, 0.224, 0.225]) * 255
+        input_image = (input_image * _std) + _mean
+        input_image = input_image.astype(np.uint8)
 
         return InferenceMPPEKeypointsResult.from_preds(
             annot,
             input_image,
-            frame,
+            image,
             scale,
-            pad,
+            center,
             stages_pred_kpts_heatmaps,
             stages_pred_tags_heatmaps,
+            get_final_preds,
             self.limbs,
-            max_num_people=20,
+            max_num_people=30,
             det_thr=self.det_thr,
             tag_thr=self.tag_thr,
         )
@@ -120,8 +197,13 @@ def processing_fn(
 ) -> dict:
     with torch.no_grad():
         result = model(frame, annot)
+
+    print("=" * 100)
     final_plot, raw_image = result.plot()
-    cv2.imshow("grid", cv2.cvtColor(final_plot, cv2.COLOR_RGB2BGR))
+    cv2.imshow(
+        "grid",
+        cv2.cvtColor(cv2.resize(final_plot, (0, 0), fx=0.5, fy=0.5), cv2.COLOR_RGB2BGR),
+    )
     cv2.imshow("Pred", cv2.cvtColor(raw_image, cv2.COLOR_RGB2BGR))
     return {}
 
@@ -136,32 +218,39 @@ def load_model(dataset: str = "COCO"):
             / "test/01-12_15:17__sigmoid_MPPE_COCO_HigherHRNet/01-14_20:44/checkpoints/last.pt"
         )
         ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/test/01-17_16:04__sigmoid_MPPE_COCO_HigherHRNet/01-18_11:10/checkpoints/best.pt"
+        ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/test/01-21_11:03__org_mosaic_MPPE_COCO_OriginalHigherHRNet/01-23_08:03/checkpoints/best.pt"
+        # ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/test/01-23_17:59___MPPE_COCO_OriginalHigherHRNet/01-25_08:32/checkpoints/best.pt"
     else:
         ckpt_path = str(
             RESULTS_PATH
             / "test/01-10_13:21__sigmoid_MPPE_MPII_HigherHRNet/01-11_09:10/checkpoints/last.pt"
         )
-
+    model = "OriginalHigherHRNet"
     cfg = create_config(
         dataset,
         "MPPE",
-        "HigherHRNet",
+        model,
         device_id,
         ckpt_path=ckpt_path,
         distributed=False,
+        is_train=False,
     )
 
     seed_everything(cfg.setup.seed)
-    torch.set_float32_matmul_precision("medium")
 
-    net = create_model(cfg).net
-    model = MPPEInferenceKeypointsModel(net, device=device, limbs=limbs, det_thr=0.1)
+    net = create_model(cfg)
+
+    model = MPPEInferenceKeypointsModel(
+        net, device=device, limbs=limbs, det_thr=0.1, tag_thr=1.0
+    )
     ckpt = torch.load(ckpt_path, map_location=device)
     ckpt = ckpt["module"]["model"]
     for key in list(ckpt.keys()):
-        ckpt[key.replace("module.", "")] = ckpt[key]
+        ckpt[key.replace("module.1.", "")] = ckpt[key]
         ckpt.pop(key)
     model.load_state_dict(ckpt)
+    log.info(f"Loaded model from {ckpt_path}")
+
     model.eval()
     return model
 

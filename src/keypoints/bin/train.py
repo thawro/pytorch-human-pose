@@ -62,13 +62,14 @@ if __name__ == "__main__":
     MODE = "MPPE"
     DATASET = "COCO"
     ARCH = "HigherHRNet"
-    RUN_NAME = "01-17_16:04"
-    RUN_SUBDIR = "01-18_11:10"
-    PREFIX = "_sigmoid"
-    EXP_RUN_NAME = f"{RUN_NAME}_{PREFIX}_{MODE}_{DATASET}_{ARCH}"
+    ARCH = "OriginalHigherHRNet"
+    RUN_NAME = "01-23_17:59"
+    RUN_SUBDIR = "01-24_07:37"
+    PREFIX = ""
+    EXP_RUN_NAME = f"{RUN_NAME}__{PREFIX}_{MODE}_{DATASET}_{ARCH}"
     EXPERIMENT_NAME = "test"
     CKPT_PATH = f"{str(RESULTS_PATH)}/{EXPERIMENT_NAME}/{EXP_RUN_NAME}/{RUN_SUBDIR}/checkpoints/last.pt"
-    CKPT_PATH = None
+    # CKPT_PATH = None
 
     main(DATASET, MODE, ARCH, CKPT_PATH)
 
@@ -89,10 +90,16 @@ if __name__ == "__main__":
 # TODO: dodac pin memory na heatmapach, keypointsach i visibilities
 # TODO: zmienic ewaluacje, tak zeby co X krokow byl odpalany model ewaluacyjny - na pelnych obrazach + podanie OKS
 # TODO: wywalic liczenie OKS/pckh z train loopa
-# TODO: upewnic sie ze pipeline dobrze trenuje po zmianach z fp16
 # TODO: dodac oryginalny model hrnet, tak zeby dalo sie ladowac wagi z ImageNeta
 # TODO: zrobic init sieci tak jak w paperze
+# TODO: dojsc do roznicy miedzy moja implementacja a oryginalnay
+# TODO: wyuczyc z tagami tylko dla pierwszego staga
 
+
+# TODO: ogarnac grouping -> cos jest tam nie tak?
+# TODO: uzywac original hrneta pretrenowanego na imagenecie lub pretrenowac swojego
+# TODO: bez sigmoidy -> lepiej (ale musi byc pretrenowane)
+# TODO: uwazac na resume -> pozmieniane parametry
 """
 Hourglass:
 	1:1 aspect ratio

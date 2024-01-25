@@ -198,22 +198,22 @@ class BaseExamplesPlotterCallback(BaseCallback):
 
     @abstractmethod
     def plot_example_results(
-        self, trainer: Trainer, results: BaseResult, filepath: str
+        self, trainer: Trainer, results: list[BaseResult], filepath: str
     ):
         raise NotImplementedError()
 
-    def plot(self, trainer: Trainer, prefix: str, mode: _log_mode) -> None:
+    def plot(self, trainer: Trainer, prefix: str) -> None:
         dirpath = trainer.logger.eval_examples_dir
-        for stage, results in trainer.module.results.items():
-            stage_dirpath = dirpath / stage
-            stage_dirpath.mkdir(exist_ok=True, parents=True)
-            filepath = stage_dirpath / f"{prefix}{self.name}.jpg"
-            self.plot_example_results(trainer, results, str(filepath))
+        stage_dirpath = dirpath
+        stage_dirpath.mkdir(exist_ok=True, parents=True)
+        filepath = stage_dirpath / f"{prefix}{self.name}.jpg"
+        if len(trainer.results) > 0:
+            self.plot_example_results(trainer, trainer.results, str(filepath))
+        else:
+            log.warn(f"No results logged")
 
     def on_validation_end(self, trainer: Trainer) -> None:
-        self.plot(
-            trainer, prefix=f"validation_{trainer.current_step}", mode="validation"
-        )
+        self.plot(trainer, prefix=f"validation_{trainer.current_step}")
 
 
 class MetricsPlotterCallback(BaseCallback):

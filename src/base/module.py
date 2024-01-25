@@ -9,7 +9,6 @@ from src.logging.loggers import BaseLogger
 
 from .datamodule import DataModule
 
-from .results import BaseResult
 from .model import BaseModel
 from .callbacks import Callbacks
 from .lr_scheduler import LRScheduler
@@ -38,7 +37,6 @@ class BaseModule:
         self.loss_fn = loss_fn
         self.current_epoch = 0
         self.current_step = 0
-        self.results: dict[str, BaseResult] = {}
         self.optimizers, self.schedulers = self.create_optimizers()
 
     def pass_attributes(

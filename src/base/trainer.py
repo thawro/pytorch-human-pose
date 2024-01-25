@@ -14,6 +14,7 @@ from .module import BaseModule
 from .callbacks import BaseCallback, Callbacks
 from .meters import Meters
 from .storage import MetricsStorage
+import random
 
 log = get_pylogger(__name__)
 
@@ -34,7 +35,8 @@ class Trainer:
         limit_batches: int = -1,
         log_every_n_steps: int = -1,
     ):
-        self.meters = {stage: Meters() for stage in ["train", "val", "eval_val"]}
+        stages = ["train", "val", "eval_val"]
+        self.meters = {stage: Meters() for stage in stages}
         self.logger = logger
         self.device = f"cuda:{device_id}"
         self.device_id = device_id
@@ -46,6 +48,7 @@ class Trainer:
         self.current_epoch = 0
         self.epochs_metrics = MetricsStorage(name="Epochs")  # every step metrics
         self.validation_metrics = MetricsStorage(name="LogStep")  # validation metrics
+        self.results = []
 
     def batch_to_device(self, batch) -> None:
         for j in range(len(batch)):
@@ -83,14 +86,20 @@ class Trainer:
         """Evaluate on validation set"""
         meters = self.meters[stage]
         meters.reset()
+        n_batches = len(dataloader)
+        random_idx = random.randint(0, n_batches - 1)
 
         with torch.no_grad():
             loop = tqdm(dataloader, leave=True, desc=stage)
             limit_batches = self.get_limit_batches()
             for i, batch in enumerate(loop):
                 self.batch_to_device(batch)
-                val_metrics = self.module.validation_step(batch, i, stage=stage)
+                val_metrics, val_results = self.module.validation_step(
+                    batch, i, stage=stage
+                )
                 meters.update(val_metrics, batch[0].shape[0])
+                if stage == "eval_val" and i == random_idx:
+                    self.results.extend(val_results)
                 limit_batches -= 1
                 if limit_batches == 0:
                     break
@@ -124,6 +133,7 @@ class Trainer:
                 self.evaluate(self.datamodule.val_dataloader, stage="eval_val")
                 self._update_metrics(stages=["eval_val"])
                 self.callbacks.on_validation_end(self)
+                self.results = []
 
             limit_batches -= 1
             if limit_batches == 0:

@@ -5,7 +5,7 @@ from src.utils.image import make_grid, get_color
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .results import SPPEKeypointsResults, MPPEKeypointsResults
+    from .results import SPPEKeypointsResults, MPPEKeypointsResult
 
 
 def plot_connections(
@@ -21,8 +21,8 @@ def plot_connections(
 
     """
     h, w = image.shape[:2]
-    radius = max(h, w) // 100 + -2
-    thickness = max(h, w) // 100
+    radius = max(3, max(h, w) // 100 - 4)
+    thickness = max(3, max(h, w) // 100 - 4)
 
     for i in range(len(all_kpts_coords)):
         kpts_coords = all_kpts_coords[i]
@@ -103,54 +103,21 @@ def plot_sppe_results_heatmaps(
 
 
 def plot_mppe_results_heatmaps(
-    results: "MPPEKeypointsResults",
-    limbs: list[tuple[int, int]],
-    filepath: str | None = None,
-    thr: float = 0.05,
+    results: list["MPPEKeypointsResult"], filepath: str | None = None
 ):
-    n_rows = min(10, len(results.pred_heatmaps))
-    fig, axes = plt.subplots(n_rows, 1, figsize=(24, n_rows * 16))
+    n_rows = min(20, len(results))
     grids = []
     for i in range(n_rows):
-        ax = axes[i]
-        pred_kpts_heatmaps = results.pred_heatmaps[i]
-        pred_tags_heatmaps = results.pred_tags[i]
-
-        image = results.images[i]
-        pred_keypoints = results.pred_keypoints[i].astype(np.int32)
-        pred_scores = results.pred_scores[i]
-
-        image = plot_connections(
-            image.copy(),
-            pred_keypoints,
-            pred_scores,
-            limbs,
-            thr=thr,
-        )
-
-        final_plots = []
-        num_stages = 2
-        for i in range(num_stages):
-            kpts_heatmaps_plots = plot_heatmaps(
-                image, pred_kpts_heatmaps[..., i], clip_0_1=True, minmax=False
-            )
-            tags_heatmaps_plots = plot_heatmaps(
-                image, pred_tags_heatmaps[..., i], clip_0_1=False, minmax=True
-            )
-            kpts_heatmaps_plots.insert(0, image)
-            tags_heatmaps_plots.insert(0, image)
-
-            kpts_grid = make_grid(kpts_heatmaps_plots, nrows=2, pad=5)
-            tags_grid = make_grid(tags_heatmaps_plots, nrows=2, pad=5)
-            final_plots.extend([kpts_grid, tags_grid])
-
-        final_plot = np.concatenate(final_plots, axis=0)
-        final_plot = cv2.resize(final_plot, dsize=(0, 0), fx=0.4, fy=0.4)
-
-        grids.append(final_plot)
-        ax.imshow(final_plot)
+        result = results[i]
+        result.set_preds()
+        result_plot = result.plot()
+        grids.append(result_plot)
+        # axes[i].imshow(result_plot)
+    final_grid = make_grid(grids, nrows=len(grids), pad=20)
+    from PIL import Image
 
     if filepath is not None:
-        fig.savefig(filepath, bbox_inches="tight")
+        im = Image.fromarray(final_grid)
+        im.save(filepath)
     plt.close()
     return grids
