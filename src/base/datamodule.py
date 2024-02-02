@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
 
 
-from .transforms import BaseTransform
+from .transforms.transforms import BaseTransform
 
 
 class DataModule:

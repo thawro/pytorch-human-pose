@@ -2,7 +2,6 @@ from dataclasses import dataclass, field
 import numpy as np
 from torch import Tensor
 from src.keypoints.grouping import SPPEHeatmapParser, MPPEHeatmapParser
-from src.keypoints.grouping_2 import MPPEHeatmapParser as MPPEHeatmapParser_2
 
 from src.keypoints.metrics import OKS, PCKh, object_PCKh, object_OKS, EvaluationMetric
 from typing import Callable
@@ -19,7 +18,6 @@ def match_preds_to_targets(
     pred_scores: np.ndarray,
     target_kpts: np.ndarray,
     target_visibilities: np.ndarray,
-    match_fn: Callable,
 ) -> list[int]:
     # pred_kpts shape: [num_obj_pred, num_kpts, 3]
     # 3 for: x, y, score
@@ -36,9 +34,10 @@ def match_preds_to_targets(
         for target_idx in range(len(target_kpts)):
             t_kpts = target_kpts[target_idx]
             t_vis = target_visibilities[target_idx]
+            mask = t_vis > 0
             # TODO: change match_fn to do normal dist between points
             match_val = (
-                1 / (((p_kpts[..., :2] - t_kpts[..., :2])[t_vis > 0]) ** 2).mean()
+                1 / (((p_kpts[..., :2] - t_kpts[..., :2])[mask]) ** 2).sum(-1).mean()
             )
             # if target_idx in matched_idxs:
             #     continue
@@ -118,10 +117,6 @@ class SPPEKeypointsResults(KeypointsResults):
         )
 
 
-match_mpii_preds_to_targets = partial(match_preds_to_targets, match_fn=object_PCKh)
-match_coco_preds_to_targets = partial(match_preds_to_targets, match_fn=object_OKS)
-
-
 class MPPEKeypointsResult:
     annot: np.ndarray | None
     image: np.ndarray
@@ -149,7 +144,7 @@ class MPPEKeypointsResult:
         self.max_num_people = max_num_people
         self.det_thr = det_thr
         self.tag_thr = tag_thr
-        self.hm_parser = MPPEHeatmapParser_2(
+        self.hm_parser = MPPEHeatmapParser(
             self.num_kpts, max_num_people, det_thr, tag_thr
         )
 
@@ -305,7 +300,7 @@ class InferenceMPPEKeypointsResult:
         pred_kpts_heatmaps = torch.stack(stages_pred_kpts_heatmaps, dim=-1).mean(dim=-1)
 
         batch_size, num_kpts = pred_kpts_heatmaps.shape[:2]
-        parser = MPPEHeatmapParser_2(
+        parser = MPPEHeatmapParser(
             num_kpts, max_num_people=max_num_people, det_thr=det_thr, tag_thr=tag_thr
         )
         pred_kpts_heatmaps = torch.nn.functional.interpolate(
@@ -322,7 +317,7 @@ class InferenceMPPEKeypointsResult:
         if len(final_results) > 0:
             final_results = np.stack(final_results, axis=0)
             pred_kpts_coords = final_results[..., :2]
-            pred_kpts_scores = joints[0][..., 2]
+            pred_kpts_scores = joints[..., 2]
         else:
             pred_obj_scores = np.array([0])
             pred_kpts_coords = np.zeros((1, 17, 2))
@@ -366,7 +361,6 @@ class InferenceMPPEKeypointsResult:
                     self.pred_obj_scores,
                     target_kpts,
                     target_visibilities,
-                    object_OKS,
                 )
                 if -1 not in target_matches_idx:
                     self.pred_keypoints = self.pred_keypoints[target_matches_idx]

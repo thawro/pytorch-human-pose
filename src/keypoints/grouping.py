@@ -1,20 +1,12 @@
+"""
+Based on https://github.com/HRNet/HigherHRNet-Human-Pose-Estimation/blob/master/lib/core/group.py
+"""
+
+from munkres import Munkres
 import numpy as np
 import torch
-from munkres import Munkres
-from collections import defaultdict
-from torch import Tensor
-
-
-def py_max_match(scores: np.ndarray) -> np.ndarray:
-    m = Munkres()
-    tmp = m.compute(scores)
-    tmp = np.array(tmp).astype(np.int32)
-    return tmp
-
-
-JOINTS_ORDER = [
-    i - 1 for i in [1, 2, 3, 4, 5, 6, 7, 12, 13, 8, 9, 10, 11, 14, 15, 16, 17]
-]
+import numpy as np
+import torch
 
 
 class SPPEHeatmapParser:
@@ -22,7 +14,7 @@ class SPPEHeatmapParser:
         self.num_kpts = num_kpts
         self.det_thr = det_thr
 
-    def match(self, heatmaps: Tensor) -> np.ndarray:
+    def match(self, heatmaps: torch.Tensor) -> np.ndarray:
         """
         heatmaps: detection heatmaps. Tensor of shape [num_kpts, height, width]
 
@@ -48,7 +40,7 @@ class SPPEHeatmapParser:
         joints[..., 2] = scores
         return joints.cpu().numpy()
 
-    def parse(self, heatmaps: Tensor) -> np.ndarray:
+    def parse(self, heatmaps: torch.Tensor) -> np.ndarray:
         """
         heatmaps: detection heatmaps. Tensor of shape [1, num_kpts, height, width]
 
@@ -62,281 +54,222 @@ class SPPEHeatmapParser:
         return joints
 
 
-class MPPEHeatmapParser:
+def py_max_match(scores: np.ndarray):
+    m = Munkres()
+    tmp = m.compute(scores)
+    tmp = np.array(tmp).astype(np.int32)
+    return tmp
+
+
+class MPPEHeatmapParser(object):
+    joints_order: list[int] = [
+        i - 1 for i in [1, 2, 3, 4, 5, 6, 7, 12, 13, 8, 9, 10, 11, 14, 15, 16, 17]
+    ]
+
     def __init__(
         self,
         num_kpts: int,
-        max_num_people: int = 20,
+        max_num_people: int = 30,
         det_thr: float = 0.1,
         tag_thr: float = 1.0,
     ):
         self.pool = torch.nn.MaxPool2d(5, 1, 2)
         self.max_num_people = max_num_people
         self.num_kpts = num_kpts
-        self.joints_order = JOINTS_ORDER
         self.det_thr = det_thr
         self.tag_thr = tag_thr
 
-    def nms(self, heatmaps: Tensor) -> Tensor:
-        maxm = self.pool(heatmaps)
-        maxm = torch.eq(maxm, heatmaps).float()
-        heatmaps = heatmaps * maxm
-        return heatmaps
+    def nms(self, kpts_heatmaps: torch.Tensor) -> torch.Tensor:
+        pooled = self.pool(kpts_heatmaps)
+        pooled = torch.eq(pooled, kpts_heatmaps).float()
+        return kpts_heatmaps * pooled
 
-    def match(self, joints_tags, joints_coords, joints_scores):
+    def match_by_tag(
+        self, tags_k: np.ndarray, coords_k: np.ndarray, scores_k: np.ndarray
+    ) -> np.ndarray:
         """
-        joints_tags are tags for each joint for each person detected, shape: [num_kpts, num_person, embedding_dim]
-        joints_coords are yx coordinates for each joint for each person detected, shape: [num_kpts, num_person, 2]
-        joints_scores are scores (from heatmaps) for each joint for each person detected, shape: [num_kpts, num_person]
+        Grouping by tag from: https://github.com/princeton-vl/pose-ae-train/blob/454d4ba113bbb9775d4dc259ef5e6c07c2ceed54/utils/group.py
         """
-        joints_tags = joints_tags.round()  # TODO
-        joints_scores = np.expand_dims(joints_scores, -1)
+        # 3 from: coords (2), score (1)
+        default_ = np.zeros((self.num_kpts, 3 + tags_k.shape[2]))
 
-        joints_dim = sum(
-            arr.shape[-1] for arr in [joints_tags, joints_scores, joints_coords]
-        )
-        joint_dict = defaultdict(lambda: np.zeros((self.num_kpts, joints_dim)), {})
+        joint_dict = {}
         tag_dict = {}
         for i in range(self.num_kpts):
             idx = self.joints_order[i]
-
-            joint_tags = joints_tags[idx]  # shape: [num_person, embedding_dim]
-            joint_coords = joints_coords[idx]  # shape: [num_person, 2]
-            joint_scores = joints_scores[idx]  # shape: [num_person, 1]
-
-            # shape: [num_person, joints_dim]
-            joints = np.concatenate((joint_coords, joint_scores, joint_tags), 1)
-
-            mask = joint_scores.squeeze() >= self.det_thr
+            tags = tags_k[idx]
+            joints = np.concatenate((coords_k[idx], scores_k[idx, :, None], tags), 1)
+            mask = joints[:, 2] > self.det_thr
+            tags = tags[mask]
             joints = joints[mask]
-            joint_tags = joint_tags[mask]
 
-            if mask.sum() == 0:
+            if joints.shape[0] == 0:
                 continue
 
-            if len(joint_dict) == 0:
-                for tag_idx, tag in enumerate(joint_tags):
-                    joint = joints[tag_idx]
-                    # getting 0th element in case of multidim tag embedding
-                    key = tag[0]  # TODO
-                    joint_dict[key][idx] = joint.copy()
+            if i == 0 or len(joint_dict) == 0:
+                for tag, joint in zip(tags, joints):
+                    key = tag[0]
+                    joint_dict.setdefault(key, np.copy(default_))[idx] = joint
                     tag_dict[key] = [tag]
             else:
                 grouped_keys = list(joint_dict.keys())[: self.max_num_people]
-                grouped_tags = np.array(
-                    [np.mean(tag_dict[key], axis=0) for key in grouped_keys]
-                )
-                diff = np.expand_dims(joint_tags, 1) - np.expand_dims(grouped_tags, 0)
-                diff = np.linalg.norm(diff, ord=2, axis=2)
+                grouped_tags = [np.mean(tag_dict[i], axis=0) for i in grouped_keys]
 
-                _diff = np.copy(diff)
+                diff = joints[:, None, 3:] - np.array(grouped_tags)[None, :, :]
+                diff_normed = np.linalg.norm(diff, ord=2, axis=2)
+                diff_saved = np.copy(diff_normed)
 
-                # diff_normed = np.round(diff_normed) * 100 - joints[:, 2:3]
+                num_added, num_grouped = diff.shape[:2]
 
-                n_added = len(joint_tags)
-                n_grouped = len(grouped_keys)
-                if n_added > n_grouped:  # some new keypoints appeared as detected
-                    diff = np.concatenate(
-                        (diff, np.zeros((n_added, n_added - n_grouped)) + 1e10), axis=1
-                    )
+                if num_added > num_grouped:
+                    huge_diff = np.zeros((num_added, num_added - num_grouped)) + 1e10
+                    diff_normed = np.concatenate((diff_normed, huge_diff), axis=1)
 
-                pairs = py_max_match(diff)
-
+                pairs = py_max_match(diff_normed)
                 for row, col in pairs:
                     if (
-                        row < n_added
-                        and col < n_grouped
-                        and _diff[row][col] < self.tag_thr
+                        row < num_added
+                        and col < num_grouped
+                        and diff_saved[row][col] < self.tag_thr
                     ):
                         key = grouped_keys[col]
                         joint_dict[key][idx] = joints[row]
-                        tag_dict[key].append(joint_tags[row])
+                        tag_dict[key].append(tags[row])
                     else:
-                        key = joint_tags[row][0]
-                        joint_dict[key][idx] = joints[row].copy()
-                        tag_dict[key] = [joint_tags[row]]
-
-        joints = np.array([joint_dict[i] for i in joint_dict]).astype(np.float32)
-        return joints  # [: self.max_num_people]
+                        key = tags[row][0]
+                        joint_dict.setdefault(key, np.copy(default_))[idx] = joints[row]
+                        tag_dict[key] = [tags[row]]
+        grouped_joints = np.array(list(joint_dict.values())).astype(np.float32)
+        return grouped_joints
 
     def top_k(
-        self, heatmaps: Tensor, tags: Tensor
+        self, kpts_hms: torch.Tensor, tags_hms: torch.Tensor
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        batch_size, num_kpts, h, w = heatmaps.shape
-        heatmaps = heatmaps.view(batch_size, num_kpts, -1)
-        tags = tags.view(batch_size, num_kpts, w * h, -1)
-        tag_emb_dim = tags.shape[-1]
+        kpts_hms = self.nms(kpts_hms.unsqueeze(0))[0]
+        num_kpts, h, w = kpts_hms.shape
+        kpts_hms = kpts_hms.view(num_kpts, -1)
+        scores_k, idxs = kpts_hms.topk(self.max_num_people, dim=1)
 
-        scores_k, idxs_k = heatmaps.topk(self.max_num_people, dim=2)
-
-        x = idxs_k % w
-        y = (idxs_k / w).long()
-        coords_k = torch.stack((x, y), dim=3)
+        tags_hms = tags_hms.view(num_kpts, w * h, -1)
+        taks_emb_dim = tags_hms.size(2)
 
         tags_k = torch.stack(
-            [torch.gather(tags[:, :, :, i], 2, idxs_k) for i in range(tag_emb_dim)],
-            dim=3,
+            [torch.gather(tags_hms[..., i], 1, idxs) for i in range(taks_emb_dim)],
+            dim=2,
         )
 
-        return tags_k.numpy(), coords_k.numpy(), scores_k.numpy()
+        x = idxs % w
+        y = (idxs / w).long()
+        coords_k = torch.stack((x, y), dim=2)
 
-    def adjust(self, joints: np.ndarray, heatmaps: np.ndarray) -> np.ndarray:
-        num_person, num_kpts, _ = joints.shape
-        num_kpts, h, w = heatmaps.shape
-        for person_idx, person_joints in enumerate(joints):
-            for joint_idx, joint in enumerate(person_joints):
-                y, x, score = joint[:3]
-                if score > 0:
-                    xx, yy = int(x), int(y)
-                    tmp = heatmaps[joint_idx]
-                    if tmp[xx, min(yy + 1, w - 1)] > tmp[xx, max(yy - 1, 0)]:
-                        y += 0.25
-                    else:
-                        y -= 0.25
+        tags_k = tags_k.cpu().numpy()
+        coords_k = coords_k.cpu().numpy()
+        scores_k = scores_k.cpu().numpy()
+        return tags_k, coords_k, scores_k
 
-                    if tmp[min(xx + 1, h - 1), yy] > tmp[max(0, xx - 1), yy]:
-                        x += 0.25
-                    else:
-                        x -= 0.25
-                    new_coords = (y + 0.5, x + 0.5)
-                    joints[person_idx, joint_idx, 0:2] = new_coords
-        return joints
+    def adjust(self, grouped_joints: np.ndarray, kpts_hms: np.ndarray) -> np.ndarray:
+        # quarter offset adjustment
+        h, w = kpts_hms.shape[-2:]
+        for person_idx, person_joints in enumerate(grouped_joints):
+            for joint_idx, (y, x, score, tag) in enumerate(person_joints):
+                if score == 0:
+                    continue
+                xx, yy = int(x), int(y)
+                kpt_hm = kpts_hms[joint_idx]
+                if kpt_hm[xx, min(yy + 1, w - 1)] > kpt_hm[xx, max(yy - 1, 0)]:
+                    y += 0.25
+                else:
+                    y -= 0.25
+
+                if kpt_hm[min(xx + 1, h - 1), yy] > kpt_hm[max(0, xx - 1), yy]:
+                    x += 0.25
+                else:
+                    x -= 0.25
+                grouped_joints[person_idx, joint_idx, :2] = (y + 0.5, x + 0.5)
+        return grouped_joints
 
     def refine(
-        self, heatmaps: np.ndarray, tags: np.ndarray, joints: np.ndarray
+        self, kpts_hms: np.ndarray, tags_hms: np.ndarray, person_joints: np.ndarray
     ) -> np.ndarray:
         """
-        For specific person preds
-        Given initial keypoint predictions, identify missing joints
-        heatmaps: detection heatmaps, shape: [num_kpts, h, w]
-        tags: tags heatmaps, shape: [num_kpts, h, w]
-        joints: joints array, shape [num_kpts, 4]  , 4 is for (x, y, score, tag)
+        Given initial keypoint predictions, we identify missing joints
+        :param kpts_hms: numpy.ndarray of size (num_kpts, H, W)
+        :param tags_hms: numpy.ndarray of size (num_kpts, H, W)
+        :param person_joints: numpy.ndarray of size (num_kpts, 4) ,last dim is (x, y, score, tag_emb)
         """
-        num_kpts, h, w = heatmaps.shape
-        if len(tags.shape) == 3:
-            tags = np.expand_dims(tags, -1)
-
-        _tags = []
-        for i in range(num_kpts):
-            if joints[i, 2] > 0:
+        h, w = kpts_hms.shape[-2:]
+        if len(tags_hms.shape) == 3:
+            tags_hms = tags_hms[..., None]
+        tags = []
+        for i in range(self.num_kpts):
+            if person_joints[i, 2] > 0:
                 # save tag value of detected keypoint
-                x, y = joints[i, :2].astype(np.int32)
-                _tags.append(tags[i, y, x])
+                x, y = person_joints[i][:2].astype(np.int32)
+                tags.append(tags_hms[i, y, x])
 
         # mean tag of current detected people
-        prev_tag = np.mean(_tags, axis=0)
-        prev_tag = np.expand_dims(prev_tag, (0, 1))
+        prev_tag = np.mean(tags, axis=0)[None, None, :]
+        tmp_joints = []
 
-        _joints = []
-        for i in range(num_kpts):
+        for i in range(self.num_kpts):
             # score of joints i at all position
-            joint_hm = heatmaps[i]
+            kpt_hm = kpts_hms[i]
+
             # distance of all tag values with mean tag of current detected people
-            tags_dist = ((tags[i] - prev_tag) ** 2).sum(axis=2) ** 0.5
-            hm_tags_diff = joint_hm - np.round(tags_dist)
+            tags_dist = ((tags_hms[i] - prev_tag) ** 2).sum(axis=2) ** 0.5
+            hms_diff = kpt_hm - np.round(tags_dist)
 
             # find maximum position
-            y, x = np.unravel_index(np.argmax(hm_tags_diff), joint_hm.shape)
-            xx = x
-            yy = y
+            y, x = np.unravel_index(np.argmax(hms_diff), (h, w))
+            xx, yy = x, y
+
             # detection score at maximum position
-            score = joint_hm[y, x]
+            val = kpt_hm[y, x]
             # offset by 0.5
             x += 0.5
             y += 0.5
 
             # add a quarter offset
-            if joint_hm[yy, min(xx + 1, w - 1)] > joint_hm[yy, max(xx - 1, 0)]:
+            if kpt_hm[yy, min(xx + 1, w - 1)] > kpt_hm[yy, max(xx - 1, 0)]:
                 x += 0.25
             else:
                 x -= 0.25
 
-            if joint_hm[min(yy + 1, h - 1), xx] > joint_hm[max(0, yy - 1), xx]:
+            if kpt_hm[min(yy + 1, h - 1), xx] > kpt_hm[max(0, yy - 1), xx]:
                 y += 0.25
             else:
                 y -= 0.25
 
-            _joints.append((x, y, score))
+            tmp_joints.append((x, y, val))
+        tmp_joints = np.array(tmp_joints)
 
-        _joints = np.array(_joints)
-        if len(_joints) > 0:
-            for i in range(num_kpts):
-                # add keypoint if it is not detected
-                if _joints[i, 2] > 0 and joints[i, 2] == 0:
-                    joints[i, :3] = _joints[i]
-        return joints
+        replace_mask = np.bitwise_and(tmp_joints[:, 2] > 0, person_joints[:, 2] == 0)
+        person_joints[replace_mask, :3] = tmp_joints[replace_mask]
+        return person_joints
 
     def parse(
-        self, heatmaps: Tensor, tags: Tensor, adjust: bool = True, refine: bool = True
-    ) -> np.ndarray:
-        """
-        heatmaps: detection heatmaps. Tensor of shape [1, num_kpts, height, width]
-        tags: tags heatmaps. Tensor of shape [1, num_kpts, height, width]
-        adjust: whether to adjust for quantization
-        refine: whether to refine missing joints
+        self,
+        kpts_hms: torch.Tensor,
+        tags_hms: torch.Tensor,
+        adjust: bool = True,
+        refine: bool = True,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        kpts_hms, tags_hms = kpts_hms[0], tags_hms[0]
+        tags_k, coords_k, scores_k = self.top_k(kpts_hms, tags_hms)
+        grouped_joints = self.match_by_tag(tags_k, coords_k, scores_k)
 
-        Return joints array of shape [num_person, num_kpts, 4], where 4 is for
-        (x, y, score, tag) of each keypoint
-        """
-        heatmaps = self.nms(heatmaps)
-        heatmaps = heatmaps.cpu()
-        tags = tags.cpu()
-        joints_tags, joints_coords, joints_scores = self.top_k(heatmaps, tags)
-        tags = tags.numpy()[0]
-        heatmaps = heatmaps.numpy()[0]
-
-        joints_tags = joints_tags[0]
-        joints_coords = joints_coords[0]
-        joints_scores = joints_scores[0]
-
-        joints = self.match(joints_tags, joints_coords, joints_scores)
-
-        if len(joints) == 0:
-            joints = np.zeros((1, self.num_kpts, 4))
-            return [joints], np.zeros((1))
+        kpts_hms_npy = kpts_hms.cpu().numpy()
+        tags_hms_npy = tags_hms.cpu().numpy()
 
         if adjust:
-            joints = self.adjust(joints, heatmaps)
+            grouped_joints = self.adjust(grouped_joints, kpts_hms_npy)
 
-        scores = np.array([i[:, 2].mean() for i in joints])
+        scores = grouped_joints[..., 2].mean(1)
 
-        num_person = len(joints)
         if refine:
-            for i in range(num_person):
-                joints[i] = self.refine(heatmaps, tags, joints[i])
-
-        return [joints], scores
-
-
-if __name__ == "__main__":
-    from src.utils.config import DS_ROOT
-    from src.keypoints.transforms import MPPEKeypointsTransform
-    from src.keypoints.datasets import MPPEKeypointsDataset
-    from geda.data_providers.mpii import LABELS, LIMBS
-    import torch
-    import cv2
-
-    split = "train"
-
-    parser = MPPEHeatmapParser(max_num_people=3, num_kpts=16)
-
-    transform = MPPEKeypointsTransform(
-        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], out_size=(512, 512)
-    )
-
-    ds_root = str(DS_ROOT / "MPII" / "HumanPose")
-
-    hm_resolutions = [1 / 2, 1 / 4]
-
-    ds = MPPEKeypointsDataset(
-        ds_root, split, transform, hm_resolutions, labels=LABELS, limbs=LIMBS
-    )
-
-    def run_grouping(idx):
-        image, scales_heatmaps, target_weights, keypoints, visibilities = ds[idx]
-
-        heatmaps = torch.from_numpy(scales_heatmaps[0]).unsqueeze(0)
-        tags = torch.ones_like(heatmaps) * 3
-        joints = parser.parse(heatmaps, tags, True, False)
-
-    ds.explore(idx=13, callback=run_grouping)
+            # for every detected person
+            for person_idx in range(len(grouped_joints)):
+                grouped_joints[person_idx] = self.refine(
+                    kpts_hms_npy, tags_hms_npy, grouped_joints[person_idx]
+                )
+        return grouped_joints, scores

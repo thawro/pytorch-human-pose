@@ -6,7 +6,7 @@ from albumentations.pytorch.transforms import ToTensorV2
 import cv2
 import random
 
-from src.base.transforms import _normalize
+from src.base.transforms.transforms import _normalize
 
 keypoint_params = A.KeypointParams(
     format="xy", label_fields=["visibilities"], remove_invisible=False

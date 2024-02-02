@@ -321,8 +321,8 @@ class PoseHigherResolutionNet(nn.Module):
         self.loss_config = {
             "NUM_STAGES": 2,
             "AE_LOSS_TYPE": "exp",
-            "WITH_AE_LOSS": [True, False],
-            # "WITH_AE_LOSS": [True, True],
+            # "WITH_AE_LOSS": [True, False],
+            "WITH_AE_LOSS": [True, True],
             "PUSH_LOSS_FACTOR": [0.001, 0.001],
             "PULL_LOSS_FACTOR": [0.001, 0.001],
             "WITH_HEATMAPS_LOSS": [True, True],
