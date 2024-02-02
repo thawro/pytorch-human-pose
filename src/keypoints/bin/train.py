@@ -86,17 +86,10 @@ if __name__ == "__main__":
 # TODO: dodac te transformy z wycinaniem losowych kwadracikow
 # TODO: pretrain on the imagenet
 
-# TODO: zoptymalizowac train loopa - wywalic extra coordsy itp
 # TODO: dodac pin memory na heatmapach, keypointsach i visibilities
-# TODO: zmienic ewaluacje, tak zeby co X krokow byl odpalany model ewaluacyjny - na pelnych obrazach + podanie OKS
-# TODO: wywalic liczenie OKS/pckh z train loopa
-# TODO: dodac oryginalny model hrnet, tak zeby dalo sie ladowac wagi z ImageNeta
-# TODO: zrobic init sieci tak jak w paperze
-# TODO: dojsc do roznicy miedzy moja implementacja a oryginalnay
-# TODO: wyuczyc z tagami tylko dla pierwszego staga
+# TODO: zrobic init sieci w mojej implementacji tak jak w paperze
+# TODO: zmodyfikowac moja implementacje, tak zeby tagi sie liczyly tylko dla pierwszego staga
 
-
-# TODO: ogarnac grouping -> cos jest tam nie tak?
 # TODO: uzywac original hrneta pretrenowanego na imagenecie lub pretrenowac swojego
 # TODO: bez sigmoidy -> lepiej (ale musi byc pretrenowane)
 # TODO: uwazac na resume -> pozmieniane parametry
