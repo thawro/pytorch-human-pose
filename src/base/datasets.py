@@ -9,12 +9,13 @@ import cv2
 import glob
 from typing import Callable, Any
 from src.utils.files import load_yaml
+from src.base.transforms.transforms import ImageTransform
 
 
 class BaseDataset(Dataset):
     root: Path
 
-    def __init__(self, root: str, split: str, transform: A.Compose):
+    def __init__(self, root: str, split: str, transform: ImageTransform):
         self.transform = transform
         self.split = split
         self.root = Path(root)
@@ -47,7 +48,7 @@ class BaseDataset(Dataset):
 
 
 class BaseImageDataset(BaseDataset):
-    def __init__(self, root: str, split: str, transform: A.Compose):
+    def __init__(self, root: str, split: str, transform: ImageTransform):
         super().__init__(root, split, transform)
         self.images_filepaths = sorted(glob.glob(f"{str(self.root)}/images/{split}/*"))
         if len(self.images_filepaths) == 0:
