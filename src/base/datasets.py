@@ -19,6 +19,7 @@ class BaseDataset(Dataset):
         self.transform = transform
         self.split = split
         self.root = Path(root)
+        self.is_train = split == "train"
 
     def plot(self, idx: int) -> np.ndarray:
         raise NotImplementedError()
@@ -50,13 +51,24 @@ class BaseDataset(Dataset):
 class BaseImageDataset(BaseDataset):
     def __init__(self, root: str, split: str, transform: ImageTransform):
         super().__init__(root, split, transform)
-        self.images_filepaths = sorted(glob.glob(f"{str(self.root)}/images/{split}/*"))
-        if len(self.images_filepaths) == 0:
-            self.images_filepaths = sorted(glob.glob(f"{str(self.root)}/{split}/*"))
+        self.images_filepaths, self.annots_filepaths = (
+            self.get_images_annots_filepaths()
+        )
+
+    def get_images_annots_filepaths(self) -> tuple[list[str], list[str]]:
+        images_filepaths = sorted(glob.glob(f"{str(self.root)}/images/{self.split}/*"))
+        if len(images_filepaths) == 0:
+            images_filepaths = sorted(glob.glob(f"{str(self.root)}/{self.split}/*"))
+        annots_filepaths = [
+            path.replace("images/", "annots/").replace(".jpg", ".yaml")
+            for path in images_filepaths
+        ]
+        return images_filepaths, annots_filepaths
 
     def __len__(self) -> int:
         return len(self.images_filepaths)
 
+    # TODO: not all datasets have this form
     def load_image(self, idx: int) -> np.ndarray:
         image = np.asarray(Image.open(self.images_filepaths[idx]))
         if len(image.shape) == 2:
@@ -64,11 +76,7 @@ class BaseImageDataset(BaseDataset):
         return image
 
     def load_annot(self, idx: int) -> dict:
-        annot_path = (
-            self.images_filepaths[idx]
-            .replace(".jpg", ".yaml")
-            .replace("images/", "annots/")
-        )
+        annot_path = self.annots_filepaths[idx]
         return load_yaml(annot_path)
 
     def perform_inference(

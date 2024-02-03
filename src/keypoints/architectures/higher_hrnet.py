@@ -47,11 +47,11 @@ class HigherHRNet(nn.Module):
     def __init__(self, num_keypoints: int, C: int = 32):
         super().__init__()
         hrnet = HRNet(num_keypoints, C)
-        self.stem = nn.Sequential(
+        self.backbone = nn.Sequential(
             hrnet.conv1,
             hrnet.conv2,
+            hrnet.stages,
         )
-        self.hrnet_backbone = hrnet.stages
         self.num_keypoints = num_keypoints
         self.init_heatmaps_head = nn.Conv2d(C, num_keypoints * 2, 1, 1, 0)
 
@@ -68,8 +68,7 @@ class HigherHRNet(nn.Module):
         self.deconv_layers = nn.ModuleList(deconv_layers)
 
     def forward(self, images: Tensor) -> tuple[list[Tensor], list[Tensor]]:
-        x = self.stem(images)
-        high_res_out = self.hrnet_backbone([x])[0]
+        high_res_out = self.backbone(images)[0]
         feats = high_res_out
         init_heatmaps = self.init_heatmaps_head(high_res_out)
         out = init_heatmaps

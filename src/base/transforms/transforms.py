@@ -1,4 +1,5 @@
 """Base transforms"""
+
 import numpy as np
 import albumentations as A
 from albumentations.pytorch.transforms import ToTensorV2
@@ -11,11 +12,11 @@ _normalize = tuple[float, float, float] | list[float] | float | int
 class ImageTransform:
     def __init__(
         self,
-        mean: _normalize,
-        std: _normalize,
         preprocessing: list,
         random: A.Compose,
         inference: A.Compose,
+        mean: _normalize = [0.485, 0.456, 0.406],
+        std: _normalize = [0.229, 0.224, 0.225],
     ):
         if isinstance(mean, (float, int)):
             mean = [mean] * 3

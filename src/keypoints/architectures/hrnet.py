@@ -250,7 +250,8 @@ class HighResolutionStage(nn.Module):
             )
             _num_out_channels = num_out_channels[: len(num_in_channels)]
             if is_final_stage and is_final_block:
-                num_scales_out = 1
+                # num_scales_out = 1 # TODO: all scales needed for other tasks (classification, etc.)
+                num_scales_out = len(_num_out_channels)
             else:
                 num_scales_out = len(_num_out_channels)
             fusion_layer = FusionLayer(_num_out_channels, num_scales_out)
@@ -270,6 +271,8 @@ class HighResolutionStage(nn.Module):
             self.transition_layer = None
 
     def forward(self, scales_inputs: list[Tensor]) -> list[Tensor]:
+        if not isinstance(scales_inputs, list):
+            scales_inputs = [scales_inputs]
         scales_outs = self.blocks(scales_inputs)
         if self.transition_layer is not None:
             scales_outs = self.transition_layer(scales_outs)
@@ -281,6 +284,7 @@ class HRNet(nn.Module):
         super().__init__()
         self.num_keypoints = num_keypoints
         C_2, C_4, C_8 = 2 * C, 4 * C, 8 * C
+        self.stages_C = [C, C_2, C_4, C_8]
         config = [
             # num_blocks, num_units, ResidUnitType, num_scales, num_in_channels, num_out_channels
             [1, 4, Bottleneck, [64], [C, C_2]],
@@ -306,13 +310,10 @@ class HRNet(nn.Module):
     def forward(self, images: Tensor) -> list[Tensor]:
         x = self.conv1(images)
         x = self.conv2(x)
-        out = self.stages([x])
+        out = self.stages(x)
         high_res_out = out[0]
         heatmaps = self.final_conv(high_res_out)
         heatmaps = torch.softmax(heatmaps, dim=1)
-        # heatmaps = torch.clip(heatmaps, 0, 1)
-        # TODO: softmax over channels
-
         return [heatmaps]
 
 

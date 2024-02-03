@@ -8,6 +8,7 @@ GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
 GRAY = (128, 128, 128)
 WHITE = (255, 255, 255)
+YELLOW = (255, 255, 0)
 
 
 def stack_frames_horizontally(
@@ -67,7 +68,9 @@ def put_txt(
     font_scale=0.5,
     thickness=1,
     loc: Literal["tl", "tc", "tr", "bl", "bc", "br"] = "tl",
-):
+    bg_color: tuple[int, int, int] = GRAY,
+    txt_color: tuple[int, int, int] = WHITE,
+) -> np.ndarray:
     img_h, img_w = image.shape[:2]
     txt_h = vspace
     txt_w = 0
@@ -100,12 +103,12 @@ def put_txt(
         image,
         (x - vspace, y - vspace),
         (x - vspace + txt_w, y - vspace + txt_h),
-        GRAY,
+        bg_color,
         -1,
     )
     for label in labels:
         (width, height), _ = cv2.getTextSize(label, font, font_scale, thickness)
-        cv2.putText(image, label, (x, y + height), font, font_scale, WHITE)
+        cv2.putText(image, label, (x, y + height), font, font_scale, txt_color)
         y += height + vspace
     return image
 
