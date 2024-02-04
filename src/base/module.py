@@ -31,12 +31,13 @@ class BaseModule:
     optimizers: dict[str, optim.Optimizer]
     schedulers: dict[str, LRScheduler]
 
-    def __init__(self, model: BaseModel, loss_fn: _Loss):
+    def __init__(self, model: BaseModel, loss_fn: _Loss, use_fp16: bool = True):
         super().__init__()
         self.model = model
         self.loss_fn = loss_fn
         self.current_epoch = 0
         self.current_step = 0
+        self.use_fp16 = use_fp16
         self.optimizers, self.schedulers = self.create_optimizers()
 
     def pass_attributes(

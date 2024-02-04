@@ -1,7 +1,6 @@
 """Train the model"""
 
-import torch
-
+from src.base.bin.train import train
 from src.logging import TerminalLogger
 from src.base.trainer import Trainer
 from src.utils.model import seed_everything
@@ -13,35 +12,17 @@ from src.keypoints.bin.utils import (
     create_model,
 )
 from src.keypoints.bin.config import create_config, EXPERIMENT_NAME
-
-from torch.distributed import init_process_group, destroy_process_group
+from functools import partial
 import os
 from src.utils.config import RESULTS_PATH
-import torch.backends.cudnn as cudnn
 
 
-def ddp_setup():
-    init_process_group(backend="nccl")
-    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
-
-
-def main(dataset, mode, arch, ckpt_path) -> None:
-    ddp_setup()
-
-    # if fp16_enabled:
-    cudnn.benchmark = True
-    torch.backends.cudnn.deterministic = False
-    torch.backends.cudnn.enabled = True
-    assert (
-        torch.backends.cudnn.enabled
-    ), "fp16 mode requires cudnn backend to be enabled."
-
+def train_fn(dataset, mode, arch, ckpt_path):
     rank = int(os.environ["LOCAL_RANK"])
 
     cfg = create_config(dataset, mode, arch, device_id=rank, ckpt_path=ckpt_path)
 
     seed_everything(cfg.setup.seed)
-    torch.set_float32_matmul_precision("medium")
 
     datamodule = create_datamodule(cfg)
     labels = datamodule.train_ds.labels
@@ -55,7 +36,16 @@ def main(dataset, mode, arch, ckpt_path) -> None:
 
     trainer = Trainer(logger=logger, callbacks=callbacks, **cfg.trainer.to_dict())
     trainer.fit(module, datamodule, ckpt_path=cfg.setup.ckpt_path)
-    destroy_process_group()
+
+
+def main(dataset, mode, arch, ckpt_path) -> None:
+    train(
+        train_fn=partial(
+            train_fn, dataset=dataset, mode=mode, arch=arch, ckpt_path=ckpt_path
+        ),
+        use_distributed=True,
+        use_fp16=True,
+    )
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ class ConvBnAct(nn.Module):
         stride: int = 1,
         batch_norm: bool = True,
         activation: str | None = "ReLU",
+        inplace: bool = False,
     ):
         super().__init__()
         padding = (kernel_size - 1) // 2
@@ -28,9 +29,9 @@ class ConvBnAct(nn.Module):
         if activation is None:
             self.activation = None
         elif activation == "LeakyReLU":
-            self.activation = nn.LeakyReLU(0.2, inplace=True)
+            self.activation = nn.LeakyReLU(0.2, inplace=inplace)
         else:
-            self.activation = getattr(nn, activation)()
+            self.activation = getattr(nn, activation)(inplace=inplace)
         self.batchnorm = nn.BatchNorm2d(out_channels) if batch_norm else None
 
     def forward(self, x: Tensor) -> Tensor:

@@ -5,7 +5,6 @@ from src.keypoints.grouping import SPPEHeatmapParser, MPPEHeatmapParser
 
 from src.keypoints.metrics import OKS, PCKh, object_PCKh, object_OKS, EvaluationMetric
 from typing import Callable
-from functools import partial
 import torchvision.transforms.functional as F
 import torch
 from src.keypoints.visualization import plot_heatmaps, plot_connections

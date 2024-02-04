@@ -34,9 +34,15 @@ class Trainer:
         max_epochs: int = 100,
         limit_batches: int = -1,
         log_every_n_steps: int = -1,
+        use_distributed: bool = True,
+        use_fp16: bool = True,
     ):
         stages = ["train", "val", "eval_val"]
-        self.meters = {stage: Meters() for stage in stages}
+        self.use_distributed = use_distributed
+        self.use_fp16 = use_fp16
+        self.meters = {
+            stage: Meters(use_distributed=use_distributed) for stage in stages
+        }
         self.logger = logger
         self.device = f"cuda:{device_id}"
         self.device_id = device_id
@@ -54,8 +60,13 @@ class Trainer:
         for j in range(len(batch)):
             if isinstance(batch[j], Tensor):
                 batch[j] = batch[j].to(self.device)
-            elif isinstance(batch[j][0], Tensor):  # list of tensors
+            elif isinstance(batch[j], list):  # list of tensors
                 batch[j] = [batch[j][i].to(self.device) for i in range(len(batch[j]))]
+            elif isinstance(batch[j], dict):  # dict of tensors
+                batch[j] = {
+                    key: value.to(self.device) if isinstance(value, Tensor) else value
+                    for key, value in batch[j].items()
+                }
 
     def get_limit_batches(self) -> int:
         if self.current_step == 0:
@@ -173,7 +184,8 @@ class Trainer:
             for epoch in range(
                 self.current_epoch, self.current_epoch + self.max_epochs
             ):
-                self.datamodule.train_dataloader.sampler.set_epoch(epoch)  # DDP
+                if self.use_distributed:
+                    self.datamodule.train_dataloader.sampler.set_epoch(epoch)  # DDP
                 self.current_epoch = epoch
                 self.callbacks.on_epoch_start(self)
                 module.set_attributes(current_epoch=epoch)
@@ -183,7 +195,9 @@ class Trainer:
                 self.module.on_epoch_end()
                 self.callbacks.on_epoch_end(self)
                 log.info(f" <<<  {self.device_info} epoch finished  >>> ")
-                dist.barrier()
+                print(self.use_distributed)
+                if self.use_distributed:
+                    dist.barrier()
         except KeyboardInterrupt as e:
             self.callbacks.on_failure(self)
             raise e

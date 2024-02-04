@@ -42,9 +42,8 @@ class ClassificationHead(nn.Module):
             incr_block = self.chann_incr_blocks[i]
             out_stages.append(incr_block(x))
 
-        downsampled = None
         for i in range(self.num_stages - 1):
-            out = out_stages[i]
+            out = out_stages[i].clone()
             if i > 0:
                 out += downsampled
             downsample_block = self.downsample_blocks[i]

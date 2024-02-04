@@ -34,8 +34,7 @@ class ClassificationDataset(BaseImageDataset):
         raw_image, raw_annot = self.get_raw_data(idx)
         raw_h, raw_w = raw_image.shape[:2]
 
-        image, annot = self[idx]
-        print(annot)
+        image, annot, class_idx = self[idx]
         image = self.transform.inverse_preprocessing(image)
         tr_h, tr_w = image.shape[:2]
 
@@ -71,11 +70,16 @@ class ClassificationDataset(BaseImageDataset):
         annot = self.load_annot(idx)
         return image, annot
 
-    def __getitem__(self, idx: int) -> tuple[np.ndarray, int]:
+    def __getitem__(self, idx: int) -> tuple[np.ndarray, dict, int]:
         image, annot = self.get_raw_data(idx)
         image = self._transform(image)
-        class_idx = annot["label"]["class_idx"]
-        return image, class_idx
+        annot = {
+            "label": annot["label"]["label"],
+            "class_idx": annot["label"]["class_idx"],
+            "wordnet_name": annot["label"]["wordnet_name"],
+        }
+        class_idx = annot["class_idx"]
+        return image, annot, class_idx
 
 
 class ImageNetClassificationDataset(ClassificationDataset):
@@ -86,6 +90,9 @@ class ImageNetClassificationDataset(ClassificationDataset):
     def __init__(self, root: str, split: str, transform: ClassificationTransform):
         super().__init__(root, split, transform)
         self.wordnet2label = self._create_wordnet_labels()
+        self.labels = [
+            label_info["label"] for label_info in self.wordnet2label.values()
+        ]
 
     def _create_wordnet_labels(self) -> dict[str, dict[str, int | str]]:
         with open(f"{self.root}/class_index.yaml", "r") as f:

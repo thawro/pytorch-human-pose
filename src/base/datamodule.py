@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
 
 
-from .transforms.transforms import BaseTransform
+from .transforms.transforms import ImageTransform
 
 
 class DataModule:
@@ -16,12 +16,13 @@ class DataModule:
         train_ds: Dataset,
         val_ds: Dataset,
         test_ds: Dataset | None,
-        transform: BaseTransform,
+        transform: ImageTransform,
         batch_size: int = 12,
         num_workers: int = 8,
         pin_memory: bool = True,
         drop_last: bool = True,
         collate_fn=None,
+        use_distributed: bool = True,
     ):
         super().__init__()
         self.train_ds = train_ds
@@ -42,18 +43,15 @@ class DataModule:
             collate_fn=collate_fn,
         )
 
-        self.train_dataloader = DataLoader(
-            train_ds,
-            shuffle=False,  # DDP
-            sampler=DistributedSampler(train_ds),  # DDP
-            **dl_params,
-        )
-        self.val_dataloader = DataLoader(
-            val_ds,
-            shuffle=False,
-            sampler=DistributedSampler(val_ds),  # DDP
-            **dl_params,
-        )
+        if use_distributed:
+            train_params = dict(shuffle=False, sampler=DistributedSampler(train_ds))
+            val_params = dict(shuffle=False, sampler=DistributedSampler(val_ds))
+        else:
+            train_params = dict(shuffle=False)
+            val_params = dict(shuffle=False)
+
+        self.train_dataloader = DataLoader(train_ds, **train_params, **dl_params)
+        self.val_dataloader = DataLoader(val_ds, **val_params, **dl_params)
         self.total_batches = {
             "train": len(self.train_dataloader),
             "val": len(self.val_dataloader),
