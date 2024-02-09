@@ -6,12 +6,15 @@ from torch.nn.modules.loss import _Loss
 
 from src.logging import get_pylogger
 from src.logging.loggers import BaseLogger
+from src.utils.fp16_utils.fp16util import network_to_half
 
 from .datamodule import DataModule
 
 from .model import BaseModel
 from .callbacks import Callbacks
 from .lr_scheduler import LRScheduler
+from torch.nn.parallel import DistributedDataParallel as DDP
+
 
 log = get_pylogger(__name__)
 
@@ -19,9 +22,12 @@ SPLITS = ["train", "val", "test"]
 
 
 class BaseModule:
+    device: str
+    device_id: int
+    use_distributed: bool
+    use_fp16: bool
     model: BaseModel
     logger: BaseLogger
-    device: torch.device
     datamodule: DataModule
     callbacks: "Callbacks"
     current_epoch: int
@@ -31,19 +37,33 @@ class BaseModule:
     optimizers: dict[str, optim.Optimizer]
     schedulers: dict[str, LRScheduler]
 
-    def __init__(self, model: BaseModel, loss_fn: _Loss, use_fp16: bool = True):
+    def __init__(self, model: BaseModel, loss_fn: _Loss):
         super().__init__()
         self.model = model
         self.loss_fn = loss_fn
         self.current_epoch = 0
         self.current_step = 0
-        self.use_fp16 = use_fp16
+
+    def set_optimizers(self):
         self.optimizers, self.schedulers = self.create_optimizers()
+
+    def to_DDP(self, device_id: int):
+        self.model.net = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model.net)
+        self.model.net = DDP(
+            self.model.net.cuda(device_id),
+            device_ids=[device_id],
+            find_unused_parameters=True,
+        )
+
+    def to_fp16(self):
+        self.model.net = network_to_half(self.model.net)
 
     def pass_attributes(
         self,
         device_id: int,
-        device: torch.device,
+        device: str,
+        use_distributed: bool,
+        use_fp16: bool,
         logger: BaseLogger,
         callbacks: "Callbacks",
         datamodule: DataModule,
@@ -51,6 +71,9 @@ class BaseModule:
         log_every_n_steps: int,
     ):
         self.device_id = device_id
+        self.device = device
+        self.use_distributed = use_distributed
+        self.use_fp16 = use_fp16
         self.logger = logger
         self.callbacks = callbacks
         self.datamodule = datamodule
@@ -58,7 +81,6 @@ class BaseModule:
         self.total_batches = datamodule.total_batches
         if limit_batches > 0:
             self.total_batches = {k: limit_batches for k in self.total_batches}
-        self.device = device
         self.log_every_n_steps = log_every_n_steps
 
     def set_attributes(self, **attributes):
@@ -66,7 +88,13 @@ class BaseModule:
             setattr(self, name, attr)
 
     def load_state_dict(self, state_dict: dict, lr: float | None = None):
-        self.model.load_state_dict(state_dict["model"])
+        model_state_dict = state_dict["model"]
+        if not self.use_distributed and "module" in list(model_state_dict.keys())[0]:
+            model_state_dict = {
+                k.replace("net.module.1", "net.1"): v
+                for k, v in model_state_dict.items()
+            }
+        self.model.load_state_dict(model_state_dict)
         self.optimizers, self.schedulers = self.create_optimizers()
         for name, optimizer in self.optimizers.items():
             optimizer.load_state_dict(state_dict["optimizers"][name])

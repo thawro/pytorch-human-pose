@@ -15,7 +15,7 @@ from src.base.transforms.transforms import ImageTransform
 class BaseDataset(Dataset):
     root: Path
 
-    def __init__(self, root: str, split: str, transform: ImageTransform):
+    def __init__(self, root: str, split: str, transform: ImageTransform | None = None):
         self.transform = transform
         self.split = split
         self.root = Path(root)
@@ -49,7 +49,7 @@ class BaseDataset(Dataset):
 
 
 class BaseImageDataset(BaseDataset):
-    def __init__(self, root: str, split: str, transform: ImageTransform):
+    def __init__(self, root: str, split: str, transform: ImageTransform | None = None):
         super().__init__(root, split, transform)
         self.images_filepaths, self.annots_filepaths = (
             self.get_images_annots_filepaths()
@@ -77,7 +77,10 @@ class BaseImageDataset(BaseDataset):
 
     def load_annot(self, idx: int) -> dict:
         annot_path = self.annots_filepaths[idx]
-        return load_yaml(annot_path)
+        try:
+            return load_yaml(annot_path)
+        except UnicodeDecodeError:
+            return load_txt(annot_path)
 
     def perform_inference(
         self,

@@ -279,10 +279,9 @@ class HighResolutionStage(nn.Module):
         return scales_outs
 
 
-class HRNet(nn.Module):
-    def __init__(self, num_keypoints: int, C: int = 32):
+class HRNetBackbone(nn.Module):
+    def __init__(self, C: int = 32):
         super().__init__()
-        self.num_keypoints = num_keypoints
         C_2, C_4, C_8 = 2 * C, 4 * C, 8 * C
         self.stages_C = [C, C_2, C_4, C_8]
         config = [
@@ -305,13 +304,24 @@ class HRNet(nn.Module):
             )
             stages.append(stage)
         self.stages = nn.Sequential(*stages)
-        self.final_conv = nn.Conv2d(C, num_keypoints, 1, 1, 0)
 
     def forward(self, images: Tensor) -> list[Tensor]:
         x = self.conv1(images)
         x = self.conv2(x)
         out = self.stages(x)
-        high_res_out = out[0]
+        return out
+
+
+class HRNet(nn.Module):
+    def __init__(self, num_keypoints: int, C: int = 32):
+        super().__init__()
+        self.num_keypoints = num_keypoints
+        self.backbone = HRNetBackbone(C)
+        self.final_conv = nn.Conv2d(C, num_keypoints, 1, 1, 0)
+
+    def forward(self, images: Tensor) -> list[Tensor]:
+        backbone_out = self.backbone(images)
+        high_res_out = backbone_out[0]
         heatmaps = self.final_conv(high_res_out)
         heatmaps = torch.softmax(heatmaps, dim=1)
         return [heatmaps]

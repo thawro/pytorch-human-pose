@@ -1,59 +1,47 @@
-import dataclasses
 from dataclasses import dataclass
-from src.utils import NOW, RESULTS_PATH
-from pathlib import Path
+from torch import nn
 from typing import Literal, Type
-from src.utils.config import DS_ROOT
 
+
+from .datamodule import KeypointsDataModule
 from .datasets import (
-    SppeMpiiDataset,
-    MppeMpiiDataset,
-    SppeCocoDataset,
-    MppeCocoDataset,
     BaseKeypointsDataset,
+    SppeCocoDataset,
+    SppeMpiiDataset,
+    MppeCocoDataset,
+    MppeMpiiDataset,
+    collate_fn,
 )
+from .module import BaseKeypointsModule, SPPEKeypointsModule, MPPEKeypointsModule
 from .transforms import SPPEKeypointsTransform, MPPEKeypointsTransform
-from .module import SPPEKeypointsModule, MPPEKeypointsModule
-from .datasets import (
-    mpii_symmetric_labels,
-    coco_symmetric_labels,
-    coco_limbs,
-    mpii_limbs,
+from .model import KeypointsModel, AEKeypointsModel, BaseKeypointsModel
+from .architectures import (
+    HourglassNet,
+    AEHourglassNet,
+    SimpleBaseline,
+    HigherHRNet,
+    HRNet,
 )
-
-_dataset_name = Literal["MPII", "COCO"]
-_mode = Literal["SPPE", "MPPE"]
-_architectures = Literal["Hourglass", "SimpleBaseline", "HRNet", "HigherHRNet"]
+from .loss import KeypointsLoss, AEKeypointsLoss
 
 
-@dataclass
-class BaseConfig:
-    def to_dict(self):
-        fields = dataclasses.fields(self)
-        dct = {}
-        for field in fields:
-            field_name = field.name
-            field_value = getattr(self, field_name)
-            if hasattr(field_value, "to_dict"):
-                dct[field_name] = field_value.to_dict()
-            else:
-                dct[field_name] = field_value
-        return dct
+from src.base.config import BaseConfig, TransformConfig, DatasetConfig, DataloaderConfig
+from src.keypoints.architectures.original_higher_hrnet import get_pose_net
+from src.utils.config import DS_ROOT
+from src.logging import get_pylogger
+
+
+log = get_pylogger(__name__)
 
 
 @dataclass
-class TransformConfig(BaseConfig):
-    mean: tuple[float, ...] | list[float]
-    std: tuple[float, ...] | list[float]
-    out_size: list[int] | tuple[int, int]
+class KeypointsTransformConfig(TransformConfig):
     symmetric_keypoints: list[int]
 
 
 @dataclass
-class DatasetConfig(BaseConfig):
-    name: _dataset_name
-    mode: _mode
-    out_size: tuple[int, int]
+class KeypointsDatasetConfig(DatasetConfig):
+    mode: Literal["SPPE", "MPPE"]
 
     @property
     def DatasetClass(self) -> Type[BaseKeypointsDataset]:
@@ -85,90 +73,26 @@ class DatasetConfig(BaseConfig):
     def root(self) -> str:
         return str(DS_ROOT / self.name / self.subdir)
 
-    @property
-    def symmetric_keypoints(self) -> list[int]:
-        if self.name == "MPII":
-            return mpii_symmetric_labels
-        elif self.name == "COCO":
-            return coco_symmetric_labels
-        else:
-            raise ValueError("Wrong dataset name passed. Possible: ['MPII', 'COCO']")
-
-    @property
-    def limbs(self) -> list[tuple[int, int]]:
-        if self.name == "MPII":
-            return mpii_limbs
-        elif self.name == "COCO":
-            return coco_limbs
-        else:
-            raise ValueError("Wrong dataset name passed. Possible: ['MPII', 'COCO']")
-
-    def to_dict(self) -> dict:
-        dct = super().to_dict()
-        dct["out_size"] = self.out_size
-        dct["root"] = self.root
-        return dct
-
 
 @dataclass
-class DataloaderConfig(BaseConfig):
+class KeypointsDataloaderConfig(DataloaderConfig):
     batch_size: int
-    transform: TransformConfig
+    pin_memory: bool
+    num_workers: int
+    dataset: KeypointsDatasetConfig
 
 
 @dataclass
-class TrainerConfig(BaseConfig):
-    device_id: int
-    max_epochs: int
-    limit_batches: int
-    log_every_n_steps: int
-
-
-@dataclass
-class SetupConfig(BaseConfig):
-    distributed: bool
-    experiment_name: str
-    name_prefix: str
-    seed: int
-    dataset: _dataset_name
-    ckpt_path: str | None
-    mode: _mode
-    arch: _architectures
-    is_train: bool
-
-
-@dataclass
-class Config(BaseConfig):
-    setup: SetupConfig
-    dataset: DatasetConfig
-    dataloader: DataloaderConfig
-    trainer: TrainerConfig
-
-    @property
-    def run_name(self) -> str:
-        dataset = f"_{self.setup.dataset}"
-        mode = f"_{self.setup.mode}"
-        name = f"_{self.setup.name_prefix}"
-        architecture = f"_{self.setup.arch}"
-        return f"{NOW}_{name}{mode}{dataset}{architecture}"
-
-    @property
-    def logs_path(self) -> str:
-        ckpt_path = self.setup.ckpt_path
-        if ckpt_path is None:
-            return str(RESULTS_PATH / self.setup.experiment_name / self.run_name / NOW)
-        else:
-            ckpt_path = Path(ckpt_path)
-            loaded_run_path = ckpt_path.parent.parent.parent
-            return str(loaded_run_path / NOW)
+class KeypointsConfig(BaseConfig):
+    dataloader: KeypointsDataloaderConfig
 
     @property
     def is_sppe(self) -> bool:
-        return self.dataset.mode == "SPPE"
+        return self.dataloader.dataset.mode == "SPPE"
 
     @property
     def is_mpii(self) -> bool:
-        return self.dataset.name == "MPII"
+        return self.dataloader.dataset.name == "MPII"
 
     @property
     def is_debug(self) -> bool:
@@ -176,9 +100,9 @@ class Config(BaseConfig):
 
     @property
     def num_keypoints(self) -> int:
-        if self.dataset.name == "MPII":
+        if self.dataloader.dataset.name == "MPII":
             return 16
-        elif self.dataset.name == "COCO":
+        elif self.dataloader.dataset.name == "COCO":
             return 17
         else:
             raise ValueError("Wrong dataset name passed. Possible: ['MPII', 'COCO']")
@@ -188,9 +112,9 @@ class Config(BaseConfig):
         if self.is_sppe:
             return [1 / 4, 1 / 4]
         else:
-            if self.setup.arch in ["HigherHRNet", "OriginalHigherHRNet"]:
+            if self.model.architecture in ["HigherHRNet", "OriginalHigherHRNet"]:
                 return [1 / 4, 1 / 2]
-            elif self.setup.arch == "Hourglass":
+            elif self.model.architecture == "Hourglass":
                 return [1 / 4, 1 / 4]  # for Hourglass
             else:
                 raise ValueError(
@@ -203,3 +127,86 @@ class Config(BaseConfig):
             return SPPEKeypointsModule
         else:
             return MPPEKeypointsModule
+
+    def create_datamodule(self) -> KeypointsDataModule:
+        ds_cfg = self.dataloader.dataset
+        log.info("..Creating DataModule..")
+
+        transform = ds_cfg.TransformClass(
+            **ds_cfg.transform.to_dict(),
+            symmetric_keypoints=ds_cfg.DatasetClass.symmetric_labels
+        )
+
+        train_ds: BaseKeypointsDataset = ds_cfg.DatasetClass(
+            ds_cfg.root, "train", transform, self.hm_resolutions
+        )
+        val_ds: BaseKeypointsDataset = ds_cfg.DatasetClass(
+            ds_cfg.root, "val", transform, self.hm_resolutions
+        )
+        self.labels = train_ds.labels
+        self.limbs = train_ds.limbs
+        return KeypointsDataModule(
+            train_ds=train_ds,
+            val_ds=val_ds,
+            test_ds=None,
+            transform=transform,
+            batch_size=self.dataloader.batch_size,
+            pin_memory=self.dataloader.pin_memory,
+            num_workers=self.dataloader.num_workers,
+            collate_fn=collate_fn,
+        )
+
+    def create_net(self) -> nn.Module:
+        arch = self.model.architecture
+        is_sppe = self.is_sppe
+        num_kpts = self.num_keypoints
+
+        if is_sppe:
+            if arch == "Hourglass":
+                net = HourglassNet(num_kpts, num_stages=8)
+            elif arch == "SimpleBaseline":
+                net = SimpleBaseline(num_keypoints=num_kpts, backbone="resnet101")
+            elif arch == "HRNet":
+                net = HRNet(num_keypoints=num_kpts, C=32)
+            else:
+                raise ValueError(
+                    "SPPE implemented only for Hourglass, SimpleBaseline and HRNet"
+                )
+        else:
+            if arch == "Hourglass":
+                net = AEHourglassNet(num_kpts, num_stages=2)
+            elif arch == "HigherHRNet":
+                net = HigherHRNet(num_kpts, C=32)
+            elif arch == "OriginalHigherHRNet":
+                log.warn("USING ORIGINAL HIGHER HRNET")
+                imagenet_ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/pretrained/hrnet_w32-36af842e.pth"
+                init_weights = self.setup.ckpt_path is None
+                net = get_pose_net(
+                    init_weights, imagenet_ckpt_path, self.setup.is_train
+                )
+            else:
+                raise ValueError("MPPE implemented only for Hourglass and HigherHRNet")
+        return net
+
+    def _create_model(self) -> BaseKeypointsModel | nn.Module:
+        net = self.create_net()
+        ModelClass = KeypointsModel if self.is_sppe else AEKeypointsModel
+        if self.setup.is_train:
+            return ModelClass(net, num_keypoints=self.num_keypoints)
+        else:
+            return net
+
+    def create_module(self) -> BaseKeypointsModule:
+        log.info("..Creating Module..")
+        if self.is_sppe:
+            loss_fn = KeypointsLoss()
+        else:
+            loss_fn = AEKeypointsLoss(self.hm_resolutions)
+        model = self._create_model()
+        module = self.ModuleClass(
+            model=model,
+            loss_fn=loss_fn,
+            labels=self.labels,
+            limbs=self.limbs,
+        )
+        return module

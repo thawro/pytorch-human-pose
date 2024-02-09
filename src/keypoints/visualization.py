@@ -1,11 +1,11 @@
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
 from src.utils.image import make_grid, get_color
 from typing import TYPE_CHECKING
+from PIL import Image
 
 if TYPE_CHECKING:
-    from .results import SPPEKeypointsResults, MPPEKeypointsResult
+    from .results import SPPEKeypointsResult, MPPEKeypointsResult
 
 
 def plot_connections(
@@ -23,7 +23,6 @@ def plot_connections(
     h, w = image.shape[:2]
     radius = max(3, max(h, w) // 100 - 4)
     thickness = max(3, max(h, w) // 100 - 4)
-
     for i in range(len(all_kpts_coords)):
         kpts_coords = all_kpts_coords[i]
         kpts_scores = all_kpts_scores[i]
@@ -70,35 +69,19 @@ def plot_heatmaps(
 
 
 def plot_sppe_results_heatmaps(
-    results: "SPPEKeypointsResults",
-    limbs: list[tuple[int, int]],
-    filepath: str | None = None,
-    thr: float = 0.2,
+    results: list["SPPEKeypointsResult"], filepath: str | None = None
 ):
-    n_rows = min(10, len(results.pred_heatmaps))
-    fig, axes = plt.subplots(n_rows, 1, figsize=(24, n_rows * 8))
+    n_rows = min(20, len(results))
     grids = []
     for i in range(n_rows):
-        ax = axes[i]
-        pred_heatmaps = results.pred_heatmaps[i]
-        image = results.images[i]
-        kpts_coords = results.pred_keypoints[i].astype(np.int32)
-        kpts_scores = results.pred_scores[i]
-
-        pred_kpts_heatmaps = plot_heatmaps(
-            image, pred_heatmaps, clip_0_1=True, minmax=False
-        )
-
-        image = plot_connections(image.copy(), kpts_coords, kpts_scores, limbs, thr)
-        pred_kpts_heatmaps.insert(0, image)
-
-        pred_hms_grid = make_grid(pred_kpts_heatmaps, nrows=2, pad=5)
-        grids.append(pred_hms_grid)
-        ax.imshow(pred_hms_grid)
-
+        result = results[i]
+        result.set_preds()
+        result_plot = result.plot()  # TODO
+        grids.append(result_plot)
+    final_grid = make_grid(grids, nrows=len(grids), pad=20)
     if filepath is not None:
-        fig.savefig(filepath, bbox_inches="tight")
-    plt.close()
+        im = Image.fromarray(final_grid)
+        im.save(filepath)
     return grids
 
 
@@ -112,12 +95,9 @@ def plot_mppe_results_heatmaps(
         result.set_preds()
         result_plot = result.plot()
         grids.append(result_plot)
-        # axes[i].imshow(result_plot)
     final_grid = make_grid(grids, nrows=len(grids), pad=20)
-    from PIL import Image
 
     if filepath is not None:
         im = Image.fromarray(final_grid)
         im.save(filepath)
-    plt.close()
     return grids

@@ -175,10 +175,6 @@ class SaveModelCheckpoint(BaseCallback):
     def on_epoch_end(self, trainer: Trainer):
         self.save_model(trainer)
 
-    # def on_failure(self, trainer: Trainer):
-    #     log.warn(f"`on_failure`: Saving {self.callback_name}")
-    #     self.save_model(trainer)
-
     def state_dict(self) -> dict:
         return {f"best_{self.stage}_{self.metric}": self.best}
 

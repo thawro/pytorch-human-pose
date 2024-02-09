@@ -1,25 +1,26 @@
-import torch
-from torch import nn, Tensor
-from src.utils.model import seed_everything
-
-from src.keypoints.bin.utils import create_model
-from src.keypoints.bin.config import create_config
-from src.keypoints.results import InferenceMPPEKeypointsResult
-from src.keypoints.datasets import coco_symmetric_labels
 import cv2
-import numpy as np
-from src.utils.config import RESULTS_PATH, DS_ROOT
-from functools import partial
-from src.base.datasets import BaseImageDataset
-from src.keypoints.datasets import coco_limbs, mpii_limbs
 import torch
+import numpy as np
+from typing import Literal
+from torch import nn, Tensor
+from functools import partial
 
-from src.logging.pylogger import get_pylogger
+from src.utils.model import seed_everything
+from src.utils.config import RESULTS_PATH, DS_ROOT, YAML_EXP_PATH
+
+from src.keypoints.results import InferenceMPPEKeypointsResult
+from src.keypoints.config import KeypointsConfig
+from src.keypoints.datasets import coco_limbs, mpii_limbs
+
+from src.base.datasets import BaseImageDataset
 from src.base.transforms.utils import (
     get_affine_transform,
     affine_transform,
     resize_align_multi_scale,
 )
+
+from src.logging.pylogger import get_pylogger
+
 
 log = get_pylogger(__name__)
 
@@ -49,7 +50,7 @@ class MPPEInferenceKeypointsModel(nn.Module):
         det_thr: float = 0.1,
         tag_thr: float = 1.0,
         device: str = "cuda:1",
-        limbs: list[tuple[int, int]] = coco_limbs,
+        ds_name: Literal["COCO", "MPII"] = "COCO",
     ):
         super().__init__()
         self.net = net.to(device)
@@ -57,7 +58,8 @@ class MPPEInferenceKeypointsModel(nn.Module):
         self.det_thr = det_thr
         self.tag_thr = tag_thr
         self.input_size = 512
-        self.limbs = limbs
+        self.ds_name = ds_name
+        self.limbs = coco_limbs if ds_name == "COCO" else mpii_limbs
 
     def prepare_input(self, image: np.ndarray) -> Tensor:
         import torchvision
@@ -124,40 +126,19 @@ def processing_fn(
     return {}
 
 
-def load_model(dataset: str = "COCO"):
-    device_id = 1
+def load_model(cfg: KeypointsConfig, ckpt_path: str) -> MPPEInferenceKeypointsModel:
+    cfg.setup.is_train = False
+    cfg.setup.ckpt_path = ckpt_path
+    device_id = 0
     device = f"cuda:{device_id}"
-    limbs = coco_limbs if dataset == "COCO" else mpii_limbs
-    if dataset == "COCO":
-        ckpt_path = str(
-            RESULTS_PATH
-            / "test/01-12_15:17__sigmoid_MPPE_COCO_HigherHRNet/01-14_20:44/checkpoints/last.pt"
-        )
-        ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/test/01-17_16:04__sigmoid_MPPE_COCO_HigherHRNet/01-18_11:10/checkpoints/best.pt"
-        ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/test/01-21_11:03__org_mosaic_MPPE_COCO_OriginalHigherHRNet/01-23_08:03/checkpoints/best.pt"
-        # ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/test/01-23_17:59___MPPE_COCO_OriginalHigherHRNet/01-25_08:32/checkpoints/best.pt"
-    else:
-        ckpt_path = str(
-            RESULTS_PATH
-            / "test/01-10_13:21__sigmoid_MPPE_MPII_HigherHRNet/01-11_09:10/checkpoints/last.pt"
-        )
-    model = "OriginalHigherHRNet"
-    cfg = create_config(
-        dataset,
-        "MPPE",
-        model,
-        device_id,
-        ckpt_path=ckpt_path,
-        distributed=False,
-        is_train=False,
-    )
 
-    seed_everything(cfg.setup.seed)
-
-    net = create_model(cfg)
-
+    net = cfg.create_net()
     model = MPPEInferenceKeypointsModel(
-        net, device=device, limbs=limbs, det_thr=0.1, tag_thr=1.0
+        net,
+        device=device,
+        ds_name=cfg.dataloader.dataset.name,
+        det_thr=0.1,
+        tag_thr=1.0,
     )
     ckpt = torch.load(ckpt_path, map_location=device)
     ckpt = ckpt["module"]["model"]
@@ -165,23 +146,25 @@ def load_model(dataset: str = "COCO"):
         ckpt[key.replace("module.1.", "")] = ckpt[key]
         ckpt.pop(key)
     model.load_state_dict(ckpt)
-    log.info(f"Loaded model from {ckpt_path}")
-
     model.eval()
+    log.info(f"Loaded model from {ckpt_path}")
     return model
 
 
 def main() -> None:
-    dataset = "COCO"
-    model = load_model(dataset)
-    ds = BaseImageDataset(
-        root=str(DS_ROOT / f"{dataset}/HumanPose"),
-        split="val",
-        transform=None,
+    seed_everything(42)
+    ckpt_path = str(
+        RESULTS_PATH
+        / "keypoints/01-23_17:59___MPPE_COCO_OriginalHigherHRNet/01-25_08:32/checkpoints/best.pt"
     )
 
+    cfg_path = str(YAML_EXP_PATH / "keypoints" / "higher_hrnet_32.yaml")
+    cfg = KeypointsConfig.from_yaml(cfg_path)
+
+    model = load_model(cfg, ckpt_path)
+
+    ds = BaseImageDataset(root=str(DS_ROOT / f"{model.ds_name}/HumanPose"), split="val")
     ds.perform_inference(partial(processing_fn, model=model))
-    # process_video(partial(processing_fn, model=model), filename=0)
 
 
 if __name__ == "__main__":

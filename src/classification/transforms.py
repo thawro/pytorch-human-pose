@@ -15,27 +15,11 @@ class ClassificationTransform(ImageTransform):
         fill_value = (np.array(mean) * 255).astype(np.uint8).tolist()
         preprocessing = []
         random = A.Compose(
-            [
-                A.SmallestMaxSize(max(out_size)),
-                A.Affine(
-                    scale=(0.75, 1.25),
-                    rotate=(-30, 30),
-                    keep_ratio=True,
-                    p=0.7,
-                    mode=cv2.BORDER_CONSTANT,
-                    cval=fill_value,
-                ),
-                A.RandomCrop(*out_size),
-            ],
+            [A.RandomResizedCrop(*out_size), A.HorizontalFlip(p=0.5)],
         )
 
         inference = A.Compose(
-            [
-                A.LongestMaxSize(max(out_size)),
-                A.PadIfNeeded(
-                    *out_size, border_mode=cv2.BORDER_CONSTANT, value=fill_value
-                ),
-            ]
+            [A.SmallestMaxSize(max(out_size)), A.CenterCrop(*out_size)]
         )
         self.out_size = out_size
 

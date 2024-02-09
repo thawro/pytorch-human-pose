@@ -145,7 +145,7 @@ class BaseKeypointsDataset(BaseImageDataset):
     fn_masks2coords: Callable
     labels: list[str]
     limbs: list[tuple[int, int]]
-    symmetric_labels: list[tuple[int, int]]
+    symmetric_labels: list[int]
 
     def __init__(
         self,
@@ -504,9 +504,13 @@ class BaseKeypointsDataset(BaseImageDataset):
         out_img = mixup_lambda * new_images[0] + (1 - mixup_lambda) * new_images[1]
         return out_img, new_annot
 
-    def __getitem__(
-        self, idx: int
-    ) -> tuple[np.ndarray, list[np.ndarray], np.ndarray, np.ndarray, np.ndarray,]:
+    def __getitem__(self, idx: int) -> tuple[
+        np.ndarray,
+        list[np.ndarray],
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+    ]:
         use_mosaiced = random.random() <= 0.35 and self.is_train
         if use_mosaiced:
             image, annot = self.get_raw_mosaiced_data(idx)
@@ -531,7 +535,13 @@ class BaseKeypointsDataset(BaseImageDataset):
 
 def collate_fn(
     batch: list[tuple[np.ndarray, list[np.ndarray], np.ndarray, np.ndarray, np.ndarray]]
-) -> tuple[Tensor, list[Tensor], Tensor, list[np.ndarray], list[np.ndarray],]:
+) -> tuple[
+    Tensor,
+    list[Tensor],
+    Tensor,
+    list[np.ndarray],
+    list[np.ndarray],
+]:
     images = [item[0] for item in batch]
     batch_size = len(images)
     scales_heatmaps = [item[1] for item in batch]
@@ -628,14 +638,15 @@ class MppeCocoDataset(MPPEKeypointsDataset, COCODataset):
 
 
 if __name__ == "__main__":
-    from src.keypoints.bin.config import create_config
+    from src.utils.config import YAML_EXP_PATH
+    from src.keypoints.config import KeypointsConfig
 
-    cfg = create_config("COCO", "MPPE", "HigherHRNet", 0)
+    cfg_path = YAML_EXP_PATH / "keypoints" / "higher_hrnet_32.yaml"
+    cfg = load_yaml(cfg_path)
+    cfg = KeypointsConfig.from_dict(cfg)
 
-    transform = cfg.dataset.TransformClass(**cfg.dataloader.transform.to_dict())
+    datamodule = cfg.create_datamodule()
 
-    ds = cfg.dataset.DatasetClass(
-        cfg.dataset.root, "train", transform, cfg.hm_resolutions
-    )
+    ds = datamodule.train_ds
 
     ds.explore(idx=0, hm_idx=1)

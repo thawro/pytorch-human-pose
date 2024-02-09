@@ -1,0 +1,25 @@
+setup:
+  seed: 42
+  experiment_name: classification
+  name_prefix: ""
+  is_train: True
+  ckpt_path: null
+dataloader:
+  batch_size: 96
+  pin_memory: True
+  num_workers: 16
+  dataset: 
+    name: ImageNet
+    transform:
+      mean: [0.485, 0.456, 0.406]
+      std: [0.229, 0.224, 0.225]
+      out_size: [224, 224]
+model:
+  architecture: HRNet
+trainer:
+  accelerator: gpu
+  max_epochs: 100
+  limit_batches: -1
+  log_every_n_steps: -1
+  use_distributed: true
+  use_fp16: false

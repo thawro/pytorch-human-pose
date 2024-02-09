@@ -1,67 +1,65 @@
 """Train the model"""
 
 from src.base.bin.train import train
-from src.logging import TerminalLogger
-from src.base.trainer import Trainer
-from src.utils.model import seed_everything
-
-from src.keypoints.bin.utils import (
-    create_datamodule,
-    create_callbacks,
-    create_module,
-    create_model,
+from src.base.callbacks import (
+    BaseCallback,
+    MetricsPlotterCallback,
+    MetricsSaverCallback,
+    MetricsLogger,
+    ModelSummary,
+    SaveModelCheckpoint,
 )
-from src.keypoints.bin.config import create_config, EXPERIMENT_NAME
-from functools import partial
-import os
-from src.utils.config import RESULTS_PATH
+from src.keypoints.callbacks import KeypointsExamplesPlotterCallback
+
+from src.utils.config import RESULTS_PATH, YAML_EXP_PATH
+
+from src.keypoints.config import KeypointsConfig
+from src.utils.files import load_yaml
 
 
-def train_fn(dataset, mode, arch, ckpt_path):
-    rank = int(os.environ["LOCAL_RANK"])
-
-    cfg = create_config(dataset, mode, arch, device_id=rank, ckpt_path=ckpt_path)
-
-    seed_everything(cfg.setup.seed)
-
-    datamodule = create_datamodule(cfg)
-    labels = datamodule.train_ds.labels
-
-    model = create_model(cfg)
-
-    module = create_module(cfg, model, labels)
-
-    logger = TerminalLogger(cfg.logs_path, config=cfg.to_dict())
-    callbacks = create_callbacks(cfg)
-
-    trainer = Trainer(logger=logger, callbacks=callbacks, **cfg.trainer.to_dict())
-    trainer.fit(module, datamodule, ckpt_path=cfg.setup.ckpt_path)
-
-
-def main(dataset, mode, arch, ckpt_path) -> None:
-    train(
-        train_fn=partial(
-            train_fn, dataset=dataset, mode=mode, arch=arch, ckpt_path=ckpt_path
+def create_callbacks() -> list[BaseCallback]:
+    callbacks = [
+        KeypointsExamplesPlotterCallback("keypoints"),
+        MetricsPlotterCallback(),
+        MetricsSaverCallback(),
+        MetricsLogger(),
+        ModelSummary(depth=4),
+        SaveModelCheckpoint(
+            name="best", metric="loss", last=True, mode="min", stage="val"
         ),
-        use_distributed=True,
-        use_fp16=True,
+    ]
+    return callbacks
+
+
+def main() -> None:
+    cfg_path = YAML_EXP_PATH / "keypoints" / "higher_hrnet_32.yaml"
+    cfg = load_yaml(cfg_path)
+
+    cfg["setup"]["ckpt_path"] = None
+    cfg["trainer"]["limit_batches"] = 5
+    cfg["trainer"]["use_distributed"] = True
+
+    cfg = KeypointsConfig.from_dict(cfg)
+
+    datamodule = cfg.create_datamodule()
+    module = cfg.create_module()
+    callbacks = create_callbacks()
+    trainer = cfg.create_trainer(callbacks)
+
+    ckpt_path = f"{str(RESULTS_PATH)}/keypoints/01-23_17:59___MPPE_COCO_OriginalHigherHRNet/01-25_08:32/checkpoints/last.pt"
+    ckpt_path = None
+    pretrained_ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/debug/02-09_20:40___ImageNet_HRNet/02-09_20:40/checkpoints/best.pt"
+    train(
+        trainer,
+        module,
+        datamodule,
+        pretrained_ckpt_path=pretrained_ckpt_path,
+        ckpt_path=ckpt_path,
     )
 
 
 if __name__ == "__main__":
-    MODE = "MPPE"
-    DATASET = "COCO"
-    ARCH = "HigherHRNet"
-    ARCH = "OriginalHigherHRNet"
-    RUN_NAME = "01-23_17:59"
-    RUN_SUBDIR = "01-24_07:37"
-    PREFIX = ""
-    EXP_RUN_NAME = f"{RUN_NAME}__{PREFIX}_{MODE}_{DATASET}_{ARCH}"
-    EXPERIMENT_NAME = "test"
-    CKPT_PATH = f"{str(RESULTS_PATH)}/{EXPERIMENT_NAME}/{EXP_RUN_NAME}/{RUN_SUBDIR}/checkpoints/last.pt"
-    # CKPT_PATH = None
-
-    main(DATASET, MODE, ARCH, CKPT_PATH)
+    main()
 
 
 # TODO: add halfbody augmentation
@@ -81,8 +79,6 @@ if __name__ == "__main__":
 # TODO: zmodyfikowac moja implementacje, tak zeby tagi sie liczyly tylko dla pierwszego staga
 
 # TODO: uzywac original hrneta pretrenowanego na imagenecie lub pretrenowac swojego
-# TODO: bez sigmoidy -> lepiej (ale musi byc pretrenowane)
-# TODO: uwazac na resume -> pozmieniane parametry
 """
 Hourglass:
 	1:1 aspect ratio

@@ -12,7 +12,9 @@ class ClassificationDataset(BaseImageDataset):
     transform: ClassificationTransform
     labels: list[str]
 
-    def __init__(self, root: str, split: str, transform: ClassificationTransform):
+    def __init__(
+        self, root: str, split: str, transform: ClassificationTransform | None
+    ):
         super().__init__(root, split, transform)
         self.out_size = transform.out_size
 
@@ -27,10 +29,6 @@ class ClassificationDataset(BaseImageDataset):
         return transformed["image"]
 
     def plot(self, idx: int):
-        import random
-
-        idx = random.randint(0, len(self))
-
         raw_image, raw_annot = self.get_raw_data(idx)
         raw_h, raw_w = raw_image.shape[:2]
 
@@ -59,8 +57,8 @@ class ClassificationDataset(BaseImageDataset):
         grid = cv2.resize(grid, dsize=(0, 0), fx=f_xy, fy=f_xy)
         labels = [
             annot["filename"],
-            f"label: {annot['label']['label']}",
-            f"class_idx: {annot['label']['class_idx']}",
+            f"label: {annot['label']}",
+            f"class_idx: {annot['class_idx']}",
         ]
         put_txt(grid, labels, loc="tc")
         return grid
@@ -72,12 +70,16 @@ class ClassificationDataset(BaseImageDataset):
 
     def __getitem__(self, idx: int) -> tuple[np.ndarray, dict, int]:
         image, annot = self.get_raw_data(idx)
+        image = image[..., :3]  # rgba -> rgb
         image = self._transform(image)
-        annot = {
-            "label": annot["label"]["label"],
-            "class_idx": annot["label"]["class_idx"],
-            "wordnet_name": annot["label"]["wordnet_name"],
-        }
+        label_info = annot.pop("label")
+        annot.update(
+            {
+                "label": label_info["label"],
+                "class_idx": label_info["class_idx"],
+                "wordnet_name": label_info["wordnet_name"],
+            }
+        )
         class_idx = annot["class_idx"]
         return image, annot, class_idx
 
@@ -87,7 +89,9 @@ class ImageNetClassificationDataset(ClassificationDataset):
     Class idxs from: https://storage.googleapis.com/download.tensorflow.org/data/imagenet_class_index.json
     """
 
-    def __init__(self, root: str, split: str, transform: ClassificationTransform):
+    def __init__(
+        self, root: str, split: str, transform: ClassificationTransform | None
+    ):
         super().__init__(root, split, transform)
         self.wordnet2label = self._create_wordnet_labels()
         self.labels = [
@@ -161,22 +165,24 @@ class ImageNetClassificationDataset(ClassificationDataset):
         return annot
 
 
+def test_dataset(
+    dataset: BaseImageDataset, batch_size: int = 96, num_workers: int = 16
+):
+    from tqdm.auto import tqdm
+    from torch.utils.data import DataLoader
+
+    dl = DataLoader(dataset=dataset, batch_size=batch_size, num_workers=num_workers)
+    for idx, batch in tqdm(enumerate(dl), total=len(ds) // batch_size):
+        pass
+
+
 if __name__ == "__main__":
     from src.utils.config import DS_ROOT
-
-    # from src.classification.bin.config import create_config
-
-    # cfg = create_config("COCO", "MPPE", "HigherHRNet", 0)
-
-    # transform = cfg.dataset.TransformClass(**cfg.dataloader.transform.to_dict())
-
-    # ds = cfg.dataset.DatasetClass(
-    #     cfg.dataset.root, "train", transform, cfg.hm_resolutions
-    # )
 
     ds = ImageNetClassificationDataset(
         root=str(DS_ROOT / "ImageNet"),
         split="train",
         transform=ClassificationTransform(),
     )
+
     ds.explore(idx=0)

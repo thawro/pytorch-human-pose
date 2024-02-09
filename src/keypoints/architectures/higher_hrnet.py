@@ -1,4 +1,4 @@
-from .hrnet import HRNet, BasicBlock
+from .hrnet import HRNetBackbone, BasicBlock
 from torch import nn, Tensor
 import torch
 
@@ -46,12 +46,7 @@ class DeconvHeatmapsHead(nn.Module):
 class HigherHRNet(nn.Module):
     def __init__(self, num_keypoints: int, C: int = 32):
         super().__init__()
-        hrnet = HRNet(num_keypoints, C)
-        self.backbone = nn.Sequential(
-            hrnet.conv1,
-            hrnet.conv2,
-            hrnet.stages,
-        )
+        self.backbone = HRNetBackbone(C)
         self.num_keypoints = num_keypoints
         self.init_heatmaps_head = nn.Conv2d(C, num_keypoints * 2, 1, 1, 0)
 

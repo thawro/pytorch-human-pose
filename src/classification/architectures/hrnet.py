@@ -1,4 +1,4 @@
-from src.keypoints.architectures.hrnet import HRNet, Bottleneck
+from src.keypoints.architectures.hrnet import HRNetBackbone, Bottleneck
 from src.base.architectures.helpers import ConvBnAct
 from torch import nn, Tensor
 import torch
@@ -54,11 +54,10 @@ class ClassificationHead(nn.Module):
 
 
 class ClassificationHRNet(nn.Module):
-    def __init__(self, num_keypoints: int, C: int = 32, num_classes: int = 1000):
+    def __init__(self, C: int = 32, num_classes: int = 1000):
         self.stages_C = [C, 2 * C, 4 * C, 8 * C]
         super().__init__()
-        hrnet = HRNet(num_keypoints, C)
-        self.backbone = nn.Sequential(hrnet.conv1, hrnet.conv2, hrnet.stages)
+        self.backbone = HRNetBackbone(C)
         self.classification_head = ClassificationHead(C, num_classes=num_classes)
 
     def forward(self, images: Tensor) -> tuple[list[Tensor], list[Tensor]]:
@@ -68,7 +67,7 @@ class ClassificationHRNet(nn.Module):
 
 
 if __name__ == "__main__":
-    net = ClassificationHRNet(17)
+    net = ClassificationHRNet(C=32)
     x = torch.randn((16, 3, 224, 224))
     out = net(x)
     print(out.shape)

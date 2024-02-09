@@ -1,7 +1,7 @@
 """Implementation of specialized Module"""
 
-from torch import optim, Tensor
-
+from torch import optim, Tensor, nn
+import torch
 from src.base.module import BaseModule
 
 from .model import ClassificationModel
@@ -17,22 +17,23 @@ _batch = tuple[Tensor, list[dict], Tensor]
 
 class BaseClassificationModule(BaseModule):
     datamodule: ClassificationDataModule
-    use_fp16: bool
 
     def __init__(
-        self,
-        model: ClassificationModel,
-        loss_fn: ClassificationLoss,
-        labels: list[str],
-        use_fp16: bool,
+        self, model: ClassificationModel, loss_fn: ClassificationLoss, labels: list[str]
     ):
-        super().__init__(model, loss_fn, use_fp16)
+        super().__init__(model, loss_fn)
         self.labels = labels
 
     def create_optimizers(
         self,
     ) -> tuple[dict[str, optim.Optimizer], dict[str, LRScheduler]]:
-        optimizer = optim.Adam(self.model.parameters(), lr=1e-1)
+        optimizer = optim.SGD(
+            self.model.parameters(),
+            lr=0.05,
+            momentum=0.9,
+            weight_decay=0.0001,
+            nesterov=True,
+        )
         if self.use_fp16:
             optimizer = FP16_Optimizer(
                 optimizer, dynamic_loss_scale=True, verbose=False
@@ -64,6 +65,10 @@ class ClassificationModule(BaseClassificationModule):
     ) -> dict[str, float] | tuple[dict[str, float], list[ClassificationResult]]:
         images, annots, targets = batch
         logits = self.model(images)
+        probs = nn.functional.softmax(logits, dim=1)
+        top_5 = probs.topk(k=5, dim=1).indices
+        top_1 = top_5[:, 0]
+
         loss = self.loss_fn.calculate_loss(targets, logits)
         if self.stage == "train":
             self.optimizers["optim"].zero_grad()
@@ -73,7 +78,15 @@ class ClassificationModule(BaseClassificationModule):
                 loss.backward()
             self.optimizers["optim"].step()
 
-        metrics = {"loss": loss.item()}
+        expanded_targets = targets.unsqueeze(-1).expand_as(top_5)
+        top_5_acc = torch.any(top_5 == expanded_targets, dim=1).float().mean().item()
+        top_1_acc = (top_1 == targets).float().mean().item()
+
+        metrics = {
+            "loss": loss.item(),
+            "top-1_error": 1 - top_1_acc,
+            "top-5_error": 1 - top_5_acc,
+        }
 
         if self.stage == "train":
             return metrics

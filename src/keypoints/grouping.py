@@ -140,7 +140,7 @@ class MPPEHeatmapParser(object):
                         joint_dict.setdefault(key, np.copy(default_))[idx] = joints[row]
                         tag_dict[key] = [tags[row]]
         grouped_joints = np.array(list(joint_dict.values())).astype(np.float32)
-        return grouped_joints
+        return grouped_joints[: self.max_num_people]  # TODO: check if good
 
     def top_k(
         self, kpts_hms: torch.Tensor, tags_hms: torch.Tensor
@@ -151,10 +151,10 @@ class MPPEHeatmapParser(object):
         scores_k, idxs = kpts_hms.topk(self.max_num_people, dim=1)
 
         tags_hms = tags_hms.view(num_kpts, w * h, -1)
-        taks_emb_dim = tags_hms.size(2)
+        tags_emb_dim = tags_hms.size(2)
 
         tags_k = torch.stack(
-            [torch.gather(tags_hms[..., i], 1, idxs) for i in range(taks_emb_dim)],
+            [torch.gather(tags_hms[..., i], 1, idxs) for i in range(tags_emb_dim)],
             dim=2,
         )
 
@@ -163,7 +163,7 @@ class MPPEHeatmapParser(object):
         coords_k = torch.stack((x, y), dim=2)
 
         tags_k = tags_k.cpu().numpy()
-        coords_k = coords_k.cpu().numpy()
+        coords_k = coords_k.cpu().numpy().astype(np.int32)
         scores_k = scores_k.cpu().numpy()
         return tags_k, coords_k, scores_k
 
@@ -258,18 +258,26 @@ class MPPEHeatmapParser(object):
         tags_k, coords_k, scores_k = self.top_k(kpts_hms, tags_hms)
         grouped_joints = self.match_by_tag(tags_k, coords_k, scores_k)
 
+        if len(grouped_joints) == 0:  # take only best pred
+            coords = coords_k[:, 0]
+            score = np.expand_dims(scores_k[:, 0], -1)
+            tag = tags_k[:, 0]
+            grouped_joints = np.concatenate([coords, score, tag], axis=-1)
+            grouped_joints = np.expand_dims(grouped_joints, 0)
+            grouped_joints = np.nan_to_num(grouped_joints, nan=0)
+            grouped_joints[..., 2] = self.det_thr * 1.01  # make sure its > det_thr
+
         kpts_hms_npy = kpts_hms.cpu().numpy()
         tags_hms_npy = tags_hms.cpu().numpy()
 
         if adjust:
             grouped_joints = self.adjust(grouped_joints, kpts_hms_npy)
 
-        scores = grouped_joints[..., 2].mean(1)
+        person_scores = grouped_joints[..., 2].mean(1)
 
         if refine:
-            # for every detected person
             for person_idx in range(len(grouped_joints)):
                 grouped_joints[person_idx] = self.refine(
                     kpts_hms_npy, tags_hms_npy, grouped_joints[person_idx]
                 )
-        return grouped_joints, scores
+        return grouped_joints, person_scores

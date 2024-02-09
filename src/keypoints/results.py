@@ -1,10 +1,9 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import numpy as np
 from torch import Tensor
 from src.keypoints.grouping import SPPEHeatmapParser, MPPEHeatmapParser
 
-from src.keypoints.metrics import OKS, PCKh, object_PCKh, object_OKS, EvaluationMetric
-from typing import Callable
+from src.keypoints.metrics import OKS, PCKh
 import torchvision.transforms.functional as F
 import torch
 from src.keypoints.visualization import plot_heatmaps, plot_connections
@@ -47,84 +46,35 @@ def match_preds_to_targets(
     return target_matches_idx
 
 
-@dataclass
-class KeypointsResults:
-    images: np.ndarray
-    target_heatmaps: np.ndarray
-    pred_heatmaps: np.ndarray
-    target_keypoints: np.ndarray
-    target_visibilities: np.ndarray
-    pred_keypoints: list[np.ndarray]
-    pred_scores: list[np.ndarray]
-    extra_coords: list
-    match_preds_to_targets: Callable = field(init=False)
-    metric: EvaluationMetric = field(init=False)
-
-    def evaluate(self) -> dict[str, float] | float:
-        return self.metric.evaluate_results(
-            self.pred_keypoints,
-            self.target_keypoints,
-            self.target_visibilities,
-            self.extra_coords,
-        )
-
-
-@dataclass
-class SPPEKeypointsResults(KeypointsResults):
-    @classmethod
-    def from_preds(
-        cls,
-        images: np.ndarray,
-        target_heatmaps: Tensor,
+class SPPEKeypointsResult:
+    def __init__(
+        self,
+        image: np.ndarray,
         pred_heatmaps: Tensor,
-        target_keypoints: list,
-        target_visibilities: np.ndarray,
-        extra_coords: list,
-        det_thr: float = 0.2,
-    ) -> "SPPEKeypointsResults":
-        h, w = images.shape[1:3]
-        pred_heatmaps = F.resize(pred_heatmaps, [h, w], antialias=True)
-        batch_size, num_kpts = pred_heatmaps.shape[:2]
-        parser = SPPEHeatmapParser(num_kpts, det_thr=det_thr)
+        limbs: list[tuple[int, int]],
+        det_thr: float = 0.1,
+    ):
+        self.image = image
+        self.pred_heatmaps = pred_heatmaps
+        self.num_kpts = pred_heatmaps.shape[0]
+        self.limbs = limbs
+        self.det_thr = det_thr
+        self.hm_parser = SPPEHeatmapParser(self.num_kpts, det_thr)
 
-        pred_joints = []
-        for i in range(batch_size):
-            _heatmaps = pred_heatmaps[i]
-            parsed_joints = parser.parse(_heatmaps.unsqueeze(0))
-            joints = cls.match_preds_to_targets(
-                parsed_joints,
-                target_keypoints[i],
-                target_visibilities[i],
-                extra_coords[i],
-            )
-            pred_joints.append(joints)
-        # pred_joints = np.stack(pred_joints)
-        pred_kpts_coords = [joints[..., :2] for joints in pred_joints]
-        pred_kpts_scores = [joints[..., 2] for joints in pred_joints]
+    def set_preds(self):
+        if hasattr(self, "pred_keypoints"):
+            print("Preds already set. Returning")
+            return
+        h, w = self.image.shape[:2]
+        pred_heatmaps = F.resize(self.pred_heatmaps, [h, w], antialias=True)
+        person_joints = self.hm_parser.parse(pred_heatmaps.unsqueeze(0))
 
-        npy_pred_heatmaps = pred_heatmaps.detach().cpu().numpy()
-
-        return cls(
-            images,
-            target_heatmaps.cpu().numpy(),
-            npy_pred_heatmaps,
-            np.array(target_keypoints),
-            target_visibilities,
-            pred_kpts_coords,
-            pred_kpts_scores,
-            extra_coords,
-        )
+        self.pred_keypoints = person_joints[..., :2]
+        self.pred_scores = person_joints[..., 2]
+        self.pred_kpts_heatmaps = pred_heatmaps.cpu().numpy()[0]
 
 
 class MPPEKeypointsResult:
-    annot: np.ndarray | None
-    image: np.ndarray
-    pred_kpts_heatmaps: np.ndarray
-    pred_tags_heatmaps: np.ndarray
-    pred_keypoints: np.ndarray
-    pred_scores: np.ndarray
-    limbs: list[tuple[int, int]]
-
     def __init__(
         self,
         image: np.ndarray,
@@ -133,7 +83,7 @@ class MPPEKeypointsResult:
         limbs: list[tuple[int, int]],
         max_num_people: int = 30,
         det_thr: float = 0.1,
-        tag_thr: float = 0.1,
+        tag_thr: float = 1.0,
     ):
         self.image = image
         self.stages_pred_kpts_heatmaps = stages_pred_kpts_heatmaps
@@ -152,7 +102,6 @@ class MPPEKeypointsResult:
             print("Preds already set. Returning")
             return
         img_h, img_w = self.image.shape[:2]
-        h, w = self.stages_pred_kpts_heatmaps[-1].shape[-2:]
         num_stages = len(self.stages_pred_kpts_heatmaps)
 
         stages_pred_kpts_heatmaps = [
@@ -182,14 +131,13 @@ class MPPEKeypointsResult:
             mode="bilinear",
             align_corners=False,
         )
-        joints, pred_obj_scores = self.hm_parser.parse(
+        grouped_joints, pred_obj_scores = self.hm_parser.parse(
             kpts_hms_to_parse, pred_tags_heatmaps, adjust=True, refine=True
         )
 
-        if len(joints[0]) > 0:
-            joints = np.stack(joints, axis=0)
-            pred_kpts_coords = joints[0][..., :2]
-            pred_kpts_scores = joints[0][..., 2]
+        if len(grouped_joints) > 0:
+            pred_kpts_coords = grouped_joints[..., :2]
+            pred_kpts_scores = grouped_joints[..., 2]
         else:
             pred_obj_scores = np.array([0])
             pred_kpts_coords = np.zeros((1, 17, 2))
@@ -259,6 +207,8 @@ class InferenceMPPEKeypointsResult:
     pred_scores: np.ndarray
     pred_obj_scores: np.ndarray
     limbs: list[tuple[int, int]]
+    det_thr: float
+    tag_thr: float
 
     @classmethod
     def from_preds(
@@ -308,15 +258,15 @@ class InferenceMPPEKeypointsResult:
             mode="bilinear",
             align_corners=False,
         )
-        joints, pred_obj_scores = parser.parse(
+        grouped_joints, pred_obj_scores = parser.parse(
             pred_kpts_heatmaps, pred_tags_heatmaps, adjust=True, refine=True
         )
 
-        final_results = get_final_preds(joints, center, scale, [img_w, img_h])
+        final_results = get_final_preds(grouped_joints, center, scale, [img_w, img_h])
         if len(final_results) > 0:
             final_results = np.stack(final_results, axis=0)
             pred_kpts_coords = final_results[..., :2]
-            pred_kpts_scores = joints[..., 2]
+            pred_kpts_scores = grouped_joints[..., 2]
         else:
             pred_obj_scores = np.array([0])
             pred_kpts_coords = np.zeros((1, 17, 2))
@@ -334,6 +284,8 @@ class InferenceMPPEKeypointsResult:
             pred_kpts_scores,
             pred_obj_scores,
             limbs,
+            det_thr,
+            tag_thr,
         )
 
     def plot(self) -> tuple[np.ndarray, np.ndarray]:
@@ -385,7 +337,7 @@ class InferenceMPPEKeypointsResult:
             self.pred_keypoints,
             self.pred_scores,
             self.limbs,
-            thr=0.05,
+            thr=self.det_thr / 2,
         )
 
         final_plots = []

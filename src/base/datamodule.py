@@ -5,7 +5,7 @@ import random
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
-
+from typing import Literal
 
 from .transforms.transforms import ImageTransform
 
@@ -22,7 +22,6 @@ class DataModule:
         pin_memory: bool = True,
         drop_last: bool = True,
         collate_fn=None,
-        use_distributed: bool = True,
     ):
         super().__init__()
         self.train_ds = train_ds
@@ -35,7 +34,7 @@ class DataModule:
         self.drop_last = drop_last
         self._shuffle = None
 
-        dl_params = dict(
+        self.dl_params = dict(
             num_workers=num_workers,
             pin_memory=pin_memory,
             drop_last=drop_last,
@@ -43,23 +42,34 @@ class DataModule:
             collate_fn=collate_fn,
         )
 
+        self.datasets = {"train": train_ds, "val": val_ds, "test": test_ds}
+        self.total_batches = {}
+
+    def _dataloader(
+        self,
+        use_distributed: bool,
+        split: Literal["train", "val", "test"],
+    ):
+        shuffle = split == "train"
+        dataset = self.datasets[split]
         if use_distributed:
-            train_params = dict(shuffle=False, sampler=DistributedSampler(train_ds))
-            val_params = dict(shuffle=False, sampler=DistributedSampler(val_ds))
+            params = dict(
+                shuffle=False, sampler=DistributedSampler(dataset, shuffle=shuffle)
+            )
         else:
-            train_params = dict(shuffle=False)
-            val_params = dict(shuffle=False)
+            params = dict(shuffle=shuffle)
+        dataloader = DataLoader(dataset, **self.dl_params, **params)
+        self.total_batches[split] = len(dataloader)
+        return dataloader
 
-        self.train_dataloader = DataLoader(train_ds, **train_params, **dl_params)
-        self.val_dataloader = DataLoader(val_ds, **val_params, **dl_params)
-        self.total_batches = {
-            "train": len(self.train_dataloader),
-            "val": len(self.val_dataloader),
-        }
+    def train_dataloader(self, use_distributed: bool):
+        return self._dataloader(use_distributed, "train")
 
-        if test_ds is not None:
-            self.test_dataloader = DataLoader(test_ds, shuffle=False, **dl_params)
-            self.total_batches["test"] = len(self.test_dataloader)
+    def val_dataloader(self, use_distributed: bool):
+        return self._dataloader(use_distributed, "val")
+
+    def test_dataloader(self, use_distributed: bool):
+        return self._dataloader(use_distributed, "test")
 
     def state_dict(self) -> dict:
         return {

@@ -321,8 +321,8 @@ class PoseHigherResolutionNet(nn.Module):
         self.loss_config = {
             "NUM_STAGES": 2,
             "AE_LOSS_TYPE": "exp",
-            # "WITH_AE_LOSS": [True, False],
-            "WITH_AE_LOSS": [True, True],
+            "WITH_AE_LOSS": [True, False],
+            # "WITH_AE_LOSS": [True, True],
             "PUSH_LOSS_FACTOR": [0.001, 0.001],
             "PULL_LOSS_FACTOR": [0.001, 0.001],
             "WITH_HEATMAPS_LOSS": [True, True],
@@ -674,7 +674,7 @@ class PoseHigherResolutionNet(nn.Module):
         self.load_state_dict(need_init_state_dict, strict=False)
 
 
-def get_pose_net(init_weights, ckp_path, is_train, **kwargs):
+def get_pose_net(init_weights: bool, ckp_path: str, is_train: bool):
     model = PoseHigherResolutionNet()
 
     if is_train and init_weights:
