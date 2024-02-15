@@ -1,4 +1,4 @@
-from .hrnet import HRNetBackbone, BasicBlock
+from src.keypoints.architectures.hrnet import HRNetBackbone, BasicBlock
 from torch import nn, Tensor
 import torch
 
@@ -84,3 +84,18 @@ class HigherHRNet(nn.Module):
             stages_tags_heatmaps.append(tags_heatmaps)
 
         return stages_kpts_heatmaps, stages_tags_heatmaps
+
+
+if __name__ == "__main__":
+    from thop import profile
+    from torchinfo import summary
+
+    net = HigherHRNet(num_keypoints=17)
+
+    x = torch.randn(1, 3, 224, 224)
+
+    ops, params = profile(net, inputs=(x,))
+    print(ops, params)
+
+    col_names = ["input_size", "output_size", "num_params", "params_percent"]
+    summary_txt = str(summary(net, input_data=x, depth=4, col_names=col_names))

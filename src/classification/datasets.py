@@ -1,6 +1,8 @@
 from src.base.datasets import BaseImageDataset
 from src.classification.transforms import ClassificationTransform
 from src.utils.image import make_grid, put_txt, YELLOW
+import albumentations as A
+import torchvision.transforms as T
 import numpy as np
 import cv2
 import glob
@@ -23,16 +25,16 @@ class ClassificationDataset(BaseImageDataset):
             transform = self.transform.random
         else:
             transform = self.transform.inference
-        transformed = transform(image=image)
-        transformed = self.transform.preprocessing(**transformed)
-        transformed = self.transform.postprocessing(**transformed)
-        return transformed["image"]
+        if isinstance(transform, A.Compose):
+            return transform(image=image.copy())["image"]
+        else:
+            return transform(image.copy())
 
     def plot(self, idx: int):
         raw_image, raw_annot = self.get_raw_data(idx)
         raw_h, raw_w = raw_image.shape[:2]
 
-        image, annot, class_idx = self[idx]
+        image, class_idx = self[idx]
         image = self.transform.inverse_preprocessing(image)
         tr_h, tr_w = image.shape[:2]
 
@@ -50,15 +52,15 @@ class ClassificationDataset(BaseImageDataset):
 
         _txt_params = dict(loc="br", txt_color=YELLOW, vspace=2)
         put_txt(raw_image, ["Raw", f"{raw_h}x{raw_w}"], **_txt_params)
-        put_txt(image, ["Transformed", f"{tr_h}x{tr_w}"], **_txt_params)
+        image = put_txt(image.copy(), ["Transformed", f"{tr_h}x{tr_w}"], **_txt_params)
 
         grid = make_grid([raw_image, image], nrows=1, resize=1.5)
         f_xy = 1.2
         grid = cv2.resize(grid, dsize=(0, 0), fx=f_xy, fy=f_xy)
         labels = [
-            annot["filename"],
-            f"label: {annot['label']}",
-            f"class_idx: {annot['class_idx']}",
+            raw_annot["filename"],
+            f"label: {raw_annot['label']['label']}",
+            f"class_idx: {class_idx}",
         ]
         put_txt(grid, labels, loc="tc")
         return grid
@@ -68,20 +70,12 @@ class ClassificationDataset(BaseImageDataset):
         annot = self.load_annot(idx)
         return image, annot
 
-    def __getitem__(self, idx: int) -> tuple[np.ndarray, dict, int]:
+    def __getitem__(self, idx: int) -> tuple[np.ndarray, int]:
         image, annot = self.get_raw_data(idx)
         image = image[..., :3]  # rgba -> rgb
         image = self._transform(image)
-        label_info = annot.pop("label")
-        annot.update(
-            {
-                "label": label_info["label"],
-                "class_idx": label_info["class_idx"],
-                "wordnet_name": label_info["wordnet_name"],
-            }
-        )
-        class_idx = annot["class_idx"]
-        return image, annot, class_idx
+        class_idx = annot["label"]["class_idx"]
+        return image, class_idx
 
 
 class ImageNetClassificationDataset(ClassificationDataset):
@@ -107,6 +101,7 @@ class ImageNetClassificationDataset(ClassificationDataset):
             wordnet2label[wordnet_label] = label_info
         return wordnet2label
 
+    # TODO: this method returns fpaths for object localization...
     def get_images_annots_filepaths(self) -> tuple[list[str], list[str]]:
         annots_dir = f"{str(self.root)}/ILSVRC/Annotations/CLS-LOC/{self.split}"
         if self.is_train:
@@ -178,11 +173,15 @@ def test_dataset(
 
 if __name__ == "__main__":
     from src.utils.config import DS_ROOT
+    import torchvision.datasets as datasets
 
     ds = ImageNetClassificationDataset(
         root=str(DS_ROOT / "ImageNet"),
-        split="train",
+        split="val",
         transform=ClassificationTransform(),
     )
+    print(len(ds))
 
-    ds.explore(idx=0)
+    ds = datasets.ImageFolder(str(DS_ROOT / "imagenet" / "val"), None)
+    print(len(ds))
+    # ds.explore(idx=0)

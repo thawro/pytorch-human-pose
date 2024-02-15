@@ -1,15 +1,6 @@
 """Train the model"""
 
 from src.base.bin.train import train
-from src.base.callbacks import (
-    BaseCallback,
-    MetricsPlotterCallback,
-    MetricsSaverCallback,
-    MetricsLogger,
-    ModelSummary,
-    SaveModelCheckpoint,
-)
-from src.keypoints.callbacks import KeypointsExamplesPlotterCallback
 
 from src.utils.config import RESULTS_PATH, YAML_EXP_PATH
 
@@ -17,45 +8,22 @@ from src.keypoints.config import KeypointsConfig
 from src.utils.files import load_yaml
 
 
-def create_callbacks() -> list[BaseCallback]:
-    callbacks = [
-        KeypointsExamplesPlotterCallback("keypoints"),
-        MetricsPlotterCallback(),
-        MetricsSaverCallback(),
-        MetricsLogger(),
-        ModelSummary(depth=4),
-        SaveModelCheckpoint(
-            name="best", metric="loss", last=True, mode="min", stage="val"
-        ),
-    ]
-    return callbacks
-
-
 def main() -> None:
     cfg_path = YAML_EXP_PATH / "keypoints" / "higher_hrnet_32.yaml"
     cfg = load_yaml(cfg_path)
 
-    cfg["setup"]["ckpt_path"] = None
+    ckpt_path = f"{str(RESULTS_PATH)}/keypoints/01-23_17:59___MPPE_COCO_OriginalHigherHRNet/01-25_08:32/checkpoints/last.pt"
+    pretrained_ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/debug/02-09_20:40___ImageNet_HRNet/02-09_20:40/checkpoints/best.pt"
+    ckpt_path = None
+
+    cfg["setup"]["ckpt_path"] = ckpt_path
+    cfg["setup"]["pretrained_ckpt_path"] = pretrained_ckpt_path
     cfg["trainer"]["limit_batches"] = 5
     cfg["trainer"]["use_distributed"] = True
 
     cfg = KeypointsConfig.from_dict(cfg)
 
-    datamodule = cfg.create_datamodule()
-    module = cfg.create_module()
-    callbacks = create_callbacks()
-    trainer = cfg.create_trainer(callbacks)
-
-    ckpt_path = f"{str(RESULTS_PATH)}/keypoints/01-23_17:59___MPPE_COCO_OriginalHigherHRNet/01-25_08:32/checkpoints/last.pt"
-    ckpt_path = None
-    pretrained_ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/debug/02-09_20:40___ImageNet_HRNet/02-09_20:40/checkpoints/best.pt"
-    train(
-        trainer,
-        module,
-        datamodule,
-        pretrained_ckpt_path=pretrained_ckpt_path,
-        ckpt_path=ckpt_path,
-    )
+    train(cfg)
 
 
 if __name__ == "__main__":

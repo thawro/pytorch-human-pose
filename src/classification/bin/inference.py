@@ -102,7 +102,7 @@ def load_model(
 
 def main() -> None:
     seed_everything(42)
-    ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/debug/02-09_20:58___ImageNet_HRNet/02-09_20:58/checkpoints/best.pt"
+    ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/classification/02-09_23:08___ImageNet_HRNet/02-10_07:47/checkpoints/best.pt"
 
     cfg_path = str(YAML_EXP_PATH / "classification" / "hrnet_32.yaml")
     cfg = ClassificationConfig.from_yaml(cfg_path)

@@ -5,6 +5,9 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
 from src.logging import get_pylogger
+
+log = get_pylogger(__name__)
+
 from src.logging.loggers import BaseLogger
 import torch.distributed as dist
 
@@ -15,8 +18,6 @@ from .meters import Meters
 from .storage import MetricsStorage
 import random
 import os
-
-log = get_pylogger(__name__)
 
 
 _stage = Literal["train", "val", "eval_val"]
@@ -85,7 +86,7 @@ class Trainer:
                 ]
             elif isinstance(sample, dict):  # dict of tensors
                 batch[j] = {
-                    key: value.to(self.device) if isinstance(value, Tensor) else value
+                    key: (value.to(self.device) if isinstance(value, Tensor) else value)
                     for key, value in sample.items()
                 }
 
@@ -118,29 +119,32 @@ class Trainer:
 
     def evaluate(self, dataloader: DataLoader, stage: _stage):
         """Evaluate on validation set"""
+        self.module.model.net.eval()
         meters = self.meters[stage]
         meters.reset()
         limit_batches = self.get_limit_batches(dataloader)
         random_idx = random.randint(0, limit_batches - 1)
 
         with torch.no_grad():
-            loop = tqdm(dataloader, leave=True, desc=stage)
-
-            for i, batch in enumerate(loop):
+            batch_idx = 0
+            for batch in tqdm(dataloader, leave=True, desc=stage):
                 self.batch_to_device(batch)
                 val_metrics, val_results = self.module.validation_step(
-                    batch, i, stage=stage
+                    batch, batch_idx, stage=stage
                 )
                 meters.update(val_metrics, batch[0].shape[0])
-                if stage == "eval_val" and i == random_idx:
+
+                if stage == "eval_val" and batch_idx == random_idx:
                     self.results.extend(val_results)
+                batch_idx += 1
                 limit_batches -= 1
                 if limit_batches == 0:
                     break
-        meters.all_reduce()
+            meters.all_reduce()
 
     def sanity_check(self, dataloader: DataLoader):
         """Run sanity check"""
+        self.module.model.net.eval()
         loop = tqdm(dataloader, leave=True, desc="Sanity check")
         limit_batches = 1
         for i, batch in enumerate(loop):
@@ -151,23 +155,29 @@ class Trainer:
                 break
 
     def single_epoch(self, train_dataloader: DataLoader, val_dataloader: DataLoader):
+        self.module.model.net.train()
         meters = self.meters["train"]
         meters.reset()
 
-        loop = tqdm(train_dataloader, leave=True, desc="Train")
         limit_batches = int(self._limit_batches)
-        for i, batch in enumerate(loop):
+        batch_idx = 0
+        for batch in tqdm(train_dataloader, leave=True, desc="Train"):
             self.batch_to_device(batch)
-            train_metrics = self.module.training_step(batch, i)
+            train_metrics = self.module.training_step(batch, batch_idx)
             meters.update(train_metrics, batch[0].shape[0])
             self.current_step += 1
+            batch_idx += 1
             self.module.set_attributes(current_step=self.current_step)
-            if self.current_step % self.log_every_n_steps == 0:
-                self.callbacks.on_validation_start(self)
-                self.evaluate(val_dataloader, stage="eval_val")
-                self._update_metrics(stages=["eval_val"])
-                self.callbacks.on_validation_end(self)
-                self.results = []
+            # if (
+            #     self.log_every_n_steps != 0
+            #     and self.current_step % self.log_every_n_steps == 0
+            # ):
+            #     self.callbacks.on_validation_start(self)
+            #     self.evaluate(val_dataloader, stage="eval_val")
+            #     self.module.model.train()
+            #     self._update_metrics(stages=["eval_val"])
+            #     self.callbacks.on_validation_end(self)
+            #     self.results.clear()
 
             limit_batches -= 1
             if limit_batches == 0:
@@ -181,17 +191,6 @@ class Trainer:
         pretrained_ckpt_path: str | None = None,
         ckpt_path: str | None = None,
     ):
-        if self.use_distributed:
-            module.to_DDP(self.device_id)
-        else:
-            module.model.cuda(self.device_id)
-        module.loss_fn.cuda(self.device_id)
-
-        if self.use_fp16:
-            module.to_fp16()
-
-        module.model.init_weights(pretrained_ckpt_path, self.map_location)
-
         train_dataloader = datamodule.train_dataloader(self.use_distributed)
         val_dataloader = datamodule.val_dataloader(self.use_distributed)
 
@@ -204,6 +203,17 @@ class Trainer:
                 n_train_batches, limit_batches
             )
 
+        if self.use_distributed:
+            self.log_info("Moving to DDP (Data Distributed Parallel)")
+            module.to_DDP(self.device_id)
+        else:
+            module.model.cuda(self.device_id)
+        module.loss_fn.cuda(self.device_id)
+
+        if self.use_fp16:
+            self.log_info("Changing to FP16")
+            module.to_fp16()
+
         module.pass_attributes(
             device_id=self.device_id,
             device=self.device,
@@ -215,12 +225,17 @@ class Trainer:
             limit_batches=int(self._limit_batches),
             log_every_n_steps=self.log_every_n_steps,
         )
-        module.set_optimizers()
-
         self.module = module
+        self.callbacks.on_fit_start(self)
+        self.log_info("Compiling Module (`torch.compile(net)`)")
+        self.module.compile()
+        self.log_info(
+            "Initializing weights and [optionally] loading pretrained weights"
+        )
+        self.module.model.init_weights(pretrained_ckpt_path, self.map_location)
+        self.module.set_optimizers()
         self.datamodule = datamodule
 
-        self.callbacks.on_fit_start(self)
         if ckpt_path is not None:
             self.load_checkpoint(ckpt_path)
         self.module.set_attributes(current_step=self.current_step)
@@ -232,6 +247,7 @@ class Trainer:
                 if self.use_distributed:
                     train_dataloader.sampler.set_epoch(epoch)  # DDP
                 self.current_epoch = epoch
+                self.module.on_epoch_start()
                 self.callbacks.on_epoch_start(self)
                 module.set_attributes(current_epoch=epoch)
                 self.single_epoch(train_dataloader, val_dataloader)
@@ -239,15 +255,19 @@ class Trainer:
                 self._update_metrics(stages=["train", "val"])
                 self.module.on_epoch_end()
                 self.callbacks.on_epoch_end(self)
-                log.info(f" <<<  {self.device_info} epoch {epoch} finished  >>> ")
+                self.results.clear()
+                self.log_info(f" <<<  epoch {epoch} finished  >>> ")
                 if self.use_distributed:
                     dist.barrier()
         except KeyboardInterrupt as e:
             self.callbacks.on_failure(self)
             raise e
 
+    def log_info(self, msg: str) -> None:
+        log.info(f"{self.device_info}{msg}")
+
     def load_checkpoint(self, ckpt_path: str, lr: float | None = None):
-        log.info(f"{self.device_info}Loading checkpoint from {ckpt_path}")
+        self.log_info(f"Loading checkpoint from {ckpt_path}")
 
         ckpt_state = torch.load(ckpt_path, map_location=self.map_location)
         self.epochs_metrics.load_state_dict(ckpt_state["metrics"]["steps"])
@@ -256,9 +276,16 @@ class Trainer:
         self.datamodule.load_state_dict(ckpt_state["datamodule"])
         self.callbacks.load_state_dict(ckpt_state["callbacks"])
         self.current_step = ckpt_state["step"]
-        self.current_epoch = ckpt_state["epoch"]
-        log.info(
-            f"{self.device_info}The training is resumed at: "
+        self.current_epoch = ckpt_state["epoch"] + 1
+        # n_train_batches = self.datamodule.total_batches["train"]
+        # limit_batches = (
+        #     self._limit_batches if self._limit_batches > 0 else n_train_batches
+        # )
+        # epochs_run = (self.current_step + 1) // limit_batches
+        # if epochs_run == self.current_epoch + 1:
+        #     self.current_epoch += 1
+        self.log_info(
+            f"The training is resumed at: "
             f"epoch={self.current_epoch}, "
             f"step={self.current_step}"
         )
@@ -268,7 +295,7 @@ class Trainer:
         return f"[{self.device}] "
 
     def save_checkpoint(self, ckpt_path: str):
-        log.info(f"{self.device_info}Saving checkpoint to {ckpt_path}")
+        self.log_info(f"Saving checkpoint to {ckpt_path}")
         if self.device_id != 0:  # save only for cuda:0 (DDP)
             return
         module_state = self.module.state_dict()
@@ -288,9 +315,8 @@ class Trainer:
             "step": self.current_step,
         }
         torch.save(ckpt_state, ckpt_path)
-        log.info(
-            f"{self.device_info}"
+        self.log_info(
             f"The training is saved at: "
             f"epoch={self.current_epoch}, "
-            f"step={self.current_step}",
+            f"step={self.current_step}"
         )

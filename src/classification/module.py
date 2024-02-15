@@ -12,7 +12,7 @@ from src.base.lr_scheduler import LRScheduler
 from src.utils.fp16_utils.fp16_optimizer import FP16_Optimizer
 
 
-_batch = tuple[Tensor, list[dict], Tensor]
+_batch = tuple[Tensor, Tensor]
 
 
 class BaseClassificationModule(BaseModule):
@@ -28,8 +28,8 @@ class BaseClassificationModule(BaseModule):
         self,
     ) -> tuple[dict[str, optim.Optimizer], dict[str, LRScheduler]]:
         optimizer = optim.SGD(
-            self.model.parameters(),
-            lr=0.05,
+            filter(lambda p: p.requires_grad, self.model.net.parameters()),
+            lr=0.1,
             momentum=0.9,
             weight_decay=0.0001,
             nesterov=True,
@@ -60,14 +60,12 @@ class ClassificationModule(BaseClassificationModule):
     model: ClassificationModel
     loss_fn: ClassificationLoss
 
-    def _common_step(
-        self, batch: _batch, batch_idx: int
-    ) -> dict[str, float] | tuple[dict[str, float], list[ClassificationResult]]:
-        images, annots, targets = batch
+    def training_step(
+        self, batch: tuple[Tensor, Tensor], batch_idx: int
+    ) -> dict[str, float]:
+        self.stage = "train"
+        images, targets = batch
         logits = self.model(images)
-        probs = nn.functional.softmax(logits, dim=1)
-        top_5 = probs.topk(k=5, dim=1).indices
-        top_1 = top_5[:, 0]
 
         loss = self.loss_fn.calculate_loss(targets, logits)
         if self.stage == "train":
@@ -78,29 +76,85 @@ class ClassificationModule(BaseClassificationModule):
                 loss.backward()
             self.optimizers["optim"].step()
 
+        with torch.no_grad():
+            probs = nn.functional.softmax(logits, dim=1)
+            top_5 = probs.topk(k=5, dim=1).indices
+            top_1 = top_5[:, 0]
+            expanded_targets = targets.unsqueeze(-1).expand_as(top_5)
+            top_5_acc = (
+                torch.any(top_5 == expanded_targets, dim=1).float().mean().item()
+            )
+            top_1_acc = (top_1 == targets).float().mean().item()
+            metrics = {
+                "loss": loss.item(),
+                "top-1_error": 1 - top_1_acc,
+                "top-5_error": 1 - top_5_acc,
+            }
+            return metrics
+
+    def validation_step(
+        self, batch: tuple[Tensor, Tensor], batch_idx: int, stage: str
+    ) -> dict[str, float]:
+        self.stage = stage
+        images, targets = batch
+        logits = self.model(images)
+        loss = self.loss_fn.calculate_loss(targets, logits)
+        probs = nn.functional.softmax(logits, dim=1)
+        top_5 = probs.topk(k=5, dim=1).indices
+        top_1 = top_5[:, 0]
         expanded_targets = targets.unsqueeze(-1).expand_as(top_5)
         top_5_acc = torch.any(top_5 == expanded_targets, dim=1).float().mean().item()
         top_1_acc = (top_1 == targets).float().mean().item()
-
         metrics = {
             "loss": loss.item(),
             "top-1_error": 1 - top_1_acc,
             "top-5_error": 1 - top_5_acc,
         }
+        return metrics, []
 
-        if self.stage == "train":
-            return metrics
+    # def _common_step(
+    #     self, batch: _batch, batch_idx: int
+    # ) -> dict[str, float] | tuple[dict[str, float], list[ClassificationResult]]:
+    #     images, targets = batch
+    #     logits = self.model(images)
 
-        targets = targets.cpu().numpy()
-        logits = logits.detach().cpu().numpy()
-        results = []
-        for i in range(len(images)):
-            _image = self.datamodule.transform.inverse_preprocessing(images[i].detach())
+    #     loss = self.loss_fn.calculate_loss(targets, logits)
+    #     if self.stage == "train":
+    #         self.optimizers["optim"].zero_grad()
+    #         if self.use_fp16:
+    #             self.optimizers["optim"].backward(loss)
+    #         else:
+    #             loss.backward()
+    #         self.optimizers["optim"].step()
 
-            result = ClassificationResult(
-                image=_image,
-                target=targets[i],
-                pred=logits[i],
-            )
-            results.append(result)
-        return metrics, results
+    #     with torch.no_grad():
+    #         probs = nn.functional.softmax(logits, dim=1)
+    #         top_5 = probs.topk(k=5, dim=1).indices
+    #         top_1 = top_5[:, 0]
+    #         expanded_targets = targets.unsqueeze(-1).expand_as(top_5)
+    #         top_5_acc = (
+    #             torch.any(top_5 == expanded_targets, dim=1).float().mean().item()
+    #         )
+    #         top_1_acc = (top_1 == targets).float().mean().item()
+    #     metrics = {
+    #         "loss": loss.item(),
+    #         "top-1_error": 1 - top_1_acc,
+    #         "top-5_error": 1 - top_5_acc,
+    #     }
+
+    #     if self.stage == "train":
+    #         return metrics
+
+    #     targets = targets.cpu().numpy()
+    #     logits = logits.detach().cpu().numpy()
+    #     results = []
+    #     for i in range(len(images)):
+    #         _image = self.datamodule.transform.inverse_preprocessing(images[i].detach())
+
+    #         result = ClassificationResult(
+    #             image=_image,
+    #             target=targets[i],
+    #             pred=logits[i],
+    #         )
+    #         results.append(result)
+    #     return metrics, results

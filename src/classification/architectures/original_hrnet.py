@@ -15,7 +15,8 @@ from __future__ import print_function
 
 import torch
 import torch.nn as nn
-
+import torch.nn.functional as F
+import os
 
 BN_MOMENTUM = 0.1
 
@@ -295,10 +296,10 @@ class HighResolutionModule(nn.Module):
 blocks_dict = {"BASIC": BasicBlock, "BOTTLENECK": Bottleneck}
 
 
-class PoseHigherResolutionNet(nn.Module):
-    def __init__(self):
+class OriginalHRNet(nn.Module):
+    def __init__(self, C: int = 32):
         self.inplanes = 64
-        super(PoseHigherResolutionNet, self).__init__()
+        super(OriginalHRNet, self).__init__()
 
         # stem net
         self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1, bias=False)
@@ -306,31 +307,10 @@ class PoseHigherResolutionNet(nn.Module):
         self.conv2 = nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(64, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
-        self.layer1 = self._make_layer(Bottleneck, 64, 4)
 
-        C = 32
+        self.layer1 = self._make_layer(Bottleneck, 64, 64, 4)
+
         C_2, C_4, C_8 = 2 * C, 4 * C, 8 * C
-
-        self.deconv_config = {
-            "NUM_DECONVS": 1,
-            "NUM_CHANNELS": [C],
-            "KERNEL_SIZE": [4],
-            "NUM_BASIC_BLOCKS": 4,
-            "CAT_OUTPUT": [True],
-        }
-        self.loss_config = {
-            "NUM_STAGES": 2,
-            "AE_LOSS_TYPE": "exp",
-            # "WITH_AE_LOSS": [True, False],
-            "WITH_AE_LOSS": [True, True],
-            "PUSH_LOSS_FACTOR": [0.001, 0.001],
-            "PULL_LOSS_FACTOR": [0.001, 0.001],
-            "WITH_HEATMAPS_LOSS": [True, True],
-            "HEATMAPS_LOSS_FACTOR": [1.0, 1.0],
-        }
-
-        self.pretrained_layers = ["*"]
-        self.final_conv_kernel = 1
 
         self.stage2_cfg = {
             "NUM_MODULES": 1,
@@ -383,106 +363,63 @@ class PoseHigherResolutionNet(nn.Module):
         ]
         self.transition3 = self._make_transition_layer(pre_stage_channels, num_channels)
         self.stage4, pre_stage_channels = self._make_stage(
-            self.stage4_cfg, num_channels, multi_scale_output=False
+            self.stage4_cfg, num_channels, multi_scale_output=True
         )
 
-        self.final_layers = self._make_final_layers(pre_stage_channels[0])
-        self.deconv_layers = self._make_deconv_layers(pre_stage_channels[0])
-
-    def _make_final_layers(self, input_channels):
-        dim_tag = 17
-        num_kpts = 17
-
-        final_layers = []
-        output_channels = (
-            num_kpts + dim_tag if self.loss_config["WITH_AE_LOSS"][0] else num_kpts
+        self.incre_modules, self.downsamp_modules, self.final_layer = self._make_head(
+            pre_stage_channels
         )
-        final_layers.append(
-            nn.Conv2d(
-                in_channels=input_channels,
-                out_channels=output_channels,
-                kernel_size=self.final_conv_kernel,
-                stride=1,
-                padding=1 if self.final_conv_kernel == 3 else 0,
+
+        self.classifier = nn.Linear(2048, 1000)
+
+    def _make_head(self, pre_stage_channels):
+        head_block = Bottleneck
+        head_channels = [32, 64, 128, 256]
+
+        # Increasing the #channels on each resolution
+        # from C, 2C, 4C, 8C to 128, 256, 512, 1024
+        incre_modules = []
+        for i, channels in enumerate(pre_stage_channels):
+            incre_module = self._make_layer(
+                head_block, channels, head_channels[i], 1, stride=1
             )
-        )
+            incre_modules.append(incre_module)
+        incre_modules = nn.ModuleList(incre_modules)
 
-        for i in range(self.deconv_config["NUM_DECONVS"]):
-            input_channels = self.deconv_config["NUM_CHANNELS"][i]
-            output_channels = (
-                num_kpts + dim_tag
-                if self.loss_config["WITH_AE_LOSS"][i + 1]
-                else num_kpts
-            )
-            final_layers.append(
+        # downsampling modules
+        downsamp_modules = []
+        for i in range(len(pre_stage_channels) - 1):
+            in_channels = head_channels[i] * head_block.expansion
+            out_channels = head_channels[i + 1] * head_block.expansion
+
+            downsamp_module = nn.Sequential(
                 nn.Conv2d(
-                    in_channels=input_channels,
-                    out_channels=output_channels,
-                    kernel_size=self.final_conv_kernel,
-                    stride=1,
-                    padding=1 if self.final_conv_kernel == 3 else 0,
-                )
+                    in_channels=in_channels,
+                    out_channels=out_channels,
+                    kernel_size=3,
+                    stride=2,
+                    padding=1,
+                ),
+                nn.BatchNorm2d(out_channels, momentum=BN_MOMENTUM),
+                nn.ReLU(inplace=True),
             )
 
-        return nn.ModuleList(final_layers)
+            downsamp_modules.append(downsamp_module)
+        downsamp_modules = nn.ModuleList(downsamp_modules)
 
-    def _make_deconv_layers(self, input_channels):
-        dim_tag = 17
-        num_kpts = 17
+        final_layer = nn.Sequential(
+            nn.Conv2d(
+                in_channels=head_channels[3] * head_block.expansion,
+                out_channels=2048,
+                kernel_size=1,
+                stride=1,
+                padding=0,
+            ),
+            nn.BatchNorm2d(2048, momentum=BN_MOMENTUM),
+            nn.ReLU(inplace=True),
+        )
 
-        deconv_layers = []
-        for i in range(self.deconv_config["NUM_DECONVS"]):
-            if self.deconv_config["CAT_OUTPUT"][i]:
-                final_output_channels = (
-                    num_kpts + dim_tag
-                    if self.loss_config["WITH_AE_LOSS"][i]
-                    else num_kpts
-                )
-                input_channels += final_output_channels
-            output_channels = self.deconv_config["NUM_CHANNELS"][i]
-            deconv_kernel, padding, output_padding = self._get_deconv_cfg(
-                self.deconv_config["KERNEL_SIZE"][i]
-            )
-
-            layers = []
-            layers.append(
-                nn.Sequential(
-                    nn.ConvTranspose2d(
-                        in_channels=input_channels,
-                        out_channels=output_channels,
-                        kernel_size=deconv_kernel,
-                        stride=2,
-                        padding=padding,
-                        output_padding=output_padding,
-                        bias=False,
-                    ),
-                    nn.BatchNorm2d(output_channels, momentum=BN_MOMENTUM),
-                    nn.ReLU(inplace=True),
-                )
-            )
-            for _ in range(self.deconv_config["NUM_BASIC_BLOCKS"]):
-                layers.append(
-                    nn.Sequential(
-                        BasicBlock(output_channels, output_channels),
-                    )
-                )
-            deconv_layers.append(nn.Sequential(*layers))
-            input_channels = output_channels
-
-        return nn.ModuleList(deconv_layers)
-
-    def _get_deconv_cfg(self, deconv_kernel):
-        if deconv_kernel == 4:
-            padding = 1
-            output_padding = 0
-        elif deconv_kernel == 3:
-            padding = 1
-            output_padding = 1
-        elif deconv_kernel == 2:
-            padding = 0
-            output_padding = 0
-
-        return deconv_kernel, padding, output_padding
+        return incre_modules, downsamp_modules, final_layer
 
     def _make_transition_layer(self, num_channels_pre_layer, num_channels_cur_layer):
         num_branches_cur = len(num_channels_cur_layer)
@@ -528,12 +465,12 @@ class PoseHigherResolutionNet(nn.Module):
 
         return nn.ModuleList(transition_layers)
 
-    def _make_layer(self, block, planes, blocks, stride=1):
+    def _make_layer(self, block, inplanes, planes, blocks, stride=1):
         downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
+        if stride != 1 or inplanes != planes * block.expansion:
             downsample = nn.Sequential(
                 nn.Conv2d(
-                    self.inplanes,
+                    inplanes,
                     planes * block.expansion,
                     kernel_size=1,
                     stride=stride,
@@ -543,10 +480,10 @@ class PoseHigherResolutionNet(nn.Module):
             )
 
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
-        self.inplanes = planes * block.expansion
+        layers.append(block(inplanes, planes, stride, downsample))
+        inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
+            layers.append(block(inplanes, planes))
 
         return nn.Sequential(*layers)
 
@@ -614,80 +551,51 @@ class PoseHigherResolutionNet(nn.Module):
                 x_list.append(y_list[i])
         y_list = self.stage4(x_list)
 
-        final_outputs = []
-        x = y_list[0]
-        y = self.final_layers[0](x)
-        final_outputs.append(y)
+        # Classification Head
+        y = self.incre_modules[0](y_list[0])
+        for i in range(len(self.downsamp_modules)):
+            y = self.incre_modules[i + 1](y_list[i + 1]) + self.downsamp_modules[i](y)
 
-        for i in range(self.deconv_config["NUM_DECONVS"]):
-            if self.deconv_config["CAT_OUTPUT"][i]:
-                x = torch.cat((x, y), 1)
+        y = self.final_layer(y)
 
-            x = self.deconv_layers[i](x)
-            y = self.final_layers[i + 1](x)
-            final_outputs.append(y)
+        if torch._C._get_tracing_state():
+            y = y.flatten(start_dim=2).mean(dim=2)
+        else:
+            y = F.avg_pool2d(y, kernel_size=y.size()[2:]).view(y.size(0), -1)
 
-        num_kpts = 17
-        stages_kpts_hms = [
-            final_outputs[i][:, :num_kpts] for i in range(len(final_outputs))
-        ]
-        stages_tags_hms = [final_outputs[0][:, num_kpts:]]
-        return stages_kpts_hms, stages_tags_hms
+        y = self.classifier(y)
 
-    def init_weights(self, pretrained="", verbose=False):
+        return y
+
+    def init_weights(
+        self,
+        pretrained="",
+    ):
         log.info("=> init weights from normal distribution")
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.normal_(m.weight, std=0.001)
-                for name, _ in m.named_parameters():
-                    if name in ["bias"]:
-                        nn.init.constant_(m.bias, 0)
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.ConvTranspose2d):
-                nn.init.normal_(m.weight, std=0.001)
-                for name, _ in m.named_parameters():
-                    if name in ["bias"]:
-                        nn.init.constant_(m.bias, 0)
-
-        parameters_names = set()
-        for name, _ in self.named_parameters():
-            parameters_names.add(name)
-
-        buffers_names = set()
-        for name, _ in self.named_buffers():
-            buffers_names.add(name)
-        pretrained_state_dict = torch.load(pretrained)
-        log.info("=> loading pretrained model {}".format(pretrained))
-
-        need_init_state_dict = {}
-        for name, m in pretrained_state_dict.items():
-            if (
-                name.split(".")[0] in self.pretrained_layers
-                or self.pretrained_layers[0] == "*"
-            ):
-                if name in parameters_names or name in buffers_names:
-                    if verbose:
-                        log.info("=> init {} from {}".format(name, pretrained))
-                    need_init_state_dict[name] = m
-        self.load_state_dict(need_init_state_dict, strict=False)
-
-
-def get_pose_net(init_weights: bool, ckp_path: str, is_train: bool):
-    model = PoseHigherResolutionNet()
-
-    if is_train and init_weights:
-        model.init_weights(ckp_path, verbose=False)
-
-    return model
+        if os.path.isfile(pretrained):
+            pretrained_dict = torch.load(pretrained)
+            log.info("=> loading pretrained model {}".format(pretrained))
+            model_dict = self.state_dict()
+            pretrained_dict = {
+                k: v for k, v in pretrained_dict.items() if k in model_dict.keys()
+            }
+            for k, _ in pretrained_dict.items():
+                log.info("=> loading {} pretrained model {}".format(k, pretrained))
+            model_dict.update(pretrained_dict)
+            self.load_state_dict(model_dict)
 
 
 if __name__ == "__main__":
     from thop import profile
     from torchinfo import summary
 
-    net = PoseHigherResolutionNet()
+    net = OriginalHRNet()
 
     x = torch.randn(1, 3, 224, 224)
 

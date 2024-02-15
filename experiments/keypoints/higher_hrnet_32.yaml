@@ -4,6 +4,7 @@ setup:
   name_prefix: ""
   is_train: true
   ckpt_path: null
+  pretrained_ckpt_path: null
 dataloader:
   batch_size: 36
   pin_memory: true

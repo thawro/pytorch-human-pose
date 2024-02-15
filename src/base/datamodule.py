@@ -2,12 +2,15 @@
 
 import torch
 import random
+import os
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
 from typing import Literal
 
 from .transforms.transforms import ImageTransform
+
+from src.utils.image import make_grid
 
 
 class DataModule:
@@ -52,9 +55,17 @@ class DataModule:
     ):
         shuffle = split == "train"
         dataset = self.datasets[split]
+
         if use_distributed:
+            rank = int(os.environ["LOCAL_RANK"])
             params = dict(
-                shuffle=False, sampler=DistributedSampler(dataset, shuffle=shuffle)
+                shuffle=False,
+                sampler=DistributedSampler(
+                    dataset,
+                    shuffle=shuffle,
+                    rank=rank,
+                    drop_last=self.dl_params.get("drop_last", False),
+                ),
             )
         else:
             params = dict(shuffle=shuffle)
@@ -84,3 +95,32 @@ class DataModule:
         torch.random.set_rng_state(state_dict["torch_random_state"].cpu())
         torch.cuda.set_rng_state_all(state_dict["torch_cuda_random_state"])
         np.random.set_state(state_dict["numpy_random_state"])
+
+    def explore(self):
+        import cv2
+
+        dataloader = iter(self.train_dataloader(use_distributed=False))
+
+        def inf_dl_gen():
+            while True:
+                for batch in dataloader:
+                    images, annots, class_idxs = batch
+                    images = [
+                        self.transform.inverse_preprocessing(img) for img in images
+                    ]
+                    images = make_grid(images, nrows=3)
+                    yield images
+
+        gen = inf_dl_gen()
+        images = next(gen)
+        while True:
+            cv2.imshow("Sample", cv2.cvtColor(images, cv2.COLOR_RGB2BGR))
+            k = cv2.waitKeyEx(0)
+            right_key = 65363
+            if k % 256 == 27:  # ESC pressed
+                print("Escape hit, closing")
+                cv2.destroyAllWindows()
+                break
+            elif k % 256 == 32 or k == right_key:  # SPACE or right arrow pressed
+                print("Space or right arrow hit, exploring next sample")
+                images = next(gen)

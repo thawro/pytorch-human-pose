@@ -3,6 +3,8 @@ import albumentations as A
 import cv2
 
 from src.base.transforms.transforms import _normalize, ImageTransform
+from albumentations.pytorch.transforms import ToTensorV2
+import torchvision.transforms as T
 
 
 class ClassificationTransform(ImageTransform):
@@ -12,14 +14,24 @@ class ClassificationTransform(ImageTransform):
         mean: _normalize = [0.485, 0.456, 0.406],
         std: _normalize = [0.229, 0.224, 0.225],
     ):
-        fill_value = (np.array(mean) * 255).astype(np.uint8).tolist()
         preprocessing = []
-        random = A.Compose(
-            [A.RandomResizedCrop(*out_size), A.HorizontalFlip(p=0.5)],
+
+        random = T.Compose(
+            [
+                T.ToTensor(),
+                T.RandomResizedCrop(out_size[0], antialias=True),
+                T.RandomHorizontalFlip(),
+                T.Normalize(mean=mean, std=std),
+            ]
         )
 
-        inference = A.Compose(
-            [A.SmallestMaxSize(max(out_size)), A.CenterCrop(*out_size)]
+        inference = T.Compose(
+            [
+                T.ToTensor(),
+                T.Resize(int(out_size[0] / 0.875), antialias=True),
+                T.CenterCrop(out_size[0]),
+                T.Normalize(mean=mean, std=std),
+            ]
         )
         self.out_size = out_size
 

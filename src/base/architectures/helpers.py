@@ -14,7 +14,7 @@ class ConvBnAct(nn.Module):
         stride: int = 1,
         batch_norm: bool = True,
         activation: str | None = "ReLU",
-        inplace: bool = False,
+        inplace: bool = True,
     ):
         super().__init__()
         padding = (kernel_size - 1) // 2

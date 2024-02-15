@@ -55,7 +55,7 @@ class BaseImageDataset(BaseDataset):
             self.get_images_annots_filepaths()
         )
 
-    def get_images_annots_filepaths(self) -> tuple[list[str], list[str]]:
+    def get_images_annots_filepaths(self) -> tuple[np.ndarray, np.ndarray]:
         images_filepaths = sorted(glob.glob(f"{str(self.root)}/images/{self.split}/*"))
         if len(images_filepaths) == 0:
             images_filepaths = sorted(glob.glob(f"{str(self.root)}/{self.split}/*"))
@@ -63,6 +63,9 @@ class BaseImageDataset(BaseDataset):
             path.replace("images/", "annots/").replace(".jpg", ".yaml")
             for path in images_filepaths
         ]
+        images_filepaths = np.array(images_filepaths).astype(np.string_)
+        annots_filepaths = np.array(annots_filepaths).astype(np.string_)
+
         return images_filepaths, annots_filepaths
 
     def __len__(self) -> int:

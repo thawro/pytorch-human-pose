@@ -21,7 +21,6 @@ I have separate classes for:
 """
 
 from torch import nn, Tensor
-from src.base.architectures.helpers import ConvBnAct
 from typing import Type
 import torch
 
@@ -29,48 +28,103 @@ import torch
 class Bottleneck(nn.Module):
     expansion: int = 4
 
-    def __init__(self, in_channels: int, out_channels: int) -> None:
+    def __init__(self, in_channels: int, out_channels: int, stride: int = 1) -> None:
         super().__init__()
         mid_channels = int(out_channels / self.expansion)
-        self.conv_layers = nn.Sequential(
-            ConvBnAct(in_channels, mid_channels, 1),
-            ConvBnAct(mid_channels, mid_channels, 3),
-            ConvBnAct(mid_channels, out_channels, 1, activation=None),
+
+        self.conv1 = nn.Conv2d(in_channels, mid_channels, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(mid_channels)
+        self.conv2 = nn.Conv2d(
+            mid_channels,
+            mid_channels,
+            kernel_size=3,
+            stride=stride,
+            padding=1,
+            bias=False,
         )
-        self.conv_residual = nn.Identity()
+        self.bn2 = nn.BatchNorm2d(mid_channels)
+        self.conv3 = nn.Conv2d(mid_channels, out_channels, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU(inplace=True)
+
+        self.downsample = nn.Identity()
         if out_channels != in_channels:
-            self.conv_residual = ConvBnAct(
-                in_channels, out_channels, kernel_size=1, activation=None
+            self.downsample = nn.Sequential(
+                nn.Conv2d(
+                    in_channels, out_channels, kernel_size=1, stride=stride, bias=False
+                ),
+                nn.BatchNorm2d(out_channels),
             )
-        self.relu = nn.ReLU()
 
     def forward(self, x: Tensor) -> Tensor:
-        residual = self.conv_residual(x)
-        out = self.conv_layers(x)
-        return self.relu(out + residual)
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+
+        out = self.conv3(out)
+        out = self.bn3(out)
+
+        residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
 
 
 class BasicBlock(nn.Module):
     expansion: int = 1
 
-    def __init__(self, in_channels: int, **kwargs) -> None:
+    def __init__(self, in_channels: int, stride: int = 1, **kwargs) -> None:
         super().__init__()
         out_channels = in_channels * self.expansion
-        self.conv_layers = nn.Sequential(
-            ConvBnAct(in_channels, in_channels, 3),
-            ConvBnAct(in_channels, out_channels, 3, activation=None),
+        self.conv1 = nn.Conv2d(
+            in_channels,
+            out_channels,
+            kernel_size=3,
+            stride=stride,
+            padding=1,
+            bias=False,
         )
-        self.conv_residual = nn.Identity()
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(
+            out_channels,
+            out_channels,
+            kernel_size=3,
+            stride=stride,
+            padding=1,
+            bias=False,
+        )
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.downsample = nn.Identity()
         if out_channels != in_channels:
-            self.conv_residual = ConvBnAct(
-                in_channels, out_channels, kernel_size=1, activation=None
+            self.downsample = nn.Sequential(
+                nn.Conv2d(
+                    in_channels, out_channels, kernel_size=1, stride=stride, bias=False
+                ),
+                nn.BatchNorm2d(out_channels),
             )
-        self.relu = nn.ReLU()
 
     def forward(self, x: Tensor) -> Tensor:
-        residual = self.conv_residual(x)
-        out = self.conv_layers(x)
-        return self.relu(out + residual)
+        residual = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+
+        residual = self.downsample(x)
+
+        out += residual
+        out = self.relu(out)
+
+        return out
 
 
 class HighResolutionBlock(nn.Module):
@@ -125,9 +179,9 @@ class FusionLayer(nn.Module):
         for i in range(self.num_scales_out):
             scale_fusion_layers = []
             for j in range(self.num_scales):
-                num_high2low = i - j if i > j else 0
+                num_high2low = i - j
                 num_mid2mid = 1 if i == j else 0
-                num_low2high = j - i if j > i else 0
+                num_low2high = j - i
                 if num_high2low > 0:
                     # high to low is matching channels only in last high2low block
                     high2low_blocks = []
@@ -135,23 +189,24 @@ class FusionLayer(nn.Module):
                         is_last = k == num_high2low - 1
                         in_chans = num_out_channels[j]
                         out_chans = num_out_channels[j + k + 1] if is_last else in_chans
-                        high2low_block = ConvBnAct(
-                            in_chans, out_chans, 3, 2, True, None
-                        )
+                        _layers = [
+                            nn.Conv2d(in_chans, out_chans, 3, 2, 1, bias=False),
+                            nn.BatchNorm2d(out_chans),
+                        ]
+                        if not is_last:
+                            _layers.append(nn.ReLU(inplace=False))
+                        high2low_block = nn.Sequential(*_layers)
                         high2low_blocks.append(high2low_block)
                     layer = nn.Sequential(*high2low_blocks)
-                elif num_mid2mid > 0:
+                elif num_mid2mid == 1:
                     layer = nn.Identity()
                 elif num_low2high > 0:
                     layer = nn.Sequential(
-                        ConvBnAct(
-                            num_out_channels[j],
-                            num_out_channels[i],
-                            1,
-                            1,
-                            activation=None,
+                        nn.Conv2d(
+                            num_out_channels[j], num_out_channels[i], 1, 1, bias=False
                         ),
-                        nn.UpsamplingNearest2d(scale_factor=2**num_low2high),
+                        nn.BatchNorm2d(num_out_channels[i]),
+                        nn.Upsample(scale_factor=2**num_low2high, mode="nearest"),
                     )
                 else:
                     raise ValueError("Errur")
@@ -159,11 +214,14 @@ class FusionLayer(nn.Module):
             scale_fusion_layers = nn.ModuleList(scale_fusion_layers)
             scales_fusion_layers.append(scale_fusion_layers)
         self.scales_fusion_layers = nn.ModuleList(scales_fusion_layers)
+        self.relu = nn.ReLU(False)
 
     def forward(self, scales_outputs: list[Tensor]) -> list[Tensor]:
         fusion_scales_out = []
         # i - index of output scale block
         # j - index of input scale block
+        if self.num_scales_out == 1:
+            return scales_outputs
         for i in range(self.num_scales_out):
             scale_out = 0
             for j in range(self.num_scales):
@@ -172,7 +230,7 @@ class FusionLayer(nn.Module):
                 fusion_layer_out = fusion_layer(scale_fusion_layer_input)
                 scale_out += fusion_layer_out
 
-            fusion_scales_out.append(scale_out)
+            fusion_scales_out.append(self.relu(scale_out))
         return fusion_scales_out
 
 
@@ -197,14 +255,22 @@ class TransitionLayer(nn.Module):
             # conv for transition between stage1 and stage2,
             # identity for stage2-stage3 and stage4-stage4
             if is_first_stage:
-                transition_block = ConvBnAct(in_channels, out_channels, 3, 1)
+                transition_block = nn.Sequential(
+                    nn.Conv2d(in_channels, out_channels, 3, 1, 1, bias=False),
+                    nn.BatchNorm2d(out_channels),
+                    nn.ReLU(inplace=True),
+                )
             else:
                 transition_block = nn.Identity()
             layers.append(transition_block)
 
         # additional transition block for the new branch
         in_channels, out_channels = num_in_channels[-1], num_out_channels[-1]
-        transition_block = ConvBnAct(in_channels, out_channels, 3, 2)
+        transition_block = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, 3, 2, 1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+        )
         layers.append(transition_block)
         self.transition_blocks = nn.ModuleList(layers)
 
@@ -291,8 +357,11 @@ class HRNetBackbone(nn.Module):
             [4, 4, BasicBlock, [C, C_2, C_4], [C, C_2, C_4, C_8]],
             [3, 4, BasicBlock, [C, C_2, C_4, C_8], [C, C_2, C_4, C_8]],
         ]
-        self.conv1 = ConvBnAct(3, 64, 3, 2)
-        self.conv2 = ConvBnAct(64, 64, 3, 2)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.conv2 = nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.relu = nn.ReLU(inplace=True)
 
         stages = []
         for i, stage_cfg in enumerate(config):
@@ -305,11 +374,14 @@ class HRNetBackbone(nn.Module):
             stages.append(stage)
         self.stages = nn.Sequential(*stages)
 
-    def forward(self, images: Tensor) -> list[Tensor]:
-        x = self.conv1(images)
+    def forward(self, x: Tensor) -> list[Tensor]:
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
         x = self.conv2(x)
-        out = self.stages(x)
-        return out
+        x = self.bn2(x)
+        x = self.relu(x)
+        return self.stages(x)
 
 
 class HRNet(nn.Module):
@@ -330,7 +402,9 @@ class HRNet(nn.Module):
 if __name__ == "__main__":
     net = HRNet(num_keypoints=17)
 
-    x = torch.randn(16, 3, 256, 256)
+    x = torch.randn(1, 3, 224, 224)
 
-    out = net(x)
-    print(out.shape)
+    from thop import profile
+
+    ops, params = profile(net, inputs=(x,))
+    print(ops, params)

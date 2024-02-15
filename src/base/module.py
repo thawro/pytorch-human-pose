@@ -4,7 +4,6 @@ import torch
 from torch import Tensor, optim
 from torch.nn.modules.loss import _Loss
 
-from src.logging import get_pylogger
 from src.logging.loggers import BaseLogger
 from src.utils.fp16_utils.fp16util import network_to_half
 
@@ -15,8 +14,6 @@ from .callbacks import Callbacks
 from .lr_scheduler import LRScheduler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-
-log = get_pylogger(__name__)
 
 SPLITS = ["train", "val", "test"]
 
@@ -49,11 +46,10 @@ class BaseModule:
 
     def to_DDP(self, device_id: int):
         self.model.net = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model.net)
-        self.model.net = DDP(
-            self.model.net.cuda(device_id),
-            device_ids=[device_id],
-            find_unused_parameters=True,
-        )
+        self.model.net = DDP(self.model.net.cuda(device_id), device_ids=[device_id])
+
+    def compile(self):
+        self.model.net = torch.compile(self.model.net)
 
     def to_fp16(self):
         self.model.net = network_to_half(self.model.net)
@@ -130,7 +126,6 @@ class BaseModule:
         self, batch: tuple[Tensor, Tensor], batch_idx: int
     ) -> dict[str, float]:
         self.stage = "train"
-        self.model.train()
         metrics = self._common_step(batch, batch_idx)
         for name, scheduler in self.schedulers.items():
             if scheduler.is_step_interval:
@@ -141,10 +136,11 @@ class BaseModule:
         self, batch: tuple[Tensor, Tensor], batch_idx: int, stage: str
     ) -> dict[str, float]:
         self.stage = stage
-        with torch.no_grad():
-            self.model.eval()
-            metrics = self._common_step(batch, batch_idx)
+        metrics = self._common_step(batch, batch_idx)
         return metrics
+
+    def on_epoch_start(self) -> None:
+        pass
 
     def on_epoch_end(self) -> None:
         for name, scheduler in self.schedulers.items():

@@ -4053,6 +4053,19 @@ test = ["pre-commit", "pytest (>=7.0)", "pytest-timeout"]
 typing = ["mypy (>=1.6,<2.0)", "traitlets (>=5.11.1)"]
 
 [[package]]
+name = "thop"
+version = "0.1.1.post2209072238"
+description = "A tool to count the FLOPs of PyTorch model."
+optional = false
+python-versions = "*"
+files = [
+    {file = "thop-0.1.1.post2209072238-py3-none-any.whl", hash = "sha256:01473c225231927d2ad718351f78ebf7cffe6af3bed464c4f1ba1ef0f7cdda27"},
+]
+
+[package.dependencies]
+torch = "*"
+
+[[package]]
 name = "threadpoolctl"
 version = "3.2.0"
 description = "threadpoolctl"
@@ -4604,4 +4617,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<3.13"
-content-hash = "d72a703e5fd0fd8dbffb6b0021c1244e50ee0331b7156f2d8d6895d2d4355f1c"
+content-hash = "d94f37bc7eea5e664f7a04caacfcd3a0af2d52ae864df196ed666dc384b5fe82"

@@ -7,9 +7,21 @@ from abc import abstractmethod
 from .datamodule import DataModule
 from .module import BaseModule
 from .trainer import Trainer
+from .callbacks import (
+    BaseCallback,
+    ModelSummary,
+    MetricsLogger,
+    SaveModelCheckpoint,
+    MetricsSaverCallback,
+    MetricsPlotterCallback,
+)
+import os
 
 from src.logging.loggers import TerminalLogger
-from src.base.callbacks import BaseCallback
+
+from src.logging import get_pylogger
+
+log = get_pylogger(__name__)
 
 
 @dataclass
@@ -73,6 +85,7 @@ class SetupConfig(AbstractConfig):
     name_prefix: str
     is_train: bool
     ckpt_path: str | None
+    pretrained_ckpt_path: str | None
 
 
 @dataclass
@@ -81,6 +94,21 @@ class BaseConfig(AbstractConfig):
     dataloader: DataloaderConfig
     model: ModelConfig
     trainer: TrainerConfig
+
+    def log_info(self, msg: str) -> None:
+        log.info(f"[{self.device}] {msg}")
+
+    @property
+    def device(self) -> str:
+        if self.trainer.accelerator == "gpu":
+            if self.trainer.use_distributed and "LOCAL_RANK" in os.environ:
+                device_id = int(os.environ["LOCAL_RANK"])
+            else:
+                device_id = 0
+            device = f"cuda:{device_id}"
+        else:
+            device = "cpu"
+        return device
 
     @property
     def run_name(self) -> str:
@@ -122,8 +150,23 @@ class BaseConfig(AbstractConfig):
     def create_module(self) -> BaseModule:
         raise NotImplementedError()
 
+    def create_callbacks(self) -> list[BaseCallback]:
+        self.log_info("..Creating Callbacks..")
+        callbacks = [
+            MetricsPlotterCallback(),
+            MetricsSaverCallback(),
+            MetricsLogger(),
+            ModelSummary(depth=4),
+            SaveModelCheckpoint(
+                name="best", metric="loss", last=True, mode="min", stage="val"
+            ),
+        ]
+        return callbacks
+
     @abstractmethod
-    def create_trainer(self, callbacks: list[BaseCallback]) -> Trainer:
+    def create_trainer(self) -> Trainer:
+        self.log_info("..Creating Trainer..")
+        callbacks = self.create_callbacks()
         logger = TerminalLogger(self.logs_path, config=self.to_dict())
         return Trainer(logger=logger, callbacks=callbacks, **self.trainer.to_dict())
 

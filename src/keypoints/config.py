@@ -2,7 +2,9 @@ from dataclasses import dataclass
 from torch import nn
 from typing import Literal, Type
 
+from src.logging import get_pylogger
 
+log = get_pylogger(__name__)
 from .datamodule import KeypointsDataModule
 from .datasets import (
     BaseKeypointsDataset,
@@ -23,13 +25,14 @@ from .architectures import (
     HRNet,
 )
 from .loss import KeypointsLoss, AEKeypointsLoss
+from .callbacks import KeypointsExamplesPlotterCallback
 
 
 from src.base.config import BaseConfig, TransformConfig, DatasetConfig, DataloaderConfig
 from src.keypoints.architectures.original_higher_hrnet import get_pose_net
 from src.utils.config import DS_ROOT
 from src.logging import get_pylogger
-
+from src.base.callbacks import BaseCallback
 
 log = get_pylogger(__name__)
 
@@ -129,12 +132,12 @@ class KeypointsConfig(BaseConfig):
             return MPPEKeypointsModule
 
     def create_datamodule(self) -> KeypointsDataModule:
+        self.log_info("..Creating KeypointsDataModule..")
         ds_cfg = self.dataloader.dataset
-        log.info("..Creating DataModule..")
 
         transform = ds_cfg.TransformClass(
             **ds_cfg.transform.to_dict(),
-            symmetric_keypoints=ds_cfg.DatasetClass.symmetric_labels
+            symmetric_keypoints=ds_cfg.DatasetClass.symmetric_labels,
         )
 
         train_ds: BaseKeypointsDataset = ds_cfg.DatasetClass(
@@ -157,6 +160,7 @@ class KeypointsConfig(BaseConfig):
         )
 
     def create_net(self) -> nn.Module:
+        self.log_info("..Creating Net..")
         arch = self.model.architecture
         is_sppe = self.is_sppe
         num_kpts = self.num_keypoints
@@ -189,15 +193,18 @@ class KeypointsConfig(BaseConfig):
         return net
 
     def _create_model(self) -> BaseKeypointsModel | nn.Module:
-        net = self.create_net()
         ModelClass = KeypointsModel if self.is_sppe else AEKeypointsModel
+        self.log_info(f"..Creating {ModelClass.__name__}..")
+        log.info("..Creating Model..")
+        net = self.create_net()
+
         if self.setup.is_train:
             return ModelClass(net, num_keypoints=self.num_keypoints)
         else:
             return net
 
     def create_module(self) -> BaseKeypointsModule:
-        log.info("..Creating Module..")
+        self.log_info(f"..Creating {self.ModuleClass.__name__}..")
         if self.is_sppe:
             loss_fn = KeypointsLoss()
         else:
@@ -210,3 +217,8 @@ class KeypointsConfig(BaseConfig):
             limbs=self.limbs,
         )
         return module
+
+    def create_callbacks(self) -> list[BaseCallback]:
+        callbacks = super().create_callbacks()
+        callbacks.append(KeypointsExamplesPlotterCallback("keypoints"))
+        return callbacks
