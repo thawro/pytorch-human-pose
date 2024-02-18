@@ -14,11 +14,12 @@ from .callbacks import (
     SaveModelCheckpoint,
     MetricsSaverCallback,
     MetricsPlotterCallback,
+    LogsLoggerCallback
 )
 import os
 
-from src.logger.loggers import TerminalLogger
-
+from src.logger.loggers import TerminalLogger, Loggers, MLFlowLogger, Status
+from src.utils.config import LOG_DEVICE_ID
 from src.logger.pylogger import log, get_file_pylogger
 
 
@@ -93,49 +94,66 @@ class BaseConfig(AbstractConfig):
     model: ModelConfig
     trainer: TrainerConfig
     
-    def __post_init__(self):        
-        self.file_log = get_file_pylogger(f"{self.logs_path}/{self.device}_log.log", "log_file")
+    def __post_init__(self):
+        self.logger = self.create_logger()
+        if self.device_id == LOG_DEVICE_ID:
+            self.logger.start_run(f"[{self.device}] ")
+        logs_path = Path(self.log_path) / "logs"
+        logs_path.mkdir(exist_ok=True, parents=True)
+        self.file_log = get_file_pylogger(f"{logs_path}/{self.device}_log.log", "log_file")
         log.handlers.append(self.file_log.handlers[0])
 
     def log_info(self, msg: str) -> None:
         log.info(f"[{self.device}] {msg}")
 
     @property
+    def device_id(self) -> int:
+        if self.trainer.use_distributed and "LOCAL_RANK" in os.environ:
+            device_id = int(os.environ["LOCAL_RANK"])
+        else:
+            device_id = 0
+        return device_id
+    
+    @property
     def device(self) -> str:
         if self.trainer.accelerator == "gpu":
-            if self.trainer.use_distributed and "LOCAL_RANK" in os.environ:
-                device_id = int(os.environ["LOCAL_RANK"])
-            else:
-                device_id = 0
-            device = f"cuda:{device_id}"
+            device = f"cuda:{self.device_id}"
         else:
             device = "cpu"
         return device
 
     @property
     def run_name(self) -> str:
-        dataset = f"_{self.dataloader.dataset.name}"
-        name = f"_{self.setup.name_prefix}"
-        architecture = f"_{self.model.architecture}"
-        return f"{NOW}_{name}{dataset}{architecture}"
-
+        ckpt_path = self.setup.ckpt_path
+        if ckpt_path is None:
+            dataset = f"_{self.dataloader.dataset.name}"
+            name = f"_{self.setup.name_prefix}"
+            architecture = f"_{self.model.architecture}"
+            return f"{NOW}_{name}{dataset}{architecture}"
+        else:
+            # ckpt_path is like:
+            # "<proj_root>/results/<exp_name>/<run_name>/<timestamp>/checkpoints/<ckpt_name>.pt"
+            # so run_name is -4 idx after split
+            run_name = ckpt_path.split("/")[-4]
+            return run_name
+        
     @property
-    def logs_path(self) -> str:
+    def log_path(self) -> str:
         ckpt_path = self.setup.ckpt_path
         is_train = self.setup.is_train
         if ckpt_path is None:
             exp_name = "debug" if self.is_debug else self.setup.experiment_name
-            _logs_path = str(RESULTS_PATH / exp_name / self.run_name / NOW)
+            _log_path = str(RESULTS_PATH / exp_name / self.run_name / NOW)
         else:
             ckpt_path = Path(ckpt_path)
             loaded_ckpt_run_path = ckpt_path.parent.parent
             loaded_run_path = loaded_ckpt_run_path.parent
             if is_train:
-                _logs_path = str(loaded_run_path / NOW)
+                _log_path = str(loaded_run_path / NOW)
             else:
-                _logs_path = str(loaded_ckpt_run_path)
-        Path(_logs_path).mkdir(exist_ok=True, parents=True)
-        return _logs_path
+                _log_path = str(loaded_ckpt_run_path)
+        Path(_log_path).mkdir(exist_ok=True, parents=True)
+        return _log_path
 
     @property
     def is_debug(self) -> bool:
@@ -155,11 +173,12 @@ class BaseConfig(AbstractConfig):
         raise NotImplementedError()
 
     def create_callbacks(self) -> list[BaseCallback]:
-        self.log_info("..Creating Callbacks..")
+        self.log_info("....Creating Callbacks....")
         callbacks = [
             MetricsPlotterCallback(),
             MetricsSaverCallback(),
             MetricsLogger(),
+            LogsLoggerCallback(),
             ModelSummary(depth=4),
             SaveModelCheckpoint(
                 name="best", metric="loss", last=True, mode="min", stage="val"
@@ -167,12 +186,26 @@ class BaseConfig(AbstractConfig):
         ]
         return callbacks
 
+    def create_logger(self) -> Loggers:
+        self.log_info("....Creating Logger....")
+        loggers = [
+            # TerminalLogger(self.logs_path, config=self.to_dict()),
+            MLFlowLogger(self.log_path, config=self.to_dict(), experiment_name=self.setup.experiment_name, run_name=self.run_name)
+        ]
+        logger = Loggers(loggers, self.device_id)
+        return logger
+    
     @abstractmethod
     def create_trainer(self) -> Trainer:
         self.log_info("..Creating Trainer..")
-        logger = TerminalLogger(self.logs_path, config=self.to_dict())
-        callbacks = self.create_callbacks()
-        return Trainer(logger=logger, callbacks=callbacks, file_log=self.file_log, **self.trainer.to_dict())
+        try:
+            callbacks = self.create_callbacks()
+            trainer = Trainer(logger=self.logger, callbacks=callbacks, file_log=self.file_log, **self.trainer.to_dict())
+            return trainer
+        except Exception as e:
+            log.error(str(e))
+            self.logger.finalize(Status.FAILED)
+            raise e
 
 
 if __name__ == "__main__":

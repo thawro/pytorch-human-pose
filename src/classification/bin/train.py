@@ -16,14 +16,15 @@ def main():
 
     cfg = load_yaml(cfg_path)
 
-    ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/classification/02-15_10:12___imagenet_HRNet/02-18_00:50/checkpoints/last.pt"
-    # ckpt_path = None
+    ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/classification/02-15_10:12___imagenet_HRNet/02-18_11:59/checkpoints/last.pt"
+    ckpt_path = None
 
     cfg["setup"]["ckpt_path"] = ckpt_path
     cfg["setup"]["pretrained_ckpt_path"] = None
-    cfg["trainer"]["limit_batches"] = -1
+    cfg["trainer"]["limit_batches"] = 5
     cfg["trainer"]["use_distributed"] = True
 
+    
     cfg = ClassificationConfig.from_dict(cfg)
     train(cfg)
 

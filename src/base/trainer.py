@@ -5,8 +5,7 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
 from src.logger.pylogger import StdOutLogger, logged_tqdm, log
-from src.logger.loggers import BaseLogger
-
+from src.logger.loggers import Loggers, Status
 import torch.distributed as dist
 
 from .datamodule import DataModule
@@ -23,6 +22,8 @@ _stage = Literal["train", "val", "eval_val"]
 _accelerator = Literal["cpu", "gpu"]
 
 
+# TODO: add loggers (MLFlow) logging of params, metrics and .log files
+
 
 class Trainer:
     module: BaseModule
@@ -30,7 +31,7 @@ class Trainer:
 
     def __init__(
         self,
-        logger: BaseLogger,
+        logger: Loggers,
         accelerator: _accelerator,
         callbacks: list[BaseCallback],
         file_log: logging.Logger, 
@@ -46,12 +47,14 @@ class Trainer:
         self.meters = {
             stage: Meters(use_distributed=use_distributed) for stage in stages
         }
-        self.logger = logger
-        sys.stdout = StdOutLogger(file_log)
+        # sys.stdout = StdOutLogger(file_log)
+        # allows to stream sys.stdout to log file
         self.file_log = file_log
         self.accelerator = accelerator
         self._set_device()
         self.callbacks = Callbacks(callbacks, device_id=self.device_id)
+        self.logger = logger
+        # self.logger.start_run(self.device_info)
         self.max_epochs = max_epochs
         self._limit_batches = limit_batches
         self.log_every_n_steps = log_every_n_steps
@@ -108,14 +111,16 @@ class Trainer:
                 f"{name}_LR": optimizer.param_groups[0]["lr"]
                 for name, optimizer in self.module.optimizers.items()
             }
+            self.logger.log_metrics(optizers_lr, self.current_epoch)
             storage.append(
                 optizers_lr, self.current_step, self.current_epoch, split="train"
             )
         for stage in stages:
-            metrics = {
-                name: meter.avg for name, meter in self.meters[stage].meters.items()
-            }
+            metrics = self.meters[stage].to_dict()
             storage.append(metrics, self.current_step, self.current_epoch, stage)
+            stage_metrics = {f"{stage}/{name}": value for name, value in metrics.items()}
+            self.logger.log_metrics(stage_metrics, self.current_epoch)
+            
 
     def evaluate(self, dataloader: DataLoader, stage: _stage):
         """Evaluate on validation set"""
@@ -134,6 +139,7 @@ class Trainer:
 
             if stage == "eval_val" and batch_idx == random_idx:
                 self.results.extend(val_results)
+            trainer.callbacks.on_step_end(self)
             batch_idx += 1
             limit_batches -= 1
             is_break = limit_batches == -1
@@ -156,6 +162,7 @@ class Trainer:
             trainer.module.validation_step(
                 batch, batch_idx, stage=stage
             )
+            trainer.callbacks.on_step_end(self)
             limit_batches -= 1
             is_break = limit_batches == -1
             kwargs = dict(batch_idx=batch_idx, limit_batches=limit_batches, stage=stage, trainer=trainer)
@@ -178,9 +185,10 @@ class Trainer:
                 batch, batch_idx
             )
             meters.update(train_metrics, batch[0].shape[0])
+            trainer.callbacks.on_step_end(self)
             trainer.current_step += 1
-            batch_idx += 1
             trainer.module.set_attributes(current_step=trainer.current_step)
+            batch_idx += 1
             limit_batches -= 1
             is_break = limit_batches == -1
             kwargs = dict(batch_idx=batch_idx, limit_batches=limit_batches, meters=meters, trainer=trainer)
@@ -247,9 +255,11 @@ class Trainer:
             self.load_checkpoint(ckpt_path)
         self.module.set_attributes(current_step=self.current_step)
         self.sanity_check(val_dataloader)
+        start_epoch = int(self.current_epoch)
+        end_epoch = start_epoch + self.max_epochs # TODO: should end_epoch be max_epochs or start+max?
         try:
             for epoch in range(
-                self.current_epoch, self.current_epoch + self.max_epochs
+                start_epoch, end_epoch
             ):
                 if self.use_distributed:
                     train_dataloader.sampler.set_epoch(epoch)  # DDP
@@ -267,11 +277,21 @@ class Trainer:
                 if self.use_distributed:
                     dist.barrier()
         except KeyboardInterrupt as e:
-            self.callbacks.on_failure(self)
+            self.log_error(str(e))
+            self.callbacks.on_failure(self, Status.KILLED)
+            self.logger.finalize(Status.KILLED)
             raise e
-
+        self.logger.finalize(status=Status.FINISHED)
+    
+        
     def log_info(self, msg: str) -> None:
         log.info(f"{self.device_info}{msg}")
+        
+    def log_warn(self, msg: str) -> None:
+        log.warn(f"{self.device_info}{msg}")
+        
+    def log_error(self, msg: str) -> None:
+        log.error(f"{self.device_info}{msg}")
 
     def load_checkpoint(self, ckpt_path: str, lr: float | None = None):
         self.log_info(f"Loading checkpoint from {ckpt_path}")
@@ -305,12 +325,14 @@ class Trainer:
             "steps": self.epochs_metrics.state_dict(),
             "validation": self.validation_metrics.state_dict(),
         }
+        logger_state = self.logger.state_dict()
 
         ckpt_state = {
             "module": module_state,
             "datamodule": datamodule_state,
             "metrics": metrics_state,
             "callbacks": callbacks_state,
+            "logger": logger_state,
             "epoch": self.current_epoch,
             "step": self.current_step,
         }

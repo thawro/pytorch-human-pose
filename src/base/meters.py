@@ -71,6 +71,12 @@ class Meters:
                 self.meters[name] = AverageMeter(name, self.use_distributed)
             self.meters[name].update(value, n=n)
 
+    def to_dict(self) -> dict[str, float | int]:
+        metrics = {
+            name: meter.avg for name, meter in self.meters.items()
+        }
+        return metrics
+        
     def __str__(self):
         txt = ""
         for name in self.meters:

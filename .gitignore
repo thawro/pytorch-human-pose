@@ -164,3 +164,6 @@ inference/videos/*
 pretrained/*
 *.pth
 *.pt
+*.db
+mlflow/artifacts
+mlflow/example_outputs

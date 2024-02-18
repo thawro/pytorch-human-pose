@@ -1,0 +1,4 @@
+HOST=127.0.0.1 # localhost
+PORT=5000 # port for mlflow
+BACKEND_STORE_URI=sqlite:///./mlruns.db # simple SQLite database (can be mysql or other)
+ARTIFACT_ROOT=./artifacts # simple local artifact directory (can be some AWS bucket or other)

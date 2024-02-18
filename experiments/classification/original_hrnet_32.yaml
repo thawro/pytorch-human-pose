@@ -18,6 +18,8 @@ dataloader:
       out_size: [224, 224]
 model:
   architecture: OriginalHRNet
+loggers:
+  - mlflow
 trainer:
   accelerator: gpu
   max_epochs: 100

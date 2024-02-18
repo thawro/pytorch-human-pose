@@ -2,12 +2,21 @@
 
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 from .pylogger import log
 import mlflow
 import yaml
+from src.utils.config import LOG_DEVICE_ID
+from enum import Enum
 
-
+class Status(Enum):
+    """Based on MLFlow"""
+    RUNNING = "RUNNING"
+    SCHEDULED = "SCHEDULED"
+    FINISHED = "FINISHED"
+    FAILED = "FAILED"
+    KILLED = "KILLED"
+    
 class LoggerResults:
     """Storage for training results."""
 
@@ -41,26 +50,36 @@ class LoggerResults:
 
 
 class BaseLogger:
+    name: str= "base"
     """Base logger class."""
 
     def __init__(self, log_path: str | Path = "results", config: dict[str, Any] = {}):
         self.log_path = Path(log_path) if isinstance(log_path, str) else log_path
+        self.logs_path = self.log_path / "logs"
         self.ckpt_dir = self.log_path / "checkpoints"
         self.model_dir = self.log_path / "model"
         self.model_summary_dir = self.log_path / "model/summary"
         self.model_onnx_dir = self.log_path / "model/onnx"
         self.eval_examples_dir = self.log_path / "eval_examples"
-
         self.ckpt_dir.mkdir(parents=True, exist_ok=True)
         self.model_summary_dir.mkdir(parents=True, exist_ok=True)
         self.model_onnx_dir.mkdir(parents=True, exist_ok=True)
+        self.logs_path.mkdir(exist_ok=True, parents=True)
         self.results = LoggerResults(config=config)
-        self.log_config()
-
-    def log_hyperparams(self, params: dict) -> None:
-        """Log hyperparameters as params."""
-        self.log_params(params)
-
+        self._run_id = None
+    
+    @property
+    def run_id(self) -> str:
+        if self._run_id is not None:
+            return self._run_id
+        else:
+            import uuid
+            self._run_id = str(uuid.uuid1())
+            return self._run_id
+    
+    def start_run(self, device_info: str = ""):
+        log.info(f"{device_info}..Starting {self.__class__.__name__} run")
+    
     def log(self, key: str, value: float, step: int | None = None) -> None:
         """Log single metric."""
         self.results.update_metrics({key: value}, step=step)
@@ -87,34 +106,71 @@ class BaseLogger:
         """Log artifact."""
         pass
 
-    def log_checkpoints(self) -> None:
-        """Log model checkpoints."""
-        path = str(self.log_path / "checkpoints")
-        self.log_artifact(path)
-
-    def log_experiment(self) -> None:
-        """Log experiment metrics and checkpoints."""
-        log.info("Logging experiment")
-        metrics = self.results.get_metrics()
-        self.log_dict(metrics, "metrics.yaml")
-        self.log_checkpoints()
-        self.finalize(status="finished")
-
-    def finalize(self, status: Literal["success", "failed", "finished"]) -> None:
+    def finalize(self, status: Status) -> None:
         """Close logger"""
-        log.info(f"Experiment {status}. Closing {self.__class__.__name__}")
+        log.info(f"Experiment {status.value}. Closing {self.__class__.__name__}")
 
 
+class Loggers:
+    """Class to be used in Trainer"""
+    def __init__(self, loggers: list[BaseLogger], device_id: int):
+        # make sure that only device at LOG_DEVICE_ID is logging
+        if device_id != LOG_DEVICE_ID: 
+            loggers = []
+        self.loggers = loggers
+        self.device_id = device_id
+
+    def start_run(self, device_info: str = ""):
+        for logger in self.loggers:
+            logger.start_run(device_info)
+            logger.log_config()
+            
+    def log(self, key: str, value: float, step: int | None = None):
+        for logger in self.loggers:
+            logger.log(key=key, value=value, step=step)
+            
+    def log_metrics(self, metrics: dict[str, float], step: int | None = None):
+        for logger in self.loggers:
+            logger.log_metrics(metrics=metrics, step=step)
+            
+    def log_params(self, params: dict[str, Any]):
+        for logger in self.loggers:
+            logger.log_params(params=params)
+            
+    def log_dict(self, dct: dict[str, Any], filename: str = "dct.yaml"):
+        for logger in self.loggers:
+            logger.log_dict(dct=dct, filename=filename)
+            
+    def log_config(self):
+        for logger in self.loggers:
+            logger.log_config()
+            
+    def log_artifact(self, local_path: str, artifact_path: str):
+        for logger in self.loggers:
+            logger.log_artifact(local_path, artifact_path)
+            
+    def finalize(self, status: Status):
+        for logger in self.loggers:
+            logger.finalize(status)
+    
+    
+    def state_dict(self) -> dict:
+        run_ids = {}
+        for logger in self.loggers:
+            run_ids[logger.name] = logger.run_id
+        return run_ids
+            
+    
 class TerminalLogger(BaseLogger):
+    name: str= "terminal"
     """Terminal Logger (only prints info and saves locally)."""
-
+    
     def log(self, key: str, value: float, step: int | None = None) -> None:
         super().log(key, value, step)
         log.info(f"Step {step}, {key}: {value}")
 
     def log_metrics(self, metrics: dict[str, float], step: int | None = None) -> None:
         super().log_metrics(metrics, step)
-        # log.info(f"Step {step}, Metrics: {metrics}")
 
     def log_params(self, params: dict[str, Any]) -> None:
         super().log_params(params)
@@ -123,7 +179,10 @@ class TerminalLogger(BaseLogger):
 
 class MLFlowLogger(BaseLogger):
     """Logger for logging with MLFlow."""
-
+    client: mlflow.client.MlflowClient
+    run: mlflow.entities.Run
+    name: str= "mlflow"
+    
     def __init__(
         self,
         log_path: str | Path,
@@ -132,68 +191,93 @@ class MLFlowLogger(BaseLogger):
         run_name: str | None = None,
         tracking_uri: str | None = None,
         run_id: str | None = None,
+        description: str = ""
     ):
+        super().__init__(log_path=log_path, config=config)
+        if tracking_uri is None:
+            HOST = "localhost"  # 127.0.0.1
+            PORT = "5000"
+            tracking_uri = f"http://{HOST}:{PORT}"
+        self.tracking_uri = tracking_uri
         self.experiment_name = experiment_name
         self.run_name = run_name
-        if tracking_uri is None:
-            tracking_uri = "http://0.0.0.0:5000"
-        mlflow.set_tracking_uri(tracking_uri)
-        self.tracking_uri = tracking_uri
-        experiment = mlflow.set_experiment(experiment_name=experiment_name)
-        mlflow.start_run(
-            run_id=run_id,
-            experiment_id=experiment.experiment_id,
-            run_name=run_name,
-            description=None,
+        self.description = description
+        self._run_id = run_id
+    
+    def start_run(self, device_info: str = ""):
+        super().start_run(device_info)
+        client = mlflow.client.MlflowClient(self.tracking_uri)
+        experiment = client.get_experiment_by_name(self.experiment_name)
+        if experiment is None:
+            experiment_id = client.create_experiment(self.experiment_name)
+            experiment = client.get_experiment(experiment_id)
+        experiment_id = experiment.experiment_id
+        # get run by name
+        runs = client.search_runs(
+            experiment_ids=[str(experiment_id)],
+            filter_string=f'tags.mlflow.runName = "{self.run_name}"'
         )
-        super().__init__(log_path=log_path, config=config)
-
-    @property
-    def run(self) -> mlflow.ActiveRun:
-        return mlflow.active_run()
-
+        if len(runs) == 0:
+            log.info(f"{device_info}There is no run with {self.run_name} name on mlflow server")
+            log.info(f"{device_info}Creating new run with {self.run_name} name")
+            run = client.create_run(experiment_id, run_name=self.run_name)
+        if len(runs) == 1:
+            log.info(f"{device_info}Found existing run with {self.run_name} name on mlflow server")
+            run = runs[0]
+            log.info(f"{device_info}Resuming Run {run.info.run_name} (ID = {run.info.run_id})")
+        elif len(runs) > 1:
+            msg = f"More than one run with {self.run_name} name found on mlflow server. Raising Exception"
+            log.error(msg)
+            raise ValueError(msg)
+        self.client = client
+        self.run = run
+        run_url = f"{self.tracking_uri}/#/experiments/{experiment.experiment_id}/runs/{run.info.run_id}"
+        log.info(f"{device_info}Visit run at: {run_url}")
+        
     @property
     def run_id(self) -> str:
         return self.run.info.run_id
 
     def log(self, key: str, value: float, step: int | None = None) -> None:
         super().log(key, value, step)
-        mlflow.log_metric(key, value, step=step)
+        self.client.log_metric(self.run_id, key, value, step=step)
 
     def log_metrics(self, metrics: dict[str, float], step: int | None = None) -> None:
         super().log_metrics(metrics, step)
-        mlflow.log_metrics(metrics, step=step)
+        for key, value in metrics.items():
+            self.log(key, value, step=step)
 
+    def log_param(self, key: str, value: float | str | int) -> None:
+        self.client.log_param(self.run_id, key, value)
+        
     def log_params(self, params: dict[str, Any]) -> None:
-        super().log_params(params)
-        mlflow.log_params(params)
+        for key, value in params.items():
+            self.log_param(key, value)
 
     def log_dict(self, config: dict[str, Any], filename: str = "config.yaml") -> None:
         super().log_dict(config, filename)
-        mlflow.log_dict(config, filename)
+        self.client.log_dict(self.run_id, config, filename)
 
     def log_artifact(self, local_path: str, artifact_path: str | None = None) -> None:
-        mlflow.log_artifact(local_path, artifact_path)
+        self.client.log_artifacts(self.run_id, local_path, artifact_path)
 
     def download_artifact(
         self,
-        artifact_path: str,
-        run_id: str | None = None,
+        artifact_path: str
     ) -> str:
         """Download artifact from mlflow.
         Artifact is stored in dst_path (relative to log dir) directory
         Returns path to the downloaded artifact
         """
         dst_path = str(self.log_path / "loaded")
-        if run_id is None:
-            run_id = self.run_id
         log.info(
             f"Downloading {artifact_path} from mlflow run {self.run_id} to {dst_path}"
         )
-        return mlflow.artifacts.download_artifacts(
-            run_id=run_id, artifact_path=artifact_path, dst_path=dst_path
+        return self.client.download_artifacts(
+            run_id=self.run_id, artifact_path=artifact_path, dst_path=dst_path
         )
 
-    def finalize(self, status: Literal["success", "failed", "finished"]) -> None:
+    def finalize(self, status: Status) -> None:
         super().finalize(status)
-        mlflow.end_run(status=status)
+        self.log_artifact(str(self.logs_path), "logs")
+        self.client.set_terminated(self.run_id, status=status.value)
