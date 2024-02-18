@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from torch import nn
 
 from .datamodule import ClassificationDataModule
-from .datasets import ImageNetClassificationDataset
 from .model import ClassificationModel
 from .module import ClassificationModule
 from .transforms import ClassificationTransform
@@ -35,9 +34,6 @@ class ClassificationConfig(BaseConfig):
         )
         self.labels = []
 
-        # train_ds = ImageNetClassificationDataset(ds_root, "train", transform)
-        # val_ds = ImageNetClassificationDataset(ds_root, "val", transform)
-        # self.labels = train_ds.labels
         return ClassificationDataModule(
             train_ds=train_ds,
             val_ds=val_ds,

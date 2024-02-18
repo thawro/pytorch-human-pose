@@ -1,4 +1,5 @@
 """Implementation of specialized Module"""
+
 from torch import optim, Tensor
 from typing import Type
 
@@ -111,13 +112,12 @@ class MPPEKeypointsModule(BaseKeypointsModule):
             self.optimizers["optim"].backward(loss)
             # else:
             # loss.backward()
-
             self.optimizers["optim"].step()
 
         metrics = {
-            "loss": loss.item(),
-            "hm_loss": hm_loss.item(),
-            "tags_loss": tags_loss.item(),
+            "loss": loss.detach().item(),
+            "hm_loss": hm_loss.detach().item(),
+            "tags_loss": tags_loss.detach().item(),
         }
 
         if self.stage == "train":

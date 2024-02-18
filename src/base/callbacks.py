@@ -10,10 +10,9 @@ import math
 import time
 import torch
 from abc import abstractmethod
-
-from src.logging import get_pylogger
+import logging
 from src.utils.files import save_txt_to_file, save_yaml
-
+from src.logger.pylogger import log
 
 from .results import BaseResult
 from .visualization import plot_metrics
@@ -30,8 +29,6 @@ def get_metrics_storage(trainer: Trainer, mode: _log_mode) -> MetricsStorage:
     else:
         raise ValueError("Wrong logging mode")
 
-
-log = get_pylogger(__name__)
 
 
 class BaseCallback:
@@ -271,6 +268,7 @@ class ModelSummary(BaseCallback):
         self.depth = depth
 
     def on_fit_start(self, trainer: Trainer):
+        log.info("Model layers summary")
         model = trainer.module.model
         model_summary = model.summary(self.depth)
         filepath = f"{trainer.logger.model_dir}/model_summary.txt"

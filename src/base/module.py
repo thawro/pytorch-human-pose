@@ -4,7 +4,7 @@ import torch
 from torch import Tensor, optim
 from torch.nn.modules.loss import _Loss
 
-from src.logging.loggers import BaseLogger
+from src.logger.loggers import BaseLogger
 from src.utils.fp16_utils.fp16util import network_to_half
 
 from .datamodule import DataModule

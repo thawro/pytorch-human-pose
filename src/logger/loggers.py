@@ -3,13 +3,9 @@
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Literal
-
+from .pylogger import log
 import mlflow
 import yaml
-
-from .pylogger import get_pylogger
-
-log = get_pylogger(__name__)
 
 
 class LoggerResults:

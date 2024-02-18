@@ -2,9 +2,6 @@ from torch import Tensor, nn
 from torchinfo import summary
 from abc import abstractmethod
 import torch
-from src.logging.pylogger import get_pylogger
-
-log = get_pylogger(__name__)
 
 
 class BaseModel(nn.Module):
@@ -65,7 +62,7 @@ class BaseModel(nn.Module):
         return str(self)
 
     def init_pretrained_weights(
-        self, ckpt_path: str | None, map_location: dict, verbose: bool = False
+        self, ckpt_path: str | None, map_location: dict
     ):
         if ckpt_path is None:
             return
@@ -76,21 +73,19 @@ class BaseModel(nn.Module):
         buffers_names = set()
         for name, _ in self.named_buffers():
             buffers_names.add(name)
-        log.info(f"=> loading pretrained model {ckpt_path}")
+        
         ckpt = torch.load(ckpt_path, map_location=map_location)
 
         state_dict = {}
         for name, m in ckpt.items():
             if name in parameters_names or name in buffers_names:
-                if verbose:
-                    log.info(f"=> init {name} from {ckpt_path}")
                 state_dict[name] = m
         self.load_state_dict(state_dict, strict=False)
 
     def init_weights(
-        self, ckpt_path: str | None, map_location: dict, verbose: bool = False
+        self, ckpt_path: str | None, map_location: dict
     ):
-        self.init_pretrained_weights(ckpt_path, map_location, verbose)
+        self.init_pretrained_weights(ckpt_path, map_location)
 
 
 class BaseImageModel(BaseModel):

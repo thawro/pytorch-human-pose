@@ -20,9 +20,7 @@ import os
 
 BN_MOMENTUM = 0.1
 
-from src.logging.pylogger import get_pylogger
 
-log = get_pylogger(__name__)
 
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -141,21 +139,18 @@ class HighResolutionModule(nn.Module):
             error_msg = "NUM_BRANCHES({}) <> NUM_BLOCKS({})".format(
                 num_branches, len(num_blocks)
             )
-            log.error(error_msg)
             raise ValueError(error_msg)
 
         if num_branches != len(num_channels):
             error_msg = "NUM_BRANCHES({}) <> NUM_CHANNELS({})".format(
                 num_branches, len(num_channels)
             )
-            log.error(error_msg)
             raise ValueError(error_msg)
 
         if num_branches != len(num_inchannels):
             error_msg = "NUM_BRANCHES({}) <> NUM_INCHANNELS({})".format(
                 num_branches, len(num_inchannels)
             )
-            log.error(error_msg)
             raise ValueError(error_msg)
 
     def _make_one_branch(self, branch_index, block, num_blocks, num_channels, stride=1):
@@ -571,7 +566,6 @@ class OriginalHRNet(nn.Module):
         self,
         pretrained="",
     ):
-        log.info("=> init weights from normal distribution")
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
@@ -580,13 +574,10 @@ class OriginalHRNet(nn.Module):
                 nn.init.constant_(m.bias, 0)
         if os.path.isfile(pretrained):
             pretrained_dict = torch.load(pretrained)
-            log.info("=> loading pretrained model {}".format(pretrained))
             model_dict = self.state_dict()
             pretrained_dict = {
                 k: v for k, v in pretrained_dict.items() if k in model_dict.keys()
             }
-            for k, _ in pretrained_dict.items():
-                log.info("=> loading {} pretrained model {}".format(k, pretrained))
             model_dict.update(pretrained_dict)
             self.load_state_dict(model_dict)
 

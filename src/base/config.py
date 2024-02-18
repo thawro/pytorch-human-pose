@@ -17,11 +17,9 @@ from .callbacks import (
 )
 import os
 
-from src.logging.loggers import TerminalLogger
+from src.logger.loggers import TerminalLogger
 
-from src.logging import get_pylogger
-
-log = get_pylogger(__name__)
+from src.logger.pylogger import log, get_file_pylogger
 
 
 @dataclass
@@ -94,6 +92,10 @@ class BaseConfig(AbstractConfig):
     dataloader: DataloaderConfig
     model: ModelConfig
     trainer: TrainerConfig
+    
+    def __post_init__(self):        
+        self.file_log = get_file_pylogger(f"{self.logs_path}/{self.device}_log.log", "log_file")
+        log.handlers.append(self.file_log.handlers[0])
 
     def log_info(self, msg: str) -> None:
         log.info(f"[{self.device}] {msg}")
@@ -123,15 +125,17 @@ class BaseConfig(AbstractConfig):
         is_train = self.setup.is_train
         if ckpt_path is None:
             exp_name = "debug" if self.is_debug else self.setup.experiment_name
-            return str(RESULTS_PATH / exp_name / self.run_name / NOW)
+            _logs_path = str(RESULTS_PATH / exp_name / self.run_name / NOW)
         else:
             ckpt_path = Path(ckpt_path)
             loaded_ckpt_run_path = ckpt_path.parent.parent
             loaded_run_path = loaded_ckpt_run_path.parent
             if is_train:
-                return str(loaded_run_path / NOW)
+                _logs_path = str(loaded_run_path / NOW)
             else:
-                return str(loaded_ckpt_run_path)
+                _logs_path = str(loaded_ckpt_run_path)
+        Path(_logs_path).mkdir(exist_ok=True, parents=True)
+        return _logs_path
 
     @property
     def is_debug(self) -> bool:
@@ -166,9 +170,9 @@ class BaseConfig(AbstractConfig):
     @abstractmethod
     def create_trainer(self) -> Trainer:
         self.log_info("..Creating Trainer..")
-        callbacks = self.create_callbacks()
         logger = TerminalLogger(self.logs_path, config=self.to_dict())
-        return Trainer(logger=logger, callbacks=callbacks, **self.trainer.to_dict())
+        callbacks = self.create_callbacks()
+        return Trainer(logger=logger, callbacks=callbacks, file_log=self.file_log, **self.trainer.to_dict())
 
 
 if __name__ == "__main__":
