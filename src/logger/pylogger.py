@@ -1,5 +1,6 @@
 import re
 import io
+import os
 import logging
 from tqdm.asyncio import tqdm_asyncio
 from typing import Callable
@@ -59,7 +60,17 @@ class CustomFormatter(logging.Formatter):
         # centered with spaces around
         self.LEVEL_NAMES = {
             level_id: f"{names[level_id].center(2 + len(names[level_id]) + num_spaces[level_id])}" for level_id in names
-        } 
+        }
+        self._set_device("cpu", False)
+        
+    def _set_device(self, device: str, device_id: int):
+        self.device = device
+        self.device_id = device_id
+
+        
+    @property
+    def device_info(self) -> str:
+        return f"[{self.device}]   "
         
     @classmethod
     def add_color_to_levelname(cls, fmt: str, color: str):
@@ -81,6 +92,8 @@ class CustomFormatter(logging.Formatter):
                     self.add_color_to_regex(record, url_regex, self.url_color)
                     
         record.levelname = self.LEVEL_NAMES[record.levelno]
+        if isinstance(record.msg, str) and self.device_info not in record.msg:
+            record.msg = self.device_info + record.msg
         formatter = logging.Formatter(log_fmt, self.datefmt)
         return formatter.format(record)
 
@@ -141,7 +154,12 @@ def logged_tqdm(file_log: logging.Logger, tqdm_iter: tqdm_asyncio, fn: Callable,
             break
     file_log.info(str(tqdm_iter))
     
+BREAKING_LINE = "-"*100
 
+def log_breaking_point(msg: str):
+    log.info(BREAKING_LINE)
+    log.info(msg.center(len(BREAKING_LINE)))
+    log.info(BREAKING_LINE)
 
 log = get_cmd_pylogger(__name__)
 

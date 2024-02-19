@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 class KeypointsExamplesPlotterCallback(BaseExamplesPlotterCallback):
     """Plot prediction examples"""
 
-    def __init__(self, name: str | None, det_thr: float = 0.2):
+    def __init__(self, name: str | None, det_thr: float = 0.1):
         super().__init__(name)
         self.det_thr = det_thr
 

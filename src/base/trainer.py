@@ -1,10 +1,11 @@
 import torch
-from typing import Literal
 from torch import Tensor
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
+from src.utils.utils import get_device_and_id
+from src.utils.types import _accelerator, _stage
 
-from src.logger.pylogger import logged_tqdm, log
+from src.logger.pylogger import logged_tqdm, log, log_breaking_point
 from src.logger.loggers import Loggers, Status
 import torch.distributed as dist
 
@@ -14,15 +15,13 @@ from .callbacks import BaseCallback, Callbacks
 from .meters import Meters
 from .storage import MetricsStorage
 import random
-import os
-import sys
 import logging
 
-_stage = Literal["train", "val", "eval_val"]
-_accelerator = Literal["cpu", "gpu"]
 
 
-# TODO: add loggers (MLFlow) logging of params, metrics and .log files
+
+# TODO: ctrl+C sometimes doesnt rise the KeyboardInterrupt (graceful shutdown?) 
+# it would still be nice to log it somehow so one can know why training stopped just by reading the logs
 
 
 class Trainer:
@@ -67,17 +66,8 @@ class Trainer:
         return {"cuda:0": self.device}
 
     def _set_device(self):
-        if self.accelerator == "gpu":
-            if self.use_distributed and "LOCAL_RANK" in os.environ:
-                device_id = int(os.environ["LOCAL_RANK"])
-            else:
-                device_id = 0
-            device = f"cuda:{device_id}"
-        else:
-            device_id = 0
-            device = "cpu"
-        self.device = device
-        self.device_id = device_id
+        self.device, self.device_id = get_device_and_id(self.accelerator, self.use_distributed)
+        
 
     def batch_to_device(self, batch) -> None:
         for j in range(len(batch)):
@@ -135,7 +125,7 @@ class Trainer:
             )
             meters.update(val_metrics, batch[0].shape[0])
 
-            if stage == "eval_val" and batch_idx == random_idx:
+            if batch_idx == random_idx:
                 self.results.extend(val_results)
             trainer.callbacks.on_step_end(self)
             batch_idx += 1
@@ -217,14 +207,14 @@ class Trainer:
             )
 
         if self.use_distributed:
-            self.log_info("Moving to DDP (Data Distributed Parallel)")
+            log.info("..Moving model to DDP (Data Distributed Parallel)..")
             module.to_DDP(self.device_id)
         else:
             module.model.cuda(self.device_id)
         module.loss_fn.cuda(self.device_id)
 
         if self.use_fp16:
-            self.log_info("Changing to FP16")
+            log.info("..Changing optimizers and model weights to FP16..")
             module.to_fp16()
 
         module.pass_attributes(
@@ -240,12 +230,14 @@ class Trainer:
         )
         self.module = module
         self.callbacks.on_fit_start(self)
-        self.log_info("Compiling Module (`torch.compile(net)`)")
-        self.module.compile()
-        self.log_info(
-            "Initializing weights and [optionally] loading pretrained weights"
-        )
-        self.module.model.init_weights(pretrained_ckpt_path, self.map_location)
+        
+        # self.module.compile()
+        self.module.model.init_weights()
+        if pretrained_ckpt_path is None:
+            log.warn(f"Skipping pretrained weights loading (pretrained_ckpt_path is None)")
+        else:
+            self.module.model.init_pretrained_weights(pretrained_ckpt_path, self.map_location)
+        
         self.module.set_optimizers()
         self.datamodule = datamodule
 
@@ -255,6 +247,7 @@ class Trainer:
         self.sanity_check(val_dataloader)
         start_epoch = int(self.current_epoch)
         end_epoch = start_epoch + self.max_epochs # TODO: should end_epoch be max_epochs or start+max?
+        log_breaking_point(f"<<<  Training started  >>>")
         try:
             for epoch in range(
                 start_epoch, end_epoch
@@ -271,31 +264,19 @@ class Trainer:
                 self.module.on_epoch_end()
                 self.callbacks.on_epoch_end(self)
                 self.results.clear()
-                self.log_info(f" <<<  epoch {epoch} finished  >>> ")
+                log_breaking_point(f"<<<  Epoch {epoch} finished  >>>")
                 if self.use_distributed:
                     dist.barrier()
         except KeyboardInterrupt as e:
-            self.log_error(str(e) + "KeyboardInterrupt")
+            log.error(str(e) + "KeyboardInterrupt")
             self.callbacks.on_failure(self, Status.KILLED)
             self.logger.finalize(Status.KILLED)
             raise e
         self.logger.finalize(status=Status.FINISHED)
     
         
-    def log_info(self, msg: str) -> None:
-        log.info(f"{self.device_info}{msg}")
-        
-    def log_warn(self, msg: str) -> None:
-        log.warn(f"{self.device_info}{msg}")
-        
-    def log_error(self, msg: str) -> None:
-        log.error(f"{self.device_info}{msg}")
-    
-    def log_exception(self, exception: Exception) -> None:
-        log.exception(exception)
-
     def load_checkpoint(self, ckpt_path: str, lr: float | None = None):
-        self.log_info(f"Loading checkpoint from {ckpt_path}")
+        log.info(f"..Loading checkpoint from {ckpt_path}..")
 
         ckpt_state = torch.load(ckpt_path, map_location=self.map_location)
         self.epochs_metrics.load_state_dict(ckpt_state["metrics"]["steps"])
@@ -305,7 +286,7 @@ class Trainer:
         self.callbacks.load_state_dict(ckpt_state["callbacks"])
         self.current_step = ckpt_state["step"]
         self.current_epoch = ckpt_state["epoch"] + 1
-        self.log_info(
+        log.info(
             f"The training is resumed at: "
             f"epoch={self.current_epoch}, "
             f"step={self.current_step}"
@@ -313,10 +294,14 @@ class Trainer:
 
     @property
     def device_info(self) -> str:
-        return f"[{self.device}] "
+        return ""
+    
+    # @property
+    # def device_info(self) -> str:
+    #     return f"[{self.device}] "
 
     def save_checkpoint(self, ckpt_path: str):
-        self.log_info(f"Saving checkpoint to {ckpt_path}")
+        log.info(f"Saving checkpoint to {ckpt_path}")
         if self.device_id != 0:  # save only for cuda:0 (DDP)
             return
         module_state = self.module.state_dict()
@@ -338,7 +323,7 @@ class Trainer:
             "step": self.current_step,
         }
         torch.save(ckpt_state, ckpt_path)
-        self.log_info(
+        log.info(
             f"The training is saved at: "
             f"epoch={self.current_epoch}, "
             f"step={self.current_step}"

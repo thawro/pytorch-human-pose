@@ -1,8 +1,7 @@
 from torch import Tensor, nn
 from src.base.model import BaseImageModel
-from src.logging.pylogger import get_pylogger
+from src.logger.pylogger import log
 
-log = get_pylogger(__name__)
 
 
 class BaseKeypointsModel(BaseImageModel):
@@ -11,10 +10,9 @@ class BaseKeypointsModel(BaseImageModel):
         self.num_keypoints = num_keypoints
 
     def init_weights(
-        self, ckpt_path: str | None, map_location: dict, verbose: bool = False
+        self
     ):
-        super().init_weights(ckpt_path, map_location, verbose)
-        log.info("=> init weights from normal distribution [Keypoints]")
+        log.info("..Initializing weights from normal distribution (Keypoints)..")
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.normal_(m.weight, std=0.001)

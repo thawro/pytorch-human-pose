@@ -77,8 +77,8 @@ class BaseLogger:
             self._run_id = str(uuid.uuid1())
             return self._run_id
     
-    def start_run(self, device_info: str = ""):
-        log.info(f"{device_info}..Starting {self.__class__.__name__} run")
+    def start_run(self):
+        log.info(f"..Starting {self.__class__.__name__} run")
     
     def log(self, key: str, value: float, step: int | None = None) -> None:
         """Log single metric."""
@@ -120,9 +120,9 @@ class Loggers:
         self.loggers = loggers
         self.device_id = device_id
 
-    def start_run(self, device_info: str = ""):
+    def start_run(self):
         for logger in self.loggers:
-            logger.start_run(device_info)
+            logger.start_run()
             logger.log_config()
             
     def log(self, key: str, value: float, step: int | None = None):
@@ -204,8 +204,8 @@ class MLFlowLogger(BaseLogger):
         self.description = description
         self._run_id = run_id
     
-    def start_run(self, device_info: str = ""):
-        super().start_run(device_info)
+    def start_run(self):
+        super().start_run()
         client = mlflow.client.MlflowClient(self.tracking_uri)
         experiment = client.get_experiment_by_name(self.experiment_name)
         if experiment is None:
@@ -218,21 +218,23 @@ class MLFlowLogger(BaseLogger):
             filter_string=f'tags.mlflow.runName = "{self.run_name}"'
         )
         if len(runs) == 0:
-            log.info(f"{device_info}There is no run with {self.run_name} name on mlflow server")
-            log.info(f"{device_info}Creating new run with {self.run_name} name")
+            log.info(f"\tThere is no run with {self.run_name} name on mlflow server")
+            log.info(f"\tCreating new run with {self.run_name} name")
             run = client.create_run(experiment_id, run_name=self.run_name)
         if len(runs) == 1:
-            log.info(f"{device_info}Found existing run with {self.run_name} name on mlflow server")
+            log.info(f"\tFound existing run with {self.run_name} name on mlflow server")
             run = runs[0]
-            log.info(f"{device_info}Resuming Run {run.info.run_name} (ID = {run.info.run_id})")
+            log.info(f"\tResuming Run {run.info.run_name} (ID = {run.info.run_id})")
         elif len(runs) > 1:
-            msg = f"More than one run with {self.run_name} name found on mlflow server. Raising Exception"
-            log.error(msg)
-            raise ValueError(msg)
+            msg = f"\tMore than one run with {self.run_name} name found on mlflow server. Raising Exception"
+            log.warn(msg)
+            error = ValueError()
+            log.exception(error)
+            raise error
         self.client = client
         self.run = run
         run_url = f"{self.tracking_uri}/#/experiments/{experiment.experiment_id}/runs/{run.info.run_id}"
-        log.info(f"{device_info}Visit run at: {run_url}")
+        log.info(f"\tVisit run at: {run_url}")
         
     @property
     def run_id(self) -> str:

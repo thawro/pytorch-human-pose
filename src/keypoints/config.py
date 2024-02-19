@@ -2,9 +2,8 @@ from dataclasses import dataclass
 from torch import nn
 from typing import Literal, Type
 
-from src.logging import get_pylogger
+from src.logger.pylogger import log
 
-log = get_pylogger(__name__)
 from .datamodule import KeypointsDataModule
 from .datasets import (
     BaseKeypointsDataset,
@@ -31,10 +30,9 @@ from .callbacks import KeypointsExamplesPlotterCallback
 from src.base.config import BaseConfig, TransformConfig, DatasetConfig, DataloaderConfig
 from src.keypoints.architectures.original_higher_hrnet import get_pose_net
 from src.utils.config import DS_ROOT
-from src.logging import get_pylogger
+from src.logger.pylogger import log
 from src.base.callbacks import BaseCallback
 
-log = get_pylogger(__name__)
 
 
 @dataclass
@@ -132,7 +130,7 @@ class KeypointsConfig(BaseConfig):
             return MPPEKeypointsModule
 
     def create_datamodule(self) -> KeypointsDataModule:
-        self.log_info("..Creating KeypointsDataModule..")
+        log.info("..Creating KeypointsDataModule..")
         ds_cfg = self.dataloader.dataset
 
         transform = ds_cfg.TransformClass(
@@ -160,7 +158,7 @@ class KeypointsConfig(BaseConfig):
         )
 
     def create_net(self) -> nn.Module:
-        self.log_info("..Creating Net..")
+        log.info("..Creating Net..")
         arch = self.model.architecture
         is_sppe = self.is_sppe
         num_kpts = self.num_keypoints
@@ -194,7 +192,7 @@ class KeypointsConfig(BaseConfig):
 
     def _create_model(self) -> BaseKeypointsModel | nn.Module:
         ModelClass = KeypointsModel if self.is_sppe else AEKeypointsModel
-        self.log_info(f"..Creating {ModelClass.__name__}..")
+        log.info(f"..Creating {ModelClass.__name__}..")
         log.info("..Creating Model..")
         net = self.create_net()
 
@@ -204,7 +202,7 @@ class KeypointsConfig(BaseConfig):
             return net
 
     def create_module(self) -> BaseKeypointsModule:
-        self.log_info(f"..Creating {self.ModuleClass.__name__}..")
+        log.info(f"..Creating {self.ModuleClass.__name__}..")
         if self.is_sppe:
             loss_fn = KeypointsLoss()
         else:

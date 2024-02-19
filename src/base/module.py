@@ -5,6 +5,7 @@ from torch import Tensor, optim
 from torch.nn.modules.loss import _Loss
 
 from src.logger.loggers import BaseLogger
+from src.logger.pylogger import log
 from src.utils.fp16_utils.fp16util import network_to_half
 
 from .datamodule import DataModule
@@ -49,6 +50,7 @@ class BaseModule:
         self.model.net = DDP(self.model.net.cuda(device_id), device_ids=[device_id])
 
     def compile(self):
+        log.info("Compiling Module (`torch.compile(net)`)")
         self.model.net = torch.compile(self.model.net)
 
     def to_fp16(self):

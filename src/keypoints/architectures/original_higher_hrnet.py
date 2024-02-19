@@ -19,9 +19,8 @@ import torch.nn as nn
 
 BN_MOMENTUM = 0.1
 
-from src.logging.pylogger import get_pylogger
+from src.logger.pylogger import log
 
-log = get_pylogger(__name__)
 
 
 def conv3x3(in_planes, out_planes, stride=1):

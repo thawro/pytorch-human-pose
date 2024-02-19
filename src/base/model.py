@@ -2,6 +2,7 @@ from torch import Tensor, nn
 from torchinfo import summary
 from abc import abstractmethod
 import torch
+from src.logger.pylogger import log
 
 
 class BaseModel(nn.Module):
@@ -62,10 +63,9 @@ class BaseModel(nn.Module):
         return str(self)
 
     def init_pretrained_weights(
-        self, ckpt_path: str | None, map_location: dict
+        self, ckpt_path: str, map_location: dict
     ):
-        if ckpt_path is None:
-            return
+        log.info(f"..Loading pretrained weights ({ckpt_path})..")
         parameters_names = set()
         for name, _ in self.named_parameters():
             parameters_names.add(name)
@@ -82,10 +82,9 @@ class BaseModel(nn.Module):
                 state_dict[name] = m
         self.load_state_dict(state_dict, strict=False)
 
-    def init_weights(
-        self, ckpt_path: str | None, map_location: dict
-    ):
-        self.init_pretrained_weights(ckpt_path, map_location)
+    @abstractmethod
+    def init_weights(self):
+        raise NotImplementedError()
 
 
 class BaseImageModel(BaseModel):

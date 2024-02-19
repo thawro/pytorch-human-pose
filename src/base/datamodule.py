@@ -6,11 +6,12 @@ import os
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
-from typing import Literal
 
 from .transforms.transforms import ImageTransform
 
 from src.utils.image import make_grid
+from src.utils.types import _split
+from src.logger.pylogger import log
 
 
 class DataModule:
@@ -46,12 +47,17 @@ class DataModule:
         )
 
         self.datasets = {"train": train_ds, "val": val_ds, "test": test_ds}
+        for split, ds in self.datasets.items():
+            if ds is not None:
+                log.info(f"\t{split}: {len(ds)} samples ({ds.__class__.__name__})")
+            else:
+                log.warn(f"\t{split}: 0 (dataset is None)")
         self.total_batches = {}
 
     def _dataloader(
         self,
         use_distributed: bool,
-        split: Literal["train", "val", "test"],
+        split: _split,
     ):
         shuffle = split == "train"
         dataset = self.datasets[split]

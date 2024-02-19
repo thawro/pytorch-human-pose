@@ -1,7 +1,7 @@
 from src.base.config import BaseConfig
 from dataclasses import dataclass
 from torch import nn
-
+from src.logger.pylogger import log
 from .datamodule import ClassificationDataModule
 from .model import ClassificationModel
 from .module import ClassificationModule
@@ -20,7 +20,7 @@ import torchvision.datasets as datasets
 class ClassificationConfig(BaseConfig):
 
     def create_datamodule(self) -> ClassificationDataModule:
-        self.log_info("..Creating ClassificationDataModule..")
+        log.info("..Creating ClassificationDataModule..")
         ds_root = str(DS_ROOT / self.dataloader.dataset.name)
         transform = ClassificationTransform(
             **self.dataloader.dataset.transform.to_dict()
@@ -45,7 +45,7 @@ class ClassificationConfig(BaseConfig):
         )
 
     def create_net(self) -> nn.Module:
-        self.log_info(f"..Creating {self.model.architecture}..")
+        log.info(f"..Creating {self.model.architecture}..")
         if self.model.architecture == "HRNet":
             return ClassificationHRNet(C=32, num_classes=1000)
         elif self.model.architecture == "OriginalHRNet":
@@ -54,12 +54,12 @@ class ClassificationConfig(BaseConfig):
             raise ValueError("Wrong architecture type")
 
     def _create_model(self) -> ClassificationModel:
-        self.log_info("..Creating ClassificationModel..")
+        log.info("..Creating ClassificationModel..")
         net = self.create_net()
         return ClassificationModel(net)
 
     def create_module(self) -> ClassificationModule:
-        self.log_info("..Creating ClassificationModule..")
+        log.info("..Creating ClassificationModule..")
         model = self._create_model()
         loss_fn = ClassificationLoss()
         module = ClassificationModule(model=model, loss_fn=loss_fn, labels=self.labels)

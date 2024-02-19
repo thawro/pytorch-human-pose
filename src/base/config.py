@@ -1,5 +1,6 @@
 from dataclasses import dataclass, fields
 from src.utils import NOW, RESULTS_PATH
+from src.utils.utils import get_device_and_id
 from pathlib import Path
 from src.utils.files import load_yaml
 from dacite import from_dict
@@ -16,7 +17,6 @@ from .callbacks import (
     MetricsPlotterCallback,
     LogsLoggerCallback
 )
-import os
 
 from src.logger.loggers import TerminalLogger, Loggers, MLFlowLogger, Status
 from src.utils.config import LOG_DEVICE_ID
@@ -95,33 +95,17 @@ class BaseConfig(AbstractConfig):
     trainer: TrainerConfig
     
     def __post_init__(self):
-        self.logger = self.create_logger()
-        if self.device_id == LOG_DEVICE_ID:
-            self.logger.start_run(f"[{self.device}] ")
+        self.device, self.device_id = get_device_and_id(self.trainer.accelerator, self.trainer.use_distributed)
         logs_path = Path(self.log_path) / "logs"
         logs_path.mkdir(exist_ok=True, parents=True)
         self.file_log = get_file_pylogger(f"{logs_path}/{self.device}_log.log", "log_file")
         log.handlers.insert(0, self.file_log.handlers[0])
-
-    def log_info(self, msg: str) -> None:
-        log.info(f"[{self.device}] {msg}")
-
-    @property
-    def device_id(self) -> int:
-        if self.trainer.use_distributed and "LOCAL_RANK" in os.environ:
-            device_id = int(os.environ["LOCAL_RANK"])
-        else:
-            device_id = 0
-        return device_id
-    
-    @property
-    def device(self) -> str:
-        if self.trainer.accelerator == "gpu":
-            device = f"cuda:{self.device_id}"
-        else:
-            device = "cpu"
-        return device
-
+        for handler in log.handlers:
+            handler.formatter._set_device(self.device, self.device_id)
+        self.logger = self.create_logger()
+        if self.device_id == LOG_DEVICE_ID:
+            self.logger.start_run()
+        
     @property
     def run_name(self) -> str:
         ckpt_path = self.setup.ckpt_path
@@ -173,7 +157,7 @@ class BaseConfig(AbstractConfig):
         raise NotImplementedError()
 
     def create_callbacks(self) -> list[BaseCallback]:
-        self.log_info("....Creating Callbacks....")
+        log.info("..Creating Callbacks..")
         callbacks = [
             MetricsPlotterCallback(),
             MetricsSaverCallback(),
@@ -187,7 +171,7 @@ class BaseConfig(AbstractConfig):
         return callbacks
 
     def create_logger(self) -> Loggers:
-        self.log_info("....Creating Logger....")
+        log.info("..Creating Logger..")
         loggers = [
             # TerminalLogger(self.logs_path, config=self.to_dict()),
             MLFlowLogger(self.log_path, config=self.to_dict(), experiment_name=self.setup.experiment_name, run_name=self.run_name)
@@ -195,9 +179,8 @@ class BaseConfig(AbstractConfig):
         logger = Loggers(loggers, self.device_id)
         return logger
     
-    @abstractmethod
     def create_trainer(self) -> Trainer:
-        self.log_info("..Creating Trainer..")
+        log.info("..Creating Trainer..")
         try:
             callbacks = self.create_callbacks()
             trainer = Trainer(logger=self.logger, callbacks=callbacks, file_log=self.file_log, **self.trainer.to_dict())
@@ -209,7 +192,8 @@ class BaseConfig(AbstractConfig):
 
 
 if __name__ == "__main__":
+    from src.utils.config import YAML_EXP_PATH
     cfg = BaseConfig.from_yaml(
-        "/home/thawro/Desktop/projects/pytorch-human-pose/experiments/classification/hrnet_32.yaml"
+        str(YAML_EXP_PATH / "classification/hrnet_32.yaml")
     )
     print(cfg)

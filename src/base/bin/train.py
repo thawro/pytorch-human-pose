@@ -2,6 +2,7 @@ from ..config import BaseConfig
 from src.utils.model import seed_everything
 from src.utils.utils import prepend_exception_message
 from src.logger.loggers import Status
+from src.logger.pylogger import log
 from torch.distributed import init_process_group, destroy_process_group
 import torch.backends.cudnn as cudnn
 
@@ -18,7 +19,7 @@ def ddp_setup():
 def train(cfg: BaseConfig):
     if cfg.trainer.use_distributed:
         ddp_setup()
-    cfg.log_info(f"..Starting {cfg.device} process..")
+    log.info(f"..Starting {cfg.device} process..")
     seed_everything(cfg.setup.seed)
 
     datamodule = cfg.create_datamodule()
@@ -44,7 +45,7 @@ def train(cfg: BaseConfig):
         destroy_process_group()
     except Exception as e:
         prepend_exception_message(e, trainer.device_info)
-        trainer.log_exception(e)
+        log.exception(e)
         trainer.callbacks.on_failure(trainer, Status.FAILED)
         trainer.logger.finalize(Status.FAILED)
         raise e

@@ -38,9 +38,6 @@ from src.keypoints.transforms import (
 from joblib import delayed, Parallel
 
 from src.keypoints.visualization import plot_heatmaps, plot_connections
-from src.logging.pylogger import get_pylogger
-
-log = get_pylogger(__file__)
 
 
 class HeatmapGenerator:
@@ -214,7 +211,6 @@ class BaseKeypointsDataset(BaseImageDataset):
             self._rename_filepaths(annots_filepaths)
         annots_filepaths = sorted(glob.glob(f"{str(self.root)}/annots/{self.split}/*"))
         annots_filepaths = [path for path in annots_filepaths if "invalid" not in path]
-        log.info(f"{len(annots_filepaths)} filepaths found for {self.split} split")
         return annots_filepaths
 
     @property
