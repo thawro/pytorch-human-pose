@@ -1,13 +1,10 @@
 import re
 import io
-import os
-import sys
 import logging
 from tqdm.asyncio import tqdm_asyncio
 from typing import Callable
 from colorlog.escape_codes import escape_codes
 import warnings
-from functools import partial
 
 fmt = "%(asctime)s %(levelname)s %(message)s"
 datefmt = "%Y-%m-%d %H:%M:%S"
@@ -164,7 +161,7 @@ def log_breaking_point(msg: str):
     log.info(BREAKING_LINE)
     
 def showwarning(
-    message, category, filename, lineno, file=None, line=None
+    message: Warning | str, category: type[Warning], filename: str, lineno: int, file=None, line: str|None=None
 ):
     message = warnings.formatwarning(
         message, category, filename, lineno, line

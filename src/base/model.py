@@ -65,7 +65,7 @@ class BaseModel(nn.Module):
     def init_pretrained_weights(
         self, ckpt_path: str, map_location: dict
     ):
-        log.info(f"..Loading pretrained weights ({ckpt_path})..")
+        log.info(f"..Loading pretrained weights (from {ckpt_path})..")
         parameters_names = set()
         for name, _ in self.named_parameters():
             parameters_names.add(name)
