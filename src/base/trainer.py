@@ -4,7 +4,7 @@ from torch import Tensor
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
-from src.logger.pylogger import StdOutLogger, logged_tqdm, log
+from src.logger.pylogger import logged_tqdm, log
 from src.logger.loggers import Loggers, Status
 import torch.distributed as dist
 
@@ -47,8 +47,6 @@ class Trainer:
         self.meters = {
             stage: Meters(use_distributed=use_distributed) for stage in stages
         }
-        # sys.stdout = StdOutLogger(file_log)
-        # allows to stream sys.stdout to log file
         self.file_log = file_log
         self.accelerator = accelerator
         self._set_device()
@@ -277,7 +275,7 @@ class Trainer:
                 if self.use_distributed:
                     dist.barrier()
         except KeyboardInterrupt as e:
-            self.log_error(str(e))
+            self.log_error(str(e) + "KeyboardInterrupt")
             self.callbacks.on_failure(self, Status.KILLED)
             self.logger.finalize(Status.KILLED)
             raise e
@@ -292,6 +290,9 @@ class Trainer:
         
     def log_error(self, msg: str) -> None:
         log.error(f"{self.device_info}{msg}")
+    
+    def log_exception(self, exception: Exception) -> None:
+        log.exception(exception)
 
     def load_checkpoint(self, ckpt_path: str, lr: float | None = None):
         self.log_info(f"Loading checkpoint from {ckpt_path}")

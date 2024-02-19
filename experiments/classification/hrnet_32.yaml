@@ -10,7 +10,6 @@ dataloader:
   pin_memory: True
   num_workers: 4
   dataset: 
-    # name: ImageNet
     name: imagenet
     transform:
       mean: [0.485, 0.456, 0.406]

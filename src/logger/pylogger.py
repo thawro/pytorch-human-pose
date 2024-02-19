@@ -1,50 +1,98 @@
-# import logging
-# import colorlog
-
-# formatter = colorlog.ColoredFormatter(
-#     fmt="%(asctime)s - %(log_color)s%(levelname)s%(reset)s - %(message)s",
-#     datefmt="%Y-%m-%d %H:%M:%S",
-#     log_colors={
-#         "DEBUG": "cyan",
-#         "INFO": "green",
-#         "WARNING": "yellow",
-#         "ERROR": "red",
-#         "CRITICAL": "bold_red",
-#     },
-# )
-
-# def get_pylogger(name: str = __name__) -> logging.Logger:
-#     """Initializes multi-GPU-friendly python command line logger."""
-#     logger = logging.getLogger(name)
-#     stream_handler = logging.StreamHandler()
-#     stream_handler.setFormatter(formatter)
-#     logger.addHandler(stream_handler)
-#     logger.setLevel(logging.DEBUG)
-#     return logger
-
-
-import logging
-import colorlog
-from tqdm.auto import tqdm
-from tqdm.asyncio import tqdm_asyncio
-import time
-import sys
+import re
 import io
+import logging
+from tqdm.asyncio import tqdm_asyncio
 from typing import Callable
+from colorlog.escape_codes import escape_codes
+
+fmt = "%(asctime)s %(levelname)s %(message)s"
+datefmt = "%Y-%m-%d %H:%M:%S"
+url_regex = r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))"
+path_regex = r'(\/.*?\.[\w:]+)'
+
+class CustomFormatter(logging.Formatter):
+    """Logging colored formatter based on https://stackoverflow.com/a/56944256/3638629.
+    
+    Handles FileHandler and StreamHandler logging objects.
+    """
+
+    _reset = '\x1b[0m'
+    _msg = "%(message)s"
+    _level = "%(levelname)s"
+    
+    def __init__(self, fmt: str = fmt, datefmt: str = datefmt, is_file: bool = False, datefmt_color: str | None = "light_black", url_color: str | None = "purple"):
+        if is_file:
+            datefmt_color = None
+            url_color = None
+        if datefmt_color is not None:
+            fmt = fmt.replace("%(asctime)s", f"{escape_codes[datefmt_color]} %(asctime)s")
+        super().__init__(fmt, datefmt)
+        
+        for keyword in escape_codes.keys():
+            fmt = fmt.replace(f"%({keyword})s", escape_codes[keyword])
+        
+        self.fmt = fmt
+        self.datefmt = datefmt
+        self.is_file = is_file
+        self.url_color = url_color
+        
+        self.FORMATS = {
+            logging.DEBUG: self.add_color_to_levelname(self.fmt, escape_codes['light_cyan']),
+            logging.INFO: self.add_color_to_levelname(self.fmt, escape_codes['green']),
+            logging.WARNING: self.add_color_to_levelname(self.fmt, escape_codes['yellow']),
+            logging.ERROR: self.add_color_to_levelname(self.fmt, escape_codes['red']),
+            logging.CRITICAL: self.add_color_to_levelname(self.fmt, escape_codes['bg_bold_red']),
+        }
+        names = {
+            logging.DEBUG: "DEBUG",
+            logging.INFO: "INFO",
+            logging.WARNING: "WARNING",
+            logging.ERROR: "ERROR",
+            logging.CRITICAL: "CRITICAL",
+        }
+        max_len = max([len(name) for name in names.values()])
+        num_spaces = {level_id: max_len - len(names[level_id]) for level_id in names}
+        # spaces to the left
+        # self.LEVEL_NAMES = {
+        #     level_id: f"{' ' * num_spaces[level_id]}{names[level_id]}" for level_id in names
+        # } 
+        # centered with spaces around
+        self.LEVEL_NAMES = {
+            level_id: f"{names[level_id].center(2 + len(names[level_id]) + num_spaces[level_id])}" for level_id in names
+        } 
+        
+    @classmethod
+    def add_color_to_levelname(cls, fmt: str, color: str):
+        return fmt.replace(f"{cls._level} {cls._msg}", f"{color}{cls._level}{cls._reset} {cls._msg}")
+    
+    @classmethod
+    def add_color_to_regex(cls, record: logging.LogRecord, regex: str, color: str):
+        color_code = escape_codes[color]
+        record.msg = re.sub(regex, fr"{color_code}\1{cls._reset}", record.msg)
+        
+    
+    def format(self, record: logging.LogRecord):
+        if self.is_file:
+            log_fmt = self.fmt # no formating for files
+        else:
+            log_fmt = self.FORMATS.get(record.levelno)
+            if self.url_color is not None:
+                if isinstance(record.msg, str):
+                    self.add_color_to_regex(record, url_regex, self.url_color)
+                    
+        record.levelname = self.LEVEL_NAMES[record.levelno]
+        formatter = logging.Formatter(log_fmt, self.datefmt)
+        return formatter.format(record)
 
 
 def get_cmd_pylogger(name: str = __name__) -> logging.Logger:
     """Initialize command line logger"""
-    formatter = colorlog.ColoredFormatter(
-        fmt="%(asctime)s - %(log_color)s%(levelname)s%(reset)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        log_colors={
-            "DEBUG": "cyan",
-            "INFO": "green",
-            "WARNING": "yellow",
-            "ERROR": "red",
-            "CRITICAL": "bold_red",
-        },
+    formatter = CustomFormatter(
+        fmt=fmt,
+        datefmt=datefmt,
+        is_file=False,
+        datefmt_color="light_black",
+        url_color="purple"
     )
     logger = logging.getLogger(name)
     stream_handler = logging.StreamHandler()
@@ -53,12 +101,12 @@ def get_cmd_pylogger(name: str = __name__) -> logging.Logger:
     logger.setLevel(logging.DEBUG)
     return logger
 
-
 def get_file_pylogger(filepath: str, name: str = __name__) -> logging.Logger:
     """Initialize .log file logger"""
-    formatter = logging.Formatter(
-        fmt="%(asctime)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+    formatter = CustomFormatter(
+        fmt=fmt,
+        datefmt=datefmt,
+        is_file=True
     )
     logger = logging.getLogger(name)
     file_handler = logging.FileHandler(filepath, "a+")
@@ -67,22 +115,6 @@ def get_file_pylogger(filepath: str, name: str = __name__) -> logging.Logger:
     logger.setLevel(logging.DEBUG)
     return logger
 
-
-
-class StdOutLogger(object):
-    """Saves stdout outputs to log file."""
-    def __init__(self, file_log: logging.Logger):
-        self.terminal = sys.stdout
-        self.log = file_log.handlers[0].stream
-    
-    def write(self, message: str):
-        self.terminal.write(message)
-        self.log.write(message)  
-        
-    def flush(self):
-        # needed for python 3 compatibility.
-        pass    
-    
 
 def remove_last_line(file_log: logging.Logger):
     """Remove the last line of log file"""

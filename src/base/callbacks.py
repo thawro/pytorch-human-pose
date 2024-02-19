@@ -282,6 +282,7 @@ class ModelSummary(BaseCallback):
         trainer.log_info("Model layers summary")
         model = trainer.module.model
         model_summary = model.summary(self.depth)
+        trainer.log_info(model_summary)
         model_dir = trainer.logger.loggers[0].model_dir
         filepath = f"{model_dir}/model_summary.txt"
         save_txt_to_file(model_summary, filepath)

@@ -1,5 +1,6 @@
 from ..config import BaseConfig
 from src.utils.model import seed_everything
+from src.utils.utils import prepend_exception_message
 from src.logger.loggers import Status
 from torch.distributed import init_process_group, destroy_process_group
 import torch.backends.cudnn as cudnn
@@ -42,7 +43,8 @@ def train(cfg: BaseConfig):
         )
         destroy_process_group()
     except Exception as e:
-        trainer.log_error(str(e))
+        prepend_exception_message(e, trainer.device_info)
+        trainer.log_exception(e)
         trainer.callbacks.on_failure(trainer, Status.FAILED)
         trainer.logger.finalize(Status.FAILED)
         raise e

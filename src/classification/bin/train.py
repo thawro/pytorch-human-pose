@@ -24,7 +24,6 @@ def main():
     cfg["trainer"]["limit_batches"] = 5
     cfg["trainer"]["use_distributed"] = True
 
-    
     cfg = ClassificationConfig.from_dict(cfg)
     train(cfg)
 

@@ -101,7 +101,7 @@ class BaseConfig(AbstractConfig):
         logs_path = Path(self.log_path) / "logs"
         logs_path.mkdir(exist_ok=True, parents=True)
         self.file_log = get_file_pylogger(f"{logs_path}/{self.device}_log.log", "log_file")
-        log.handlers.append(self.file_log.handlers[0])
+        log.handlers.insert(0, self.file_log.handlers[0])
 
     def log_info(self, msg: str) -> None:
         log.info(f"[{self.device}] {msg}")
