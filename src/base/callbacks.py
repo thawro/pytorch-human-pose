@@ -192,9 +192,7 @@ class SaveModelCheckpoint(BaseCallback):
 class BaseExamplesPlotterCallback(BaseCallback):
     """Plot prediction examples"""
 
-    def __init__(self, name: str | None):
-        if name is None:
-            name = ""
+    def __init__(self, name: str =""):
         self.name = name
 
     @abstractmethod
@@ -206,7 +204,9 @@ class BaseExamplesPlotterCallback(BaseCallback):
     def plot(self, trainer: Trainer, prefix: str) -> None:
         dirpath = trainer.logger.loggers[0].eval_examples_dir
         dirpath.mkdir(exist_ok=True, parents=True)
-        filepath = str(dirpath / f"{prefix}_{self.name}.jpg")
+        if self.name != "":
+            prefix = f"{prefix}_"
+        filepath = str(dirpath / f"{prefix}{self.name}.jpg")
         if len(trainer.results) > 0:
             self.plot_example_results(trainer, trainer.results, filepath)
             log.info(f"{self.name.capitalize()} results visualization saved at {filepath}")

@@ -1,10 +1,13 @@
 import re
 import io
 import os
+import sys
 import logging
 from tqdm.asyncio import tqdm_asyncio
 from typing import Callable
 from colorlog.escape_codes import escape_codes
+import warnings
+from functools import partial
 
 fmt = "%(asctime)s %(levelname)s %(message)s"
 datefmt = "%Y-%m-%d %H:%M:%S"
@@ -96,8 +99,7 @@ class CustomFormatter(logging.Formatter):
             record.msg = self.device_info + record.msg
         formatter = logging.Formatter(log_fmt, self.datefmt)
         return formatter.format(record)
-
-
+    
 def get_cmd_pylogger(name: str = __name__) -> logging.Logger:
     """Initialize command line logger"""
     formatter = CustomFormatter(
@@ -154,13 +156,21 @@ def logged_tqdm(file_log: logging.Logger, tqdm_iter: tqdm_asyncio, fn: Callable,
             break
     file_log.info(str(tqdm_iter))
     
-BREAKING_LINE = "-"*100
 
 def log_breaking_point(msg: str):
+    BREAKING_LINE = "-"*100
     log.info(BREAKING_LINE)
     log.info(msg.center(len(BREAKING_LINE)))
     log.info(BREAKING_LINE)
+    
+def showwarning(
+    message, category, filename, lineno, file=None, line=None
+):
+    message = warnings.formatwarning(
+        message, category, filename, lineno, line
+    )
+    log.warning(message)
 
 log = get_cmd_pylogger(__name__)
 
-    
+warnings.showwarning = showwarning

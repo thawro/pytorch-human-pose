@@ -101,7 +101,9 @@ class BaseConfig(AbstractConfig):
         self.file_log = get_file_pylogger(f"{logs_path}/{self.device}_log.log", "log_file")
         log.handlers.insert(0, self.file_log.handlers[0])
         for handler in log.handlers:
-            handler.formatter._set_device(self.device, self.device_id)
+            formatter = handler.formatter
+            if formatter is not None and hasattr(formatter, "_set_device"):
+                handler.formatter._set_device(self.device, self.device_id)
         self.logger = self.create_logger()
         if self.device_id == LOG_DEVICE_ID:
             self.logger.start_run()
