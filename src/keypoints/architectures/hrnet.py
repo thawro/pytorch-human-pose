@@ -20,9 +20,10 @@ I have separate classes for:
         256 channels to C channels in the stage1-stage2 transition and creates new scale branches for all transitions
 """
 
-from torch import nn, Tensor
 from typing import Type
+
 import torch
+from torch import Tensor, nn
 
 
 class Bottleneck(nn.Module):
@@ -50,9 +51,7 @@ class Bottleneck(nn.Module):
         self.downsample = nn.Identity()
         if out_channels != in_channels:
             self.downsample = nn.Sequential(
-                nn.Conv2d(
-                    in_channels, out_channels, kernel_size=1, stride=stride, bias=False
-                ),
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
                 nn.BatchNorm2d(out_channels),
             )
 
@@ -103,9 +102,7 @@ class BasicBlock(nn.Module):
         self.downsample = nn.Identity()
         if out_channels != in_channels:
             self.downsample = nn.Sequential(
-                nn.Conv2d(
-                    in_channels, out_channels, kernel_size=1, stride=stride, bias=False
-                ),
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
                 nn.BatchNorm2d(out_channels),
             )
 
@@ -202,9 +199,7 @@ class FusionLayer(nn.Module):
                     layer = nn.Identity()
                 elif num_low2high > 0:
                     layer = nn.Sequential(
-                        nn.Conv2d(
-                            num_out_channels[j], num_out_channels[i], 1, 1, bias=False
-                        ),
+                        nn.Conv2d(num_out_channels[j], num_out_channels[i], 1, 1, bias=False),
                         nn.BatchNorm2d(num_out_channels[i]),
                         nn.Upsample(scale_factor=2**num_low2high, mode="nearest"),
                     )
@@ -220,8 +215,8 @@ class FusionLayer(nn.Module):
         fusion_scales_out = []
         # i - index of output scale block
         # j - index of input scale block
-        if self.num_scales_out == 1:
-            return scales_outputs
+        # if self.num_scales_out == 1:
+        #     return scales_outputs
         for i in range(self.num_scales_out):
             scale_out = 0
             for j in range(self.num_scales):
@@ -299,6 +294,7 @@ class HighResolutionStage(nn.Module):
         num_out_channels: list[int],
         is_final_stage: bool,
         is_first_stage: bool,
+        final_stage_single_scale: bool = False,
     ):
         # num_out_channels is bigger than num_in_channels between stages because
         # we need to use the last element of num_out_channels to create the new scale branch
@@ -315,9 +311,8 @@ class HighResolutionStage(nn.Module):
                 num_in_channels=num_in_channels,
             )
             _num_out_channels = num_out_channels[: len(num_in_channels)]
-            if is_final_stage and is_final_block:
-                # num_scales_out = 1 # TODO: all scales needed for other tasks (classification, etc.)
-                num_scales_out = len(_num_out_channels)
+            if is_final_stage and is_final_block and final_stage_single_scale:
+                num_scales_out = 1
             else:
                 num_scales_out = len(_num_out_channels)
             fusion_layer = FusionLayer(_num_out_channels, num_scales_out)
@@ -329,24 +324,23 @@ class HighResolutionStage(nn.Module):
 
         # transition layer uses last high resolution blocks out channels as in channels
         transition_in_channels = highres_block.num_out_channels
+        self.is_final_stage = is_final_stage
         if not is_final_stage:
             self.transition_layer = TransitionLayer(
                 transition_in_channels, num_out_channels, is_first_stage
             )
-        else:
-            self.transition_layer = None
 
     def forward(self, scales_inputs: list[Tensor]) -> list[Tensor]:
         if not isinstance(scales_inputs, list):
             scales_inputs = [scales_inputs]
         scales_outs = self.blocks(scales_inputs)
-        if self.transition_layer is not None:
-            scales_outs = self.transition_layer(scales_outs)
-        return scales_outs
+        if self.is_final_stage:
+            return scales_outs
+        return self.transition_layer(scales_outs)
 
 
 class HRNetBackbone(nn.Module):
-    def __init__(self, C: int = 32):
+    def __init__(self, C: int = 32, final_stage_single_scale: bool = False):
         super().__init__()
         C_2, C_4, C_8 = 2 * C, 4 * C, 8 * C
         self.stages_C = [C, C_2, C_4, C_8]
@@ -369,7 +363,14 @@ class HRNetBackbone(nn.Module):
             is_final = i == len(config) - 1
             is_first = i == 0
             stage = HighResolutionStage(
-                blocks, units, ResidUnitType, in_chans, out_chans, is_final, is_first
+                blocks,
+                units,
+                ResidUnitType,
+                in_chans,
+                out_chans,
+                is_final,
+                is_first,
+                final_stage_single_scale,
             )
             stages.append(stage)
         self.stages = nn.Sequential(*stages)
@@ -388,7 +389,7 @@ class HRNet(nn.Module):
     def __init__(self, num_keypoints: int, C: int = 32):
         super().__init__()
         self.num_keypoints = num_keypoints
-        self.backbone = HRNetBackbone(C)
+        self.backbone = HRNetBackbone(C, final_stage_single_scale=True)
         self.final_conv = nn.Conv2d(C, num_keypoints, 1, 1, 0)
 
     def forward(self, images: Tensor) -> list[Tensor]:
@@ -400,7 +401,7 @@ class HRNet(nn.Module):
 
 
 if __name__ == "__main__":
-    net = HRNet(num_keypoints=17)
+    net = HRNet(num_keypoints=17, final_stage_single_scale=False)
 
     x = torch.randn(1, 3, 224, 224)
 

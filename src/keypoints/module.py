@@ -1,20 +1,17 @@
 """Implementation of specialized Module"""
 
-from torch import optim, Tensor
-from typing import Type
+import torch
+from torch import Tensor, optim
 
+from src.base.lr_scheduler import LRScheduler
 from src.base.module import BaseModule
 
-from .model import BaseKeypointsModel, KeypointsModel, AEKeypointsModel
-from .loss import KeypointsLoss, AEKeypointsLoss
 from .datamodule import KeypointsDataModule
+from .loss import AEKeypointsLoss
+from .model import AEKeypointsModel, BaseKeypointsModel, KeypointsModel
 from .results import MPPEKeypointsResult
-from src.base.lr_scheduler import LRScheduler
-import torch.nn.functional as F
-from src.utils.fp16_utils.fp16_optimizer import FP16_Optimizer
 
-
-_batch = tuple[Tensor, list[Tensor], Tensor, list, list]
+_batch = tuple[Tensor, list[Tensor], list[Tensor], list[Tensor]]
 
 
 class BaseKeypointsModule(BaseModule):
@@ -23,7 +20,7 @@ class BaseKeypointsModule(BaseModule):
     def __init__(
         self,
         model: BaseKeypointsModel,
-        loss_fn: KeypointsLoss,
+        loss_fn: AEKeypointsLoss,
         labels: list[str],
         limbs: list[tuple[int, int]],
     ):
@@ -34,16 +31,13 @@ class BaseKeypointsModule(BaseModule):
     def create_optimizers(
         self,
     ) -> tuple[dict[str, optim.Optimizer], dict[str, LRScheduler]]:
-        fp16_enabled = True
         optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
-        # if fp16_enabled:
-        optimizer = FP16_Optimizer(optimizer, dynamic_loss_scale=True, verbose=False)
 
         optimizers = {"optim": optimizer}
         schedulers = {
             "optim": LRScheduler(
                 optim.lr_scheduler.MultiStepLR(
-                    optimizers["optim"].optimizer,
+                    optimizer,
                     milestones=[130, 170, 200],
                     gamma=0.1,
                 ),
@@ -53,66 +47,31 @@ class BaseKeypointsModule(BaseModule):
         return optimizers, schedulers
 
 
-class SPPEKeypointsModule(BaseKeypointsModule):
-    model: KeypointsModel
-    loss_fn: KeypointsLoss
-
-    def _common_step(self, batch: _batch, batch_idx: int) -> dict[str, float]:
-        if self.stage == "train":
-            self.optimizers["optim"].zero_grad()
-
-        (
-            images,
-            stages_target_heatmaps,
-            target_weights,
-            target_keypoints,
-            target_visibilities,
-        ) = batch
-
-        stages_pred_heatmaps = self.model(images)
-
-        loss = self.loss_fn.calculate_loss(
-            stages_pred_heatmaps, stages_target_heatmaps, target_weights
-        )
-        if self.stage == "train":
-            loss.backward()
-            self.optimizers["optim"].step()
-
-        metrics = {"loss": loss.item()}
-
-        return metrics
-
-
 class MPPEKeypointsModule(BaseKeypointsModule):
     model: AEKeypointsModel
     loss_fn: AEKeypointsLoss
 
     def _common_step(self, batch: _batch, batch_idx: int) -> dict[str, float]:
-        (
-            images,
-            stages_target_heatmaps,
-            target_weights,
-            target_keypoints,
-            target_visibilities,
-        ) = batch
-        stages_pred_kpts_heatmaps, stages_pred_tags_heatmaps = self.model(images)
+        images, heatmaps, masks, joints = batch
 
-        hm_loss, tags_loss = self.loss_fn.calculate_loss(
-            stages_pred_kpts_heatmaps,
-            stages_pred_tags_heatmaps,
-            stages_target_heatmaps,
-            target_weights,
-            target_keypoints,
-            target_visibilities,
-        )
-        loss = hm_loss + tags_loss
+        heatmaps = list(map(lambda x: x.cuda(non_blocking=True), heatmaps))
+        masks = list(map(lambda x: x.cuda(non_blocking=True), masks))
+        images = images.cuda()
+
+        scaler, optimizer = self.scalers["optim"], self.optimizers["optim"]
+
+        with torch.autocast(device_type="cuda", dtype=torch.float16):
+            stages_pred_kpts_heatmaps, pred_tags_heatmaps = self.model(images)
+            hm_loss, tags_loss = self.loss_fn.calculate_loss(
+                stages_pred_kpts_heatmaps, pred_tags_heatmaps, heatmaps, masks, joints
+            )
+            loss = hm_loss + tags_loss
+
         if self.stage == "train":
-            self.optimizers["optim"].zero_grad()
-            # if fp16:
-            self.optimizers["optim"].backward(loss)
-            # else:
-            # loss.backward()
-            self.optimizers["optim"].step()
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad()
 
         metrics = {
             "loss": loss.detach().item(),
@@ -123,16 +82,15 @@ class MPPEKeypointsModule(BaseKeypointsModule):
         if self.stage == "train":
             return metrics
 
+        pred_tags_heatmaps = pred_tags_heatmaps.detach()
+        stages_pred_kpts_heatmaps = [hms.detach() for hms in stages_pred_kpts_heatmaps]
+        images = images.detach().cpu()
         results = []
         for i in range(len(images)):
-            _image = self.datamodule.transform.inverse_preprocessing(images[i].detach())
-            pred_kpts_heatmaps = [hms[i].detach() for hms in stages_pred_kpts_heatmaps]
-            pred_tags_heatmaps = [hms[i].detach() for hms in stages_pred_tags_heatmaps]
-
             result = MPPEKeypointsResult(
-                image=_image,
-                stages_pred_kpts_heatmaps=pred_kpts_heatmaps,
-                stages_pred_tags_heatmaps=pred_tags_heatmaps,
+                image=images[i],
+                stages_pred_kpts_heatmaps=[hms[i] for hms in stages_pred_kpts_heatmaps],
+                tags_heatmaps=pred_tags_heatmaps[i],
                 limbs=self.limbs,
                 max_num_people=20,
                 det_thr=0.1,

@@ -5,29 +5,19 @@
 # Modified by Bowen Cheng (bcheng9@illinois.edu)
 # ------------------------------------------------------------------------------
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
 
 import torch
 import torch.nn as nn
-
 
 BN_MOMENTUM = 0.1
 
 from src.logger.pylogger import log
 
 
-
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(
-        in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False
-    )
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -69,13 +59,9 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv2 = nn.Conv2d(
-            planes, planes, kernel_size=3, stride=stride, padding=1, bias=False
-        )
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv3 = nn.Conv2d(
-            planes, planes * self.expansion, kernel_size=1, bias=False
-        )
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -116,9 +102,7 @@ class HighResolutionModule(nn.Module):
         multi_scale_output=True,
     ):
         super(HighResolutionModule, self).__init__()
-        self._check_branches(
-            num_branches, blocks, num_blocks, num_inchannels, num_channels
-        )
+        self._check_branches(num_branches, blocks, num_blocks, num_inchannels, num_channels)
 
         self.num_inchannels = num_inchannels
         self.fuse_method = fuse_method
@@ -126,19 +110,13 @@ class HighResolutionModule(nn.Module):
 
         self.multi_scale_output = multi_scale_output
 
-        self.branches = self._make_branches(
-            num_branches, blocks, num_blocks, num_channels
-        )
+        self.branches = self._make_branches(num_branches, blocks, num_blocks, num_channels)
         self.fuse_layers = self._make_fuse_layers()
         self.relu = nn.ReLU(True)
 
-    def _check_branches(
-        self, num_branches, blocks, num_blocks, num_inchannels, num_channels
-    ):
+    def _check_branches(self, num_branches, blocks, num_blocks, num_inchannels, num_channels):
         if num_branches != len(num_blocks):
-            error_msg = "NUM_BRANCHES({}) <> NUM_BLOCKS({})".format(
-                num_branches, len(num_blocks)
-            )
+            error_msg = "NUM_BRANCHES({}) <> NUM_BLOCKS({})".format(num_branches, len(num_blocks))
             log.error(error_msg)
             raise ValueError(error_msg)
 
@@ -160,8 +138,7 @@ class HighResolutionModule(nn.Module):
         downsample = None
         if (
             stride != 1
-            or self.num_inchannels[branch_index]
-            != num_channels[branch_index] * block.expansion
+            or self.num_inchannels[branch_index] != num_channels[branch_index] * block.expansion
         ):
             downsample = nn.Sequential(
                 nn.Conv2d(
@@ -171,9 +148,7 @@ class HighResolutionModule(nn.Module):
                     stride=stride,
                     bias=False,
                 ),
-                nn.BatchNorm2d(
-                    num_channels[branch_index] * block.expansion, momentum=BN_MOMENTUM
-                ),
+                nn.BatchNorm2d(num_channels[branch_index] * block.expansion, momentum=BN_MOMENTUM),
             )
 
         layers = []
@@ -187,9 +162,7 @@ class HighResolutionModule(nn.Module):
         )
         self.num_inchannels[branch_index] = num_channels[branch_index] * block.expansion
         for i in range(1, num_blocks[branch_index]):
-            layers.append(
-                block(self.num_inchannels[branch_index], num_channels[branch_index])
-            )
+            layers.append(block(self.num_inchannels[branch_index], num_channels[branch_index]))
 
         return nn.Sequential(*layers)
 
@@ -320,8 +293,8 @@ class PoseHigherResolutionNet(nn.Module):
         self.loss_config = {
             "NUM_STAGES": 2,
             "AE_LOSS_TYPE": "exp",
-            # "WITH_AE_LOSS": [True, False],
-            "WITH_AE_LOSS": [True, True],
+            "WITH_AE_LOSS": [True, False],
+            # "WITH_AE_LOSS": [True, True],
             "PUSH_LOSS_FACTOR": [0.001, 0.001],
             "PULL_LOSS_FACTOR": [0.001, 0.001],
             "WITH_HEATMAPS_LOSS": [True, True],
@@ -341,13 +314,9 @@ class PoseHigherResolutionNet(nn.Module):
         }
         num_channels = self.stage2_cfg["NUM_CHANNELS"]
         block = blocks_dict[self.stage2_cfg["BLOCK"]]
-        num_channels = [
-            num_channels[i] * block.expansion for i in range(len(num_channels))
-        ]
+        num_channels = [num_channels[i] * block.expansion for i in range(len(num_channels))]
         self.transition1 = self._make_transition_layer([256], num_channels)
-        self.stage2, pre_stage_channels = self._make_stage(
-            self.stage2_cfg, num_channels
-        )
+        self.stage2, pre_stage_channels = self._make_stage(self.stage2_cfg, num_channels)
 
         self.stage3_cfg = {
             "NUM_MODULES": 4,
@@ -359,13 +328,9 @@ class PoseHigherResolutionNet(nn.Module):
         }
         num_channels = self.stage3_cfg["NUM_CHANNELS"]
         block = blocks_dict[self.stage3_cfg["BLOCK"]]
-        num_channels = [
-            num_channels[i] * block.expansion for i in range(len(num_channels))
-        ]
+        num_channels = [num_channels[i] * block.expansion for i in range(len(num_channels))]
         self.transition2 = self._make_transition_layer(pre_stage_channels, num_channels)
-        self.stage3, pre_stage_channels = self._make_stage(
-            self.stage3_cfg, num_channels
-        )
+        self.stage3, pre_stage_channels = self._make_stage(self.stage3_cfg, num_channels)
 
         self.stage4_cfg = {
             "NUM_MODULES": 3,
@@ -377,9 +342,7 @@ class PoseHigherResolutionNet(nn.Module):
         }
         num_channels = self.stage4_cfg["NUM_CHANNELS"]
         block = blocks_dict[self.stage4_cfg["BLOCK"]]
-        num_channels = [
-            num_channels[i] * block.expansion for i in range(len(num_channels))
-        ]
+        num_channels = [num_channels[i] * block.expansion for i in range(len(num_channels))]
         self.transition3 = self._make_transition_layer(pre_stage_channels, num_channels)
         self.stage4, pre_stage_channels = self._make_stage(
             self.stage4_cfg, num_channels, multi_scale_output=False
@@ -393,9 +356,7 @@ class PoseHigherResolutionNet(nn.Module):
         num_kpts = 17
 
         final_layers = []
-        output_channels = (
-            num_kpts + dim_tag if self.loss_config["WITH_AE_LOSS"][0] else num_kpts
-        )
+        output_channels = num_kpts + dim_tag if self.loss_config["WITH_AE_LOSS"][0] else num_kpts
         final_layers.append(
             nn.Conv2d(
                 in_channels=input_channels,
@@ -409,9 +370,7 @@ class PoseHigherResolutionNet(nn.Module):
         for i in range(self.deconv_config["NUM_DECONVS"]):
             input_channels = self.deconv_config["NUM_CHANNELS"][i]
             output_channels = (
-                num_kpts + dim_tag
-                if self.loss_config["WITH_AE_LOSS"][i + 1]
-                else num_kpts
+                num_kpts + dim_tag if self.loss_config["WITH_AE_LOSS"][i + 1] else num_kpts
             )
             final_layers.append(
                 nn.Conv2d(
@@ -433,9 +392,7 @@ class PoseHigherResolutionNet(nn.Module):
         for i in range(self.deconv_config["NUM_DECONVS"]):
             if self.deconv_config["CAT_OUTPUT"][i]:
                 final_output_channels = (
-                    num_kpts + dim_tag
-                    if self.loss_config["WITH_AE_LOSS"][i]
-                    else num_kpts
+                    num_kpts + dim_tag if self.loss_config["WITH_AE_LOSS"][i] else num_kpts
                 )
                 input_channels += final_output_channels
             output_channels = self.deconv_config["NUM_CHANNELS"][i]
@@ -512,9 +469,7 @@ class PoseHigherResolutionNet(nn.Module):
                 for j in range(i + 1 - num_branches_pre):
                     inchannels = num_channels_pre_layer[-1]
                     outchannels = (
-                        num_channels_cur_layer[i]
-                        if j == i - num_branches_pre
-                        else inchannels
+                        num_channels_cur_layer[i] if j == i - num_branches_pre else inchannels
                     )
                     conv3x3s.append(
                         nn.Sequential(
@@ -627,11 +582,9 @@ class PoseHigherResolutionNet(nn.Module):
             final_outputs.append(y)
 
         num_kpts = 17
-        stages_kpts_hms = [
-            final_outputs[i][:, :num_kpts] for i in range(len(final_outputs))
-        ]
-        stages_tags_hms = [final_outputs[0][:, num_kpts:]]
-        return stages_kpts_hms, stages_tags_hms
+        stages_kpts_hms = [final_outputs[i][:, :num_kpts] for i in range(len(final_outputs))]
+        tags_hms = final_outputs[0][:, num_kpts:]
+        return stages_kpts_hms, tags_hms
 
     def init_weights(self, pretrained="", verbose=False):
         log.info("=> init weights from normal distribution")
@@ -662,10 +615,7 @@ class PoseHigherResolutionNet(nn.Module):
 
         need_init_state_dict = {}
         for name, m in pretrained_state_dict.items():
-            if (
-                name.split(".")[0] in self.pretrained_layers
-                or self.pretrained_layers[0] == "*"
-            ):
+            if name.split(".")[0] in self.pretrained_layers or self.pretrained_layers[0] == "*":
                 if name in parameters_names or name in buffers_names:
                     if verbose:
                         log.info("=> init {} from {}".format(name, pretrained))

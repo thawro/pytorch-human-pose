@@ -1,26 +1,29 @@
-from dataclasses import dataclass, fields
-from src.utils import NOW, RESULTS_PATH
-from src.utils.utils import get_device_and_id
-from pathlib import Path
-from src.utils.files import load_yaml
-from dacite import from_dict
+import logging
 from abc import abstractmethod
+from dataclasses import dataclass, fields
+from pathlib import Path
+
+from dacite import from_dict
+
+from src.logger.loggers import Loggers, MLFlowLogger, Status
+from src.logger.pylogger import get_file_pylogger, log
+from src.utils import NOW, RESULTS_PATH
+from src.utils.config import LOG_DEVICE_ID
+from src.utils.files import load_yaml
+from src.utils.utils import get_device_and_id
+
+from .callbacks import (
+    BaseCallback,
+    LogsLoggerCallback,
+    MetricsLogger,
+    MetricsPlotterCallback,
+    MetricsSaverCallback,
+    ModelSummary,
+    SaveModelCheckpoint,
+)
 from .datamodule import DataModule
 from .module import BaseModule
 from .trainer import Trainer
-from .callbacks import (
-    BaseCallback,
-    ModelSummary,
-    MetricsLogger,
-    SaveModelCheckpoint,
-    MetricsSaverCallback,
-    MetricsPlotterCallback,
-    LogsLoggerCallback
-)
-
-from src.logger.loggers import TerminalLogger, Loggers, MLFlowLogger, Status
-from src.utils.config import LOG_DEVICE_ID
-from src.logger.pylogger import log, get_file_pylogger
 
 
 @dataclass
@@ -93,21 +96,26 @@ class BaseConfig(AbstractConfig):
     dataloader: DataloaderConfig
     model: ModelConfig
     trainer: TrainerConfig
-    
+
     def __post_init__(self):
-        self.device, self.device_id = get_device_and_id(self.trainer.accelerator, self.trainer.use_distributed)
+        self.device, self.device_id = get_device_and_id(
+            self.trainer.accelerator, self.trainer.use_distributed
+        )
+        if not self.setup.is_train:
+            return
         logs_path = Path(self.log_path) / "logs"
         logs_path.mkdir(exist_ok=True, parents=True)
-        self.file_log = get_file_pylogger(f"{logs_path}/{self.device}_log.log", "log_file")
-        log.handlers.insert(0, self.file_log.handlers[0])
+        file_log = get_file_pylogger(f"{logs_path}/{self.device}_log.log", "log_file")
+        # insert handler to enable file logs in command line aswell
+        log.handlers.insert(0, file_log.handlers[0])
         for handler in log.handlers:
             formatter = handler.formatter
             if formatter is not None and hasattr(formatter, "_set_device"):
                 handler.formatter._set_device(self.device, self.device_id)
-        self.logger = self.create_logger()
+        self.logger = self.create_logger(file_log)
         if self.device_id == LOG_DEVICE_ID:
             self.logger.start_run()
-        
+
     @property
     def run_name(self) -> str:
         ckpt_path = self.setup.ckpt_path
@@ -122,7 +130,7 @@ class BaseConfig(AbstractConfig):
             # so run_name is -4 idx after split
             run_name = ckpt_path.split("/")[-4]
             return run_name
-        
+
     @property
     def log_path(self) -> str:
         ckpt_path = self.setup.ckpt_path
@@ -165,27 +173,34 @@ class BaseConfig(AbstractConfig):
             MetricsSaverCallback(),
             MetricsLogger(),
             LogsLoggerCallback(),
-            ModelSummary(depth=4),
-            SaveModelCheckpoint(
-                name="best", metric="loss", last=True, mode="min", stage="val"
-            ),
+            ModelSummary(depth=5),
+            SaveModelCheckpoint(name="best", metric="loss", last=True, mode="min", stage="val"),
         ]
         return callbacks
 
-    def create_logger(self) -> Loggers:
+    def create_logger(self, file_log: logging.Logger) -> Loggers:
         log.info("..Creating Logger..")
         loggers = [
             # TerminalLogger(self.logs_path, config=self.to_dict()),
-            MLFlowLogger(self.log_path, config=self.to_dict(), experiment_name=self.setup.experiment_name, run_name=self.run_name)
+            MLFlowLogger(
+                self.log_path,
+                config=self.to_dict(),
+                experiment_name=self.setup.experiment_name,
+                run_name=self.run_name,
+            )
         ]
-        logger = Loggers(loggers, self.device_id)
+        logger = Loggers(loggers, self.device_id, file_log)
         return logger
-    
+
     def create_trainer(self) -> Trainer:
         log.info("..Creating Trainer..")
         try:
             callbacks = self.create_callbacks()
-            trainer = Trainer(logger=self.logger, callbacks=callbacks, file_log=self.file_log, **self.trainer.to_dict())
+            trainer = Trainer(
+                logger=self.logger,
+                callbacks=callbacks,
+                **self.trainer.to_dict(),
+            )
             return trainer
         except Exception as e:
             log.error(str(e))
@@ -195,7 +210,6 @@ class BaseConfig(AbstractConfig):
 
 if __name__ == "__main__":
     from src.utils.config import YAML_EXP_PATH
-    cfg = BaseConfig.from_yaml(
-        str(YAML_EXP_PATH / "classification/hrnet_32.yaml")
-    )
+
+    cfg = BaseConfig.from_yaml(str(YAML_EXP_PATH / "classification/hrnet_32.yaml"))
     print(cfg)

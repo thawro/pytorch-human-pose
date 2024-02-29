@@ -1,26 +1,20 @@
 """Implementation of specialized Module"""
 
-from torch import optim, Tensor, nn
 import torch
+from torch import Tensor, optim
+
+from src.base.lr_scheduler import LRScheduler
 from src.base.module import BaseModule
 
-from .model import ClassificationModel
-from .loss import ClassificationLoss
 from .datamodule import ClassificationDataModule
-from .results import ClassificationResult
-from src.base.lr_scheduler import LRScheduler
-from src.utils.fp16_utils.fp16_optimizer import FP16_Optimizer
-
-
-_batch = tuple[Tensor, Tensor]
+from .loss import ClassificationLoss
+from .model import ClassificationModel
 
 
 class BaseClassificationModule(BaseModule):
     datamodule: ClassificationDataModule
 
-    def __init__(
-        self, model: ClassificationModel, loss_fn: ClassificationLoss, labels: list[str]
-    ):
+    def __init__(self, model: ClassificationModel, loss_fn: ClassificationLoss, labels: list[str]):
         super().__init__(model, loss_fn)
         self.labels = labels
 
@@ -34,19 +28,12 @@ class BaseClassificationModule(BaseModule):
             weight_decay=0.0001,
             nesterov=True,
         )
-        if self.use_fp16:
-            optimizer = FP16_Optimizer(
-                optimizer, dynamic_loss_scale=True, verbose=False
-            )
-            _optimizer = optimizer.optimizer
-        else:
-            _optimizer = optimizer
 
         optimizers = {"optim": optimizer}
         schedulers = {
             "optim": LRScheduler(
                 optim.lr_scheduler.MultiStepLR(
-                    _optimizer,
+                    optimizer,
                     milestones=[30, 60, 90],
                     gamma=0.1,
                 ),
@@ -60,9 +47,7 @@ class ClassificationModule(BaseClassificationModule):
     model: ClassificationModel
     loss_fn: ClassificationLoss
 
-    def training_step(
-        self, batch: tuple[Tensor, Tensor], batch_idx: int
-    ) -> dict[str, float]:
+    def training_step(self, batch: tuple[Tensor, Tensor], batch_idx: int) -> dict[str, float]:
         self.stage = "train"
         images, targets = batch
         logits = self.model(images)
@@ -82,9 +67,7 @@ class ClassificationModule(BaseClassificationModule):
             loss = loss.detach().item()
             top_5 = logits.topk(k=5, dim=1).indices
             expanded_targets = targets.unsqueeze(-1).expand_as(top_5)
-            top_5_acc = (
-                torch.any(top_5 == expanded_targets, dim=1).float().mean().item()
-            )
+            top_5_acc = torch.any(top_5 == expanded_targets, dim=1).float().mean().item()
             top_1_acc = (top_5[:, 0] == targets).float().mean().item()
             metrics = {
                 "loss": loss,

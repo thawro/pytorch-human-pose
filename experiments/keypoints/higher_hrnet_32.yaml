@@ -8,8 +8,8 @@ setup:
 dataloader:
   batch_size: 36
   pin_memory: true
-  num_workers: 4
-  dataset: 
+  num_workers: 8
+  dataset:
     name: COCO
     mode: MPPE
     transform:
@@ -20,8 +20,8 @@ model:
   architecture: HigherHRNet
 trainer:
   accelerator: gpu
-  max_epochs: 100
+  max_epochs: 300
   limit_batches: -1
-  log_every_n_steps: -1
+  log_every_n_steps: 0
   use_distributed: true
   use_fp16: true

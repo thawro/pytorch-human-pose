@@ -1,93 +1,38 @@
-from torch import nn, Tensor
-from src.base.loss import BaseLoss, WeightedLoss
-from torch.nn.modules.loss import _Loss
 import torch
+from torch import Tensor, nn
+from torch.nn.modules.loss import _Loss
 
 
 class HeatmapsLoss(_Loss):
     def __init__(self):
         super().__init__()
-        # self.criterion = nn.MSELoss(reduction="none")
         self.criterion = nn.MSELoss()
 
-    def forward(
-        self,
-        pred_heatmaps: Tensor,
-        target_heatmaps: Tensor,
-        target_weights: Tensor,
-    ) -> Tensor:
-        target_masks = target_weights > 0
-        return self.criterion(
-            pred_heatmaps[target_masks], target_heatmaps[target_masks]
+    def forward(self, pred_heatmaps: Tensor, target_heatmaps: Tensor, mask: Tensor) -> Tensor:
+        loss = ((pred_heatmaps - target_heatmaps) ** 2) * mask[:, None, :, :].expand_as(
+            pred_heatmaps
         )
-
-
-class StagesHeatmapsLoss(_Loss):
-    def __init__(self):
-        super().__init__()
-        self.criterion = nn.MSELoss()
-
-    def forward(
-        self,
-        stages_pred_heatmaps: list[Tensor],
-        stages_target_heatmaps: list[Tensor],
-        target_weights: Tensor,
-    ) -> Tensor:
-        loss = 0
-        target_masks = target_weights > 0
-        for i in range(len(stages_pred_heatmaps)):
-            pred_hm = stages_pred_heatmaps[i]
-            target_hm = stages_target_heatmaps[i]
-            stage_loss = self.criterion(pred_hm[target_masks], target_hm[target_masks])
-            loss += stage_loss
-        return loss
-
-
-class KeypointsLoss(BaseLoss):
-    def __init__(self):
-        super().__init__(WeightedLoss(StagesHeatmapsLoss(), weight=1))
-
-    def calculate_loss(
-        self,
-        stages_pred_heatmaps: list[Tensor],
-        stages_target_heatmaps: list[Tensor],
-        target_weights: Tensor,
-    ) -> Tensor:
-        return self.loss_fn(
-            stages_pred_heatmaps, stages_target_heatmaps, target_weights
-        )
+        return loss.mean()
 
 
 class AEGroupingLoss(_Loss):
-    def __init__(self, hm_resolution: float):
-        super().__init__()
-        self.hm_resolution = hm_resolution
-
-    def forward(
-        self, pred_tags: Tensor, target_keypoints: list, target_visibilities: Tensor
-    ):
-        batch_size = len(target_keypoints)
+    def forward(self, pred_tags: Tensor, joints: list[Tensor]):
+        batch_size = len(joints)
         pull_loss = 0
         push_loss = 0
         for i in range(batch_size):
-            tags = pred_tags[i]
-            all_objs_kpts = target_keypoints[i]
-
             all_objs_pull_loss = 0  # intra object kpts
             all_objs_ref_tags = []  # ^h_n
-            for j, obj_kpts in enumerate(all_objs_kpts):
+            for j, obj_joints in enumerate(joints[i]):
                 obj_kpts_tags = []
-                for k, kpt in enumerate(obj_kpts):
-                    x, y = kpt
-                    # coords were wrt image size, now we need to parse it to tags size
-                    _x = int(x * self.hm_resolution)
-                    _y = int(y * self.hm_resolution)
-                    if target_visibilities[i][j][k] > 0:  # is visible
-                        tag = tags[k][_y, _x]
+                for k, joint in enumerate(obj_joints):
+                    x, y, vis = joint
+                    # is visible # TODO: all joints should be visible after joints generator
+                    if vis > 0:
+                        tag = pred_tags[i, k, y, x]
                         obj_kpts_tags.append(tag)
                 if len(obj_kpts_tags) == 0:
                     continue
-                # TODO: check if gradient flow is correct\
                 obj_kpts_tags = torch.stack(obj_kpts_tags)
                 obj_ref_tag = obj_kpts_tags.mean()
                 all_objs_ref_tags.append(obj_ref_tag)
@@ -122,37 +67,36 @@ class AEGroupingLoss(_Loss):
 class AEKeypointsLoss(_Loss):
     def __init__(self, hm_resolutions: list[float]) -> None:
         super().__init__()
-        self.heatmaps_loss = WeightedLoss(HeatmapsLoss(), weight=1)
-        self.tags_loss = WeightedLoss(AEGroupingLoss(hm_resolutions[0]), weight=1e-3)
+        self.heatmaps_loss = HeatmapsLoss()
+        self.tags_loss = AEGroupingLoss()
 
     def calculate_loss(
         self,
         stages_pred_kpts_heatmaps: list[Tensor],
-        stages_pred_tags_heatmaps: list[Tensor],
+        pred_tags_heatmaps: Tensor,
         stages_target_heatmaps: list[Tensor],
-        target_weights: Tensor,
-        target_keypoints: list,
-        target_visibilities: list,
+        masks: list[Tensor],
+        joints: list[Tensor],
     ) -> tuple[Tensor, Tensor]:
         num_stages = len(stages_target_heatmaps)
         heatmaps_loss = 0
         for i in range(num_stages):
             hm_loss = self.heatmaps_loss(
-                stages_pred_kpts_heatmaps[i], stages_target_heatmaps[i], target_weights
+                stages_pred_kpts_heatmaps[i], stages_target_heatmaps[i], masks[i]
             )
             heatmaps_loss += hm_loss
-        ae_grouping_loss = self.tags_loss(
-            stages_pred_tags_heatmaps[0], target_keypoints, target_visibilities
-        )
-        return heatmaps_loss, ae_grouping_loss
+        ae_grouping_loss = self.tags_loss(pred_tags_heatmaps, joints[0])
+        return heatmaps_loss, ae_grouping_loss * 1e-3
 
 
 def test():
+    import random
+
+    import cv2
+
     from src.keypoints.datasets import MppeMpiiDataset
     from src.keypoints.transforms import MPPEKeypointsTransform
-    import cv2
     from src.utils.config import DS_ROOT
-    import random
 
     def explore(idx, ds):
         (

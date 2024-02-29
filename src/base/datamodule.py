@@ -1,17 +1,18 @@
 """DataModule used to load DataLoaders"""
 
-import torch
-import random
 import os
+import random
+
 import numpy as np
+import torch
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
 
-from .transforms.transforms import ImageTransform
-
+from src.logger.pylogger import log
 from src.utils.image import make_grid
 from src.utils.types import _split
-from src.logger.pylogger import log
+
+from .transforms.transforms import ImageTransform
 
 
 class DataModule:
@@ -20,7 +21,6 @@ class DataModule:
         train_ds: Dataset,
         val_ds: Dataset,
         test_ds: Dataset | None,
-        transform: ImageTransform,
         batch_size: int = 12,
         num_workers: int = 8,
         pin_memory: bool = True,
@@ -31,7 +31,6 @@ class DataModule:
         self.train_ds = train_ds
         self.val_ds = val_ds
         self.test_ds = test_ds
-        self.transform = transform
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.pin_memory = pin_memory
@@ -111,9 +110,7 @@ class DataModule:
             while True:
                 for batch in dataloader:
                     images, annots, class_idxs = batch
-                    images = [
-                        self.transform.inverse_preprocessing(img) for img in images
-                    ]
+                    images = [self.transform.inverse_preprocessing(img) for img in images]
                     images = make_grid(images, nrows=3)
                     yield images
 

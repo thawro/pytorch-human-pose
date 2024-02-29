@@ -1,6 +1,7 @@
-from src.keypoints.architectures.hrnet import HRNetBackbone, BasicBlock
-from torch import nn, Tensor
 import torch
+from torch import Tensor, nn
+
+from src.keypoints.architectures.hrnet import BasicBlock, HRNetBackbone
 
 
 class DeconvHeatmapsHead(nn.Module):
@@ -34,11 +35,11 @@ class DeconvHeatmapsHead(nn.Module):
         for i in range(num_resid_blocks):
             resid_blocks.append(BasicBlock(out_channels))
         self.resid_blocks = nn.Sequential(*resid_blocks)
-        self.final_layer = nn.Conv2d(out_channels, num_keypoints * 2, 1, 1, 0)
+        self.final_layer = nn.Conv2d(out_channels, num_keypoints, 1, 1, 0)
 
     def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
-        x = self.deconv(x)
-        feats = self.resid_blocks(x)
+        out = self.deconv(x)
+        feats = self.resid_blocks(out)
         heatmaps = self.final_layer(feats)
         return feats, heatmaps
 
@@ -46,7 +47,7 @@ class DeconvHeatmapsHead(nn.Module):
 class HigherHRNet(nn.Module):
     def __init__(self, num_keypoints: int, C: int = 32):
         super().__init__()
-        self.backbone = HRNetBackbone(C)
+        self.backbone = HRNetBackbone(C, final_stage_single_scale=True)
         self.num_keypoints = num_keypoints
         self.init_heatmaps_head = nn.Conv2d(C, num_keypoints * 2, 1, 1, 0)
 
@@ -74,16 +75,10 @@ class HigherHRNet(nn.Module):
             feats, out = deconv_layer(deconv_input)
             heatmaps.append(out)
 
-        stages_tags_heatmaps = []
-        stages_kpts_heatmaps = []
-        for i in range(len(heatmaps)):
-            kpts_heatmaps = heatmaps[i][:, : self.num_keypoints]
-            tags_heatmaps = heatmaps[i][:, self.num_keypoints :]
+        tags_heatmaps = init_heatmaps[:, self.num_keypoints :]
+        stages_kpts_heatmaps = [hm[:, : self.num_keypoints] for hm in heatmaps]
 
-            stages_kpts_heatmaps.append(kpts_heatmaps)
-            stages_tags_heatmaps.append(tags_heatmaps)
-
-        return stages_kpts_heatmaps, stages_tags_heatmaps
+        return stages_kpts_heatmaps, tags_heatmaps
 
 
 if __name__ == "__main__":

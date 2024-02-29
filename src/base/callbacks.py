@@ -1,23 +1,25 @@
 from __future__ import annotations
+
 from typing import TYPE_CHECKING, Literal
 
-
 if TYPE_CHECKING:
-    from .trainer import Trainer
     from src.base.storage import MetricsStorage
 
+    from .trainer import Trainer
 import math
 import time
-import torch
 from abc import abstractmethod
-from src.utils.files import save_txt_to_file, save_yaml
-from src.utils.config import LOG_DEVICE_ID
+from pathlib import Path
+
+import torch
+
 from src.logger.loggers import Status
 from src.logger.pylogger import log
+from src.utils.config import LOG_DEVICE_ID
+from src.utils.files import save_txt_to_file, save_yaml
 
 from .results import BaseResult
 from .visualization import plot_metrics
-
 
 _log_mode = Literal["step", "epoch", "validation"]
 
@@ -29,7 +31,6 @@ def get_metrics_storage(trainer: Trainer, mode: _log_mode) -> MetricsStorage:
         return trainer.epochs_metrics.aggregate_over_key(key="epoch")
     else:
         raise ValueError("Wrong logging mode")
-
 
 
 class BaseCallback:
@@ -72,11 +73,11 @@ class BaseCallback:
 class Callbacks:
     def __init__(self, callbacks: list[BaseCallback], device_id: int):
         # make sure that only device at LOG_DEVICE_ID is callbacking
-        if device_id != LOG_DEVICE_ID: 
+        if device_id != LOG_DEVICE_ID:
             callbacks = []
         self.callbacks = callbacks
         self.device_id = device_id
-        
+
     def on_step_end(self, trainer: Trainer):
         for callback in self.callbacks:
             callback.on_step_end(trainer)
@@ -118,6 +119,7 @@ class Callbacks:
         for callback in self.callbacks:
             callback.load_state_dict(state_dict)
 
+
 class LogsLoggerCallback(BaseCallback):
     """Call logger logging methods"""
 
@@ -125,7 +127,7 @@ class LogsLoggerCallback(BaseCallback):
         """Log logs files"""
         logs_path = str(trainer.logger.loggers[0].logs_path)
         trainer.logger.log_artifact(logs_path, "logs")
-        
+
     def on_failure(self, trainer: Trainer, status: Status):
         log.warn("Finalizing loggers.")
         logs_path = str(trainer.logger.loggers[0].logs_path)
@@ -163,7 +165,7 @@ class SaveModelCheckpoint(BaseCallback):
     def save_model(self, trainer: Trainer):
         ckpt_dir = trainer.logger.loggers[0].ckpt_dir
         if self.save_last:
-            trainer.save_checkpoint(str(ckpt_dir / f"last.pt"))
+            trainer.save_checkpoint(str(ckpt_dir / "last.pt"))
         if self.metric is not None and self.stage is not None:
             metrics = trainer.epochs_metrics.aggregate_over_key("epoch")
             stage_metric_values = metrics.get(self.metric, self.stage)
@@ -192,13 +194,11 @@ class SaveModelCheckpoint(BaseCallback):
 class BaseExamplesPlotterCallback(BaseCallback):
     """Plot prediction examples"""
 
-    def __init__(self, name: str =""):
+    def __init__(self, name: str = ""):
         self.name = name
 
     @abstractmethod
-    def plot_example_results(
-        self, trainer: Trainer, results: list[BaseResult], filepath: str
-    ):
+    def plot_example_results(self, trainer: Trainer, results: list[BaseResult], filepath: str):
         raise NotImplementedError()
 
     def plot(self, trainer: Trainer, prefix: str) -> None:
@@ -211,14 +211,13 @@ class BaseExamplesPlotterCallback(BaseCallback):
             self.plot_example_results(trainer, trainer.results, filepath)
             log.info(f"{self.name.capitalize()} results visualization saved at {filepath}")
         else:
-            log.warn(f"No results to visualize")
+            log.warn("No results to visualize")
 
     def on_validation_end(self, trainer: Trainer) -> None:
         self.plot(trainer, prefix=f"validation_{trainer.current_step}")
-        
+
     def on_epoch_end(self, trainer: Trainer) -> None:
         self.plot(trainer, prefix=f"epoch_{trainer.current_epoch}")
-
 
 
 class MetricsPlotterCallback(BaseCallback):
@@ -267,9 +266,7 @@ class MetricsLogger(BaseCallback):
 
     def on_epoch_end(self, trainer: Trainer) -> None:
         for stage, metrics in trainer.epochs_metrics.inverse_nest().items():
-            last_epoch_metrics = {
-                name: values[-1]["value"] for name, values in metrics.items()
-            }
+            last_epoch_metrics = {name: values[-1]["value"] for name, values in metrics.items()}
             msg = [f"Epoch: {trainer.current_epoch}"]
             for name, value in last_epoch_metrics.items():
                 msg.append(f"{stage}/{name}: {round(value, 3)}")
@@ -287,6 +284,8 @@ class ModelSummary(BaseCallback):
         model_summary = model.summary(self.depth)
         log.info(model_summary)
         model_dir = trainer.logger.loggers[0].model_dir
+
+        Path(model_dir).mkdir(exist_ok=True, parents=True)
         filepath = f"{model_dir}/model_summary.txt"
         save_txt_to_file(model_summary, filepath)
 

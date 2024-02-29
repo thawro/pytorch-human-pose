@@ -1,28 +1,24 @@
-import cv2
-import torch
-import numpy as np
-from typing import Literal
-from torch import nn, Tensor
 from functools import partial
+from typing import Literal
 
-from src.utils.model import seed_everything
-from src.utils.config import RESULTS_PATH, DS_ROOT, YAML_EXP_PATH
-
-from src.keypoints.results import InferenceMPPEKeypointsResult
-from src.keypoints.config import KeypointsConfig
-from src.keypoints.datasets import coco_limbs, mpii_limbs
+import cv2
+import numpy as np
+import torch
+from torch import Tensor, nn
 
 from src.base.datasets import BaseImageDataset
 from src.base.transforms.utils import (
-    get_affine_transform,
     affine_transform,
+    get_affine_transform,
     resize_align_multi_scale,
 )
-
-from src.logging.pylogger import get_pylogger
-
-
-log = get_pylogger(__name__)
+from src.keypoints.config import KeypointsConfig
+from src.keypoints.datasets.coco_keypoints import coco_limbs
+from src.keypoints.results import InferenceMPPEKeypointsResult
+from src.logger.pylogger import log
+from src.utils.config import DS_ROOT, YAML_EXP_PATH
+from src.utils.files import load_yaml
+from src.utils.model import seed_everything
 
 
 def transform_preds(coords, center, scale, output_size):
@@ -59,7 +55,7 @@ class MPPEInferenceKeypointsModel(nn.Module):
         self.tag_thr = tag_thr
         self.input_size = 512
         self.ds_name = ds_name
-        self.limbs = coco_limbs if ds_name == "COCO" else mpii_limbs
+        self.limbs = coco_limbs
 
     def prepare_input(self, image: np.ndarray) -> Tensor:
         import torchvision
@@ -73,9 +69,7 @@ class MPPEInferenceKeypointsModel(nn.Module):
             ]
         )
 
-        image_resized, center, scale = resize_align_multi_scale(
-            image, self.input_size, 1, 1
-        )
+        image_resized, center, scale = resize_align_multi_scale(image, self.input_size, 1, 1)
 
         image_resized = transforms(image_resized)
         x = image_resized.unsqueeze(0).to(self.device)
@@ -126,9 +120,25 @@ def processing_fn(
     return {}
 
 
-def load_model(cfg: KeypointsConfig, ckpt_path: str) -> MPPEInferenceKeypointsModel:
-    cfg.setup.is_train = False
-    cfg.setup.ckpt_path = ckpt_path
+def parse_checkpoint(ckpt: dict) -> dict:
+    # TODO: dont know why DDP saves the names as _orig_mod
+    redundant_prefixes = ["module.", "_orig_mod."]
+    for key in list(ckpt.keys()):
+        renamed_key = str(key)
+        for prefix in redundant_prefixes:
+            renamed_key = renamed_key.replace(prefix, "")
+        ckpt[renamed_key] = ckpt.pop(key)
+    return ckpt
+
+
+def load_model(cfg_path: str, ckpt_path: str) -> MPPEInferenceKeypointsModel:
+    cfg = load_yaml(cfg_path)
+    cfg["setup"]["is_train"] = False
+    cfg["setup"]["ckpt_path"] = ckpt_path
+
+    # cfg["model"]["architecture"] = "OriginalHigherHRNet"
+    cfg = KeypointsConfig.from_dict(cfg)
+
     device_id = 0
     device = f"cuda:{device_id}"
 
@@ -142,9 +152,7 @@ def load_model(cfg: KeypointsConfig, ckpt_path: str) -> MPPEInferenceKeypointsMo
     )
     ckpt = torch.load(ckpt_path, map_location=device)
     ckpt = ckpt["module"]["model"]
-    for key in list(ckpt.keys()):
-        ckpt[key.replace("module.1.", "")] = ckpt[key]
-        ckpt.pop(key)
+    ckpt = parse_checkpoint(ckpt)
     model.load_state_dict(ckpt)
     model.eval()
     log.info(f"Loaded model from {ckpt_path}")
@@ -153,15 +161,10 @@ def load_model(cfg: KeypointsConfig, ckpt_path: str) -> MPPEInferenceKeypointsMo
 
 def main() -> None:
     seed_everything(42)
-    ckpt_path = str(
-        RESULTS_PATH
-        / "keypoints/01-23_17:59___MPPE_COCO_OriginalHigherHRNet/01-25_08:32/checkpoints/best.pt"
-    )
-
+    ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/keypoints/02-29_11:04___COCO_HigherHRNet/02-29_11:04/checkpoints/best.pt"
     cfg_path = str(YAML_EXP_PATH / "keypoints" / "higher_hrnet_32.yaml")
-    cfg = KeypointsConfig.from_yaml(cfg_path)
 
-    model = load_model(cfg, ckpt_path)
+    model = load_model(cfg_path, ckpt_path)
 
     ds = BaseImageDataset(root=str(DS_ROOT / f"{model.ds_name}/HumanPose"), split="val")
     ds.perform_inference(partial(processing_fn, model=model))

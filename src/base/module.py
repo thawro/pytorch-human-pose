@@ -2,19 +2,17 @@ from abc import abstractmethod
 
 import torch
 from torch import Tensor, optim
+from torch.cuda.amp.grad_scaler import GradScaler
 from torch.nn.modules.loss import _Loss
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 from src.logger.loggers import BaseLogger
 from src.logger.pylogger import log
-from src.utils.fp16_utils.fp16util import network_to_half
 
-from .datamodule import DataModule
-
-from .model import BaseModel
 from .callbacks import Callbacks
+from .datamodule import DataModule
 from .lr_scheduler import LRScheduler
-from torch.nn.parallel import DistributedDataParallel as DDP
-
+from .model import BaseModel
 
 SPLITS = ["train", "val", "test"]
 
@@ -34,6 +32,7 @@ class BaseModule:
     limit_batches: int
     optimizers: dict[str, optim.Optimizer]
     schedulers: dict[str, LRScheduler]
+    scalers: dict[str, GradScaler]
 
     def __init__(self, model: BaseModel, loss_fn: _Loss):
         super().__init__()
@@ -44,17 +43,21 @@ class BaseModule:
 
     def set_optimizers(self):
         self.optimizers, self.schedulers = self.create_optimizers()
+        self.scalers = {name: GradScaler() for name in self.optimizers}
 
     def to_DDP(self, device_id: int):
         self.model.net = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model.net)
-        self.model.net = DDP(self.model.net.cuda(device_id), device_ids=[device_id])
+        self.model.net = DDP(
+            self.model.net.cuda(device_id),
+            device_ids=[device_id],  # , find_unused_parameters=True
+        )
 
     def compile(self):
         log.info("Compiling Module (`torch.compile(net)`)")
         self.model.net = torch.compile(self.model.net)
 
-    def to_fp16(self):
-        self.model.net = network_to_half(self.model.net)
+    # def to_fp16(self):
+    #     self.model.net = network_to_half(self.model.net)
 
     def pass_attributes(
         self,
@@ -87,19 +90,17 @@ class BaseModule:
 
     def load_state_dict(self, state_dict: dict, lr: float | None = None):
         model_state_dict = state_dict["model"]
-        if not self.use_distributed and "module" in list(model_state_dict.keys())[0]:
-            model_state_dict = {
-                k.replace("net.module.1", "net.1"): v
-                for k, v in model_state_dict.items()
-            }
+        model_state_dict = self.model.parse_checkpoint(model_state_dict)
         self.model.load_state_dict(model_state_dict)
-        self.optimizers, self.schedulers = self.create_optimizers()
+        self.set_optimizers()
         for name, optimizer in self.optimizers.items():
             optimizer.load_state_dict(state_dict["optimizers"][name])
             if lr is not None:
                 optimizer.param_groups[0]["lr"] = lr
         for name, scheduler in self.schedulers.items():
             scheduler.load_state_dict(state_dict["schedulers"][name])
+        for name, scaler in self.scalers.items():
+            scaler.load_state_dict(state_dict["scalers"][name])
 
     def state_dict(self) -> dict:
         optimizers_state = {
@@ -108,25 +109,23 @@ class BaseModule:
         schedulers_state = {
             name: scheduler.state_dict() for name, scheduler in self.schedulers.items()
         }
+        scalers_state = {name: scaler.state_dict() for name, scaler in self.scalers.items()}
 
         model_state = {"model": self.model.state_dict()}
         model_state.update(
             {
                 "optimizers": optimizers_state,
                 "schedulers": schedulers_state,
+                "scalers": scalers_state,
             }
         )
         return model_state
 
     @abstractmethod
-    def _common_step(
-        self, batch: tuple[Tensor, Tensor], batch_idx: int
-    ) -> dict[str, float]:
+    def _common_step(self, batch: tuple[Tensor, Tensor], batch_idx: int) -> dict[str, float]:
         raise NotImplementedError()
 
-    def training_step(
-        self, batch: tuple[Tensor, Tensor], batch_idx: int
-    ) -> dict[str, float]:
+    def training_step(self, batch: tuple[Tensor, Tensor], batch_idx: int) -> dict[str, float]:
         self.stage = "train"
         metrics = self._common_step(batch, batch_idx)
         for name, scheduler in self.schedulers.items():

@@ -1,14 +1,15 @@
-from ..config import BaseConfig
-from src.utils.model import seed_everything
-from src.utils.utils import prepend_exception_message
-from src.logger.loggers import Status
-from src.logger.pylogger import log
-from torch.distributed import init_process_group, destroy_process_group
-import torch.backends.cudnn as cudnn
-
+import os
 
 import torch
-import os
+import torch.backends.cudnn as cudnn
+from torch.distributed import destroy_process_group, init_process_group
+
+from src.logger.loggers import Status
+from src.logger.pylogger import log
+from src.utils.model import seed_everything
+from src.utils.utils import prepend_exception_message
+
+from ..config import BaseConfig
 
 
 def ddp_setup():
@@ -25,7 +26,7 @@ def train(cfg: BaseConfig):
     datamodule = cfg.create_datamodule()
     module = cfg.create_module()
     trainer = cfg.create_trainer()
-    
+
     try:
         cudnn.benchmark = True
         torch.backends.cudnn.deterministic = False

@@ -1,13 +1,14 @@
 from dataclasses import dataclass
-import numpy as np
-from torch import Tensor
-from src.keypoints.grouping import SPPEHeatmapParser, MPPEHeatmapParser
 
-from src.keypoints.metrics import OKS, PCKh
-import torchvision.transforms.functional as F
-import torch
-from src.keypoints.visualization import plot_heatmaps, plot_connections
 import cv2
+import numpy as np
+import torch
+import torchvision.transforms.functional as F
+from torch import Tensor
+
+from src.keypoints.grouping import MPPEHeatmapParser, SPPEHeatmapParser
+from src.keypoints.metrics import OKS
+from src.keypoints.visualization import plot_connections, plot_heatmaps
 from src.utils.image import make_grid
 
 
@@ -34,9 +35,7 @@ def match_preds_to_targets(
             t_vis = target_visibilities[target_idx]
             mask = t_vis > 0
             # TODO: change match_fn to do normal dist between points
-            match_val = (
-                1 / (((p_kpts[..., :2] - t_kpts[..., :2])[mask]) ** 2).sum(-1).mean()
-            )
+            match_val = 1 / (((p_kpts[..., :2] - t_kpts[..., :2])[mask]) ** 2).sum(-1).mean()
             # if target_idx in matched_idxs:
             #     continue
             if match_val > target_matches_vals[target_idx]:
@@ -77,25 +76,27 @@ class SPPEKeypointsResult:
 class MPPEKeypointsResult:
     def __init__(
         self,
-        image: np.ndarray,
+        image: Tensor,
         stages_pred_kpts_heatmaps: list[Tensor],
-        stages_pred_tags_heatmaps: list[Tensor],
+        tags_heatmaps: Tensor,
         limbs: list[tuple[int, int]],
         max_num_people: int = 30,
         det_thr: float = 0.1,
         tag_thr: float = 1.0,
     ):
+        mean = np.array([0.485, 0.456, 0.406])
+        std = np.array([0.229, 0.224, 0.225])
+        image = (image.permute(1, 2, 0).numpy() * std) + mean
+        image = (image * 255).astype(np.uint8)
         self.image = image
         self.stages_pred_kpts_heatmaps = stages_pred_kpts_heatmaps
-        self.stages_pred_tags_heatmaps = stages_pred_tags_heatmaps
+        self.tags_heatmaps = tags_heatmaps
         self.num_kpts = stages_pred_kpts_heatmaps[0].shape[0]
         self.limbs = limbs
         self.max_num_people = max_num_people
         self.det_thr = det_thr
         self.tag_thr = tag_thr
-        self.hm_parser = MPPEHeatmapParser(
-            self.num_kpts, max_num_people, det_thr, tag_thr
-        )
+        self.hm_parser = MPPEHeatmapParser(self.num_kpts, max_num_people, det_thr, tag_thr)
 
     def set_preds(self):
         if hasattr(self, "pred_keypoints"):
@@ -115,7 +116,7 @@ class MPPEKeypointsResult:
         ]
 
         pred_tags_heatmaps = torch.nn.functional.interpolate(
-            self.stages_pred_tags_heatmaps[0].unsqueeze(0),
+            self.tags_heatmaps.unsqueeze(0),
             size=[img_h, img_w],
             mode="bilinear",
             align_corners=False,
@@ -149,11 +150,8 @@ class MPPEKeypointsResult:
         self.pred_scores = pred_kpts_scores
         self.pred_obj_scores = pred_obj_scores
 
-        pred_kpts_heatmaps = pred_kpts_heatmaps.cpu().numpy()
-        pred_tags_heatmaps = pred_tags_heatmaps.cpu().numpy()
-
-        self.pred_kpts_heatmaps = pred_kpts_heatmaps[0]
-        self.pred_tags_heatmaps = pred_tags_heatmaps[0]
+        self.pred_kpts_heatmaps = pred_kpts_heatmaps.cpu().numpy()[0]
+        self.pred_tags_heatmaps = pred_tags_heatmaps.cpu().numpy()[0]
 
     def plot(self) -> np.ndarray:
         image_limbs = plot_connections(
@@ -219,7 +217,7 @@ class InferenceMPPEKeypointsResult:
         scale: float,
         center: tuple[int, int],
         stages_pred_kpts_heatmaps: list[Tensor],
-        stages_pred_tags_heatmaps: list[Tensor],
+        tags_heatmaps: Tensor,
         get_final_preds,
         limbs: list[tuple[int, int]],
         max_num_people: int = 20,
@@ -238,7 +236,7 @@ class InferenceMPPEKeypointsResult:
             for hm in stages_pred_kpts_heatmaps[:-1]
         ] + [stages_pred_kpts_heatmaps[-1]]
         pred_tags_heatmaps = torch.nn.functional.interpolate(
-            stages_pred_tags_heatmaps[0],
+            tags_heatmaps,
             size=[img_h, img_w],
             mode="bilinear",
             align_corners=False,

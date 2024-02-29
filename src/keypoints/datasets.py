@@ -1,43 +1,51 @@
-import numpy as np
-from torch import Tensor
-import torch
-import cv2
-from pathlib import Path
-import shutil
-from tqdm.auto import tqdm
-from src.utils.files import load_yaml, save_yaml
-from src.utils.image import make_grid, put_txt, get_color
-from src.base.datasets import BaseImageDataset
-from src.keypoints.utils import (
-    xyxy_to_mask,
-    mask_to_head_xyxy,
-    polygons_to_mask,
-    mask_to_polygons,
-)
+import glob
 import random
-from typing import Callable
-import torchvision.transforms.functional as F
+import shutil
 from abc import abstractmethod
+from pathlib import Path
+from typing import Callable
+
+import cv2
+import numpy as np
+import torch
+import torchvision.transforms.functional as F
 from geda.data_providers.coco import (
     LABELS as coco_labels,
+)
+from geda.data_providers.coco import (
     LIMBS as coco_limbs,
+)
+from geda.data_providers.coco import (
     SYMMETRIC_LABELS as coco_symmetric_labels,
 )
-import glob
 from geda.data_providers.mpii import (
     LABELS as mpii_labels,
+)
+from geda.data_providers.mpii import (
     LIMBS as mpii_limbs,
+)
+from geda.data_providers.mpii import (
     SYMMETRIC_LABELS as mpii_symmetric_labels,
 )
+from joblib import Parallel, delayed
+from torch import Tensor
+from tqdm.auto import tqdm
 
+from src.base.datasets import BaseImageDataset
 from src.keypoints.transforms import (
     KeypointsTransform,
-    SPPEKeypointsTransform,
     MPPEKeypointsTransform,
+    SPPEKeypointsTransform,
 )
-from joblib import delayed, Parallel
-
-from src.keypoints.visualization import plot_heatmaps, plot_connections
+from src.keypoints.utils import (
+    mask_to_head_xyxy,
+    mask_to_polygons,
+    polygons_to_mask,
+    xyxy_to_mask,
+)
+from src.keypoints.visualization import plot_connections, plot_heatmaps
+from src.utils.files import load_yaml
+from src.utils.image import get_color, make_grid, put_txt
 
 
 class HeatmapGenerator:
@@ -128,9 +136,7 @@ class COCODataset:
         for i, mask in enumerate(seg_masks):
             _mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2RGB)
             _colored_mask = _mask / 255 * get_color(i)
-            masked_image = cv2.addWeighted(
-                image, 0.7, _colored_mask.astype(np.uint8), 0.3, 0
-            )
+            masked_image = cv2.addWeighted(image, 0.7, _colored_mask.astype(np.uint8), 0.3, 0)
             image = np.where(_mask == (255, 255, 255), masked_image, image)
         return image
 
@@ -155,9 +161,7 @@ class BaseKeypointsDataset(BaseImageDataset):
         out_size = transform.out_size
         self.out_size = out_size
         self.hm_resolutions = hm_resolutions
-        self.hm_sizes = [
-            (int(res * out_size[0]), int(res * out_size[1])) for res in hm_resolutions
-        ]
+        self.hm_sizes = [(int(res * out_size[0]), int(res * out_size[1])) for res in hm_resolutions]
         self.is_train = split == "train"
 
         self.annots_filepaths = self.get_annots_filepaths()
@@ -174,9 +178,7 @@ class BaseKeypointsDataset(BaseImageDataset):
     def _rename_filepaths(self, annot_filepaths: list[str]):
         # used to get rid of images without keypoints annotations
         def process_annot_filepath(annot_filepath: str) -> str | None:
-            image_filepath = annot_filepath.replace(".yaml", ".jpg").replace(
-                "annots", "images"
-            )
+            image_filepath = annot_filepath.replace(".yaml", ".jpg").replace("annots", "images")
             path_stem = Path(annot_filepath).stem
             annot = load_yaml(annot_filepath)
             total_vis_kpts = 0
@@ -204,9 +206,7 @@ class BaseKeypointsDataset(BaseImageDataset):
 
     def get_annots_filepaths(self) -> list[str]:
         annots_filepaths = sorted(glob.glob(f"{str(self.root)}/annots/{self.split}/*"))
-        is_checked_annots_filepaths = [
-            path for path in annots_filepaths if "valid" in path
-        ]
+        is_checked_annots_filepaths = [path for path in annots_filepaths if "valid" in path]
         if len(is_checked_annots_filepaths) == 0:
             self._rename_filepaths(annots_filepaths)
         annots_filepaths = sorted(glob.glob(f"{str(self.root)}/annots/{self.split}/*"))
@@ -409,9 +409,7 @@ class BaseKeypointsDataset(BaseImageDataset):
 
                 segmentation = obj["segmentation"]
                 if isinstance(segmentation, dict):
-                    segmentation = mask_to_polygons(
-                        polygons_to_mask(segmentation, img_h, img_w)
-                    )
+                    segmentation = mask_to_polygons(polygons_to_mask(segmentation, img_h, img_w))
                 for j in range(len(segmentation)):
                     seg = np.array(segmentation[j])
                     seg[::2] = seg[::2] * scale_x + s_x
@@ -478,9 +476,7 @@ class BaseKeypointsDataset(BaseImageDataset):
 
                 segmentation = obj["segmentation"]
                 if isinstance(segmentation, dict):
-                    segmentation = mask_to_polygons(
-                        polygons_to_mask(segmentation, img_h, img_w)
-                    )
+                    segmentation = mask_to_polygons(polygons_to_mask(segmentation, img_h, img_w))
                 for j in range(len(segmentation)):
                     seg = np.array(segmentation[j])
                     seg[::2] = seg[::2] * scale_x
@@ -500,37 +496,39 @@ class BaseKeypointsDataset(BaseImageDataset):
         out_img = mixup_lambda * new_images[0] + (1 - mixup_lambda) * new_images[1]
         return out_img, new_annot
 
-    def __getitem__(self, idx: int) -> tuple[
+    def __getitem__(
+        self, idx: int
+    ) -> tuple[
         np.ndarray,
         list[np.ndarray],
         np.ndarray,
         np.ndarray,
         np.ndarray,
     ]:
-        use_mosaiced = random.random() <= 0.35 and self.is_train
-        if use_mosaiced:
-            image, annot = self.get_raw_mosaiced_data(idx)
-        else:
-            image, annot = self.get_raw_data(idx)
-
+        # use_mosaiced = random.random() <= 0.35 and self.is_train
+        # use_mosaiced = False
+        # if use_mosaiced:
+        #     image, annot = self.get_raw_mosaiced_data(idx)
+        # else:
+        #     image, annot = self.get_raw_data(idx)
+        image, annot = self.get_raw_data(idx)
         h, w = image.shape[:2]
         keypoints, visibilities, num_obj = self.parse_annot(annot)
         image, keypoints, visibilities = self._transform(
-            image, keypoints, visibilities, num_obj, use_mosaiced
+            image, keypoints, visibilities, num_obj, False
         )
 
         max_h, max_w = image.shape[-2:]
         scales_heatmaps = []
         for hm_generator in self.hm_generators:
-            heatmaps, target_weights = hm_generator(
-                keypoints, visibilities, max_h, max_w
-            )
+            heatmaps, target_weights = hm_generator(keypoints, visibilities, max_h, max_w)
             scales_heatmaps.append(heatmaps)
+        # image, scales_heatmaps, scales_masks, keypoints_coords
         return image, scales_heatmaps, target_weights, keypoints, visibilities
 
 
 def collate_fn(
-    batch: list[tuple[np.ndarray, list[np.ndarray], np.ndarray, np.ndarray, np.ndarray]]
+    batch: list[tuple[np.ndarray, list[np.ndarray], np.ndarray, np.ndarray, np.ndarray]],
 ) -> tuple[
     Tensor,
     list[Tensor],
@@ -634,15 +632,22 @@ class MppeCocoDataset(MPPEKeypointsDataset, COCODataset):
 
 
 if __name__ == "__main__":
-    from src.utils.config import YAML_EXP_PATH
-    from src.keypoints.config import KeypointsConfig
+    from geda.data_providers.coco import SYMMETRIC_LABELS
 
-    cfg_path = YAML_EXP_PATH / "keypoints" / "higher_hrnet_32.yaml"
-    cfg = load_yaml(cfg_path)
-    cfg = KeypointsConfig.from_dict(cfg)
+    from src.keypoints.transforms import MPPEKeypointsTransform
 
-    datamodule = cfg.create_datamodule()
+    tr = MPPEKeypointsTransform(symmetric_keypoints=SYMMETRIC_LABELS)
+    ds = MPPEKeypointsDataset("data/COCO/HumanPose", "train", tr, [1 / 4, 1 / 2])
+    # ds = datamodule.val_ds
+    import time
 
-    ds = datamodule.train_ds
+    diffs = []
+    for idx in range(100):
+        start = time.time()
+        ds[idx]
+        end = time.time()
+        diff = end - start
+        diffs.append(diff)
+    print(np.mean(diffs))
 
-    ds.explore(idx=0, hm_idx=1)
+    # ds.explore(idx=0, hm_idx=1)
