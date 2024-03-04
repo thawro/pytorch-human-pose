@@ -1,7 +1,10 @@
 from collections import defaultdict
-import torch
 from itertools import groupby
 from typing import Literal
+
+import torch
+
+from src.logger.pylogger import log
 
 _metric = dict[str, list[dict[str, int | float]]]
 _metrics = dict[str, _metric]
@@ -61,9 +64,7 @@ class MetricsStorage:
     def __getitem__(self, metric_name: str) -> _metric:
         return self.metrics[metric_name]
 
-    def append(
-        self, metrics: dict[str, float], step: int, epoch: int, split: str
-    ) -> None:
+    def append(self, metrics: dict[str, float], step: int, epoch: int, split: str) -> None:
         for metric, value in metrics.items():
             if isinstance(value, torch.Tensor):
                 value = value.item()
@@ -88,3 +89,4 @@ class MetricsStorage:
 
     def load_state_dict(self, state_dict: dict):
         self.metrics = state_dict["metrics"]
+        log.info(f'     Loaded "{self.name}" metrics state')

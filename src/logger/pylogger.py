@@ -7,6 +7,8 @@ from typing import Callable
 from colorlog.escape_codes import escape_codes
 from tqdm.asyncio import tqdm_asyncio
 
+from src.utils.utils import get_rank
+
 fmt = "%(asctime)s %(levelname)s %(message)s"
 datefmt = "%Y-%m-%d %H:%M:%S"
 url_regex = r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))"
@@ -35,9 +37,7 @@ class CustomFormatter(logging.Formatter):
             datefmt_color = None
             url_color = None
         if datefmt_color is not None:
-            fmt = fmt.replace(
-                "%(asctime)s", f"{escape_codes[datefmt_color]} %(asctime)s"
-            )
+            fmt = fmt.replace("%(asctime)s", f"{escape_codes[datefmt_color]} %(asctime)s")
         super().__init__(fmt, datefmt)
 
         for keyword in escape_codes.keys():
@@ -49,17 +49,11 @@ class CustomFormatter(logging.Formatter):
         self.url_color = url_color
 
         self.FORMATS = {
-            logging.DEBUG: self.add_color_to_levelname(
-                self.fmt, escape_codes["light_cyan"]
-            ),
+            logging.DEBUG: self.add_color_to_levelname(self.fmt, escape_codes["light_cyan"]),
             logging.INFO: self.add_color_to_levelname(self.fmt, escape_codes["green"]),
-            logging.WARNING: self.add_color_to_levelname(
-                self.fmt, escape_codes["yellow"]
-            ),
+            logging.WARNING: self.add_color_to_levelname(self.fmt, escape_codes["yellow"]),
             logging.ERROR: self.add_color_to_levelname(self.fmt, escape_codes["red"]),
-            logging.CRITICAL: self.add_color_to_levelname(
-                self.fmt, escape_codes["bg_bold_red"]
-            ),
+            logging.CRITICAL: self.add_color_to_levelname(self.fmt, escape_codes["bg_bold_red"]),
         }
         names = {
             logging.DEBUG: "DEBUG",
@@ -155,9 +149,7 @@ def remove_last_line(file_log: logging.Logger):
     file.seek(0, 2)
 
 
-def logged_tqdm(
-    file_log: logging.Logger, tqdm_iter: tqdm_asyncio, fn: Callable, kwargs: dict
-):
+def logged_tqdm(file_log: logging.Logger, tqdm_iter: tqdm_asyncio, fn: Callable, kwargs: dict):
     """Pass tqdm progressbar to log file and shot it in cmd.
     tqdm output is passed to stdout or stderr, so there is a need to pass its str form to the log file aswell,
     however logging by default appends to log files so there was a need to remove last line at each iteration, so
@@ -172,11 +164,24 @@ def logged_tqdm(
     file_log.info(str(tqdm_iter))
 
 
-def log_breaking_point(msg: str):
-    BREAKING_LINE = "-" * 100
-    log.info(BREAKING_LINE)
-    log.info(msg.center(len(BREAKING_LINE)))
-    log.info(BREAKING_LINE)
+def log_breaking_point(
+    msg: str,
+    n_top: int = 0,
+    n_bottom: int = 0,
+    top_char: str = "-",
+    bottom_char: str = "-",
+    num_chars: int = 100,
+    worker: int | str = 0,
+):
+    rank = get_rank()
+    if worker == "all" or worker == rank:
+        TOP_LINE = top_char * num_chars
+        BOTTOM_LINE = bottom_char * num_chars
+        for _ in range(n_top):
+            log.info(TOP_LINE)
+        log.info(msg.center(num_chars))
+        for _ in range(n_bottom):
+            log.info(BOTTOM_LINE)
 
 
 def showwarning(

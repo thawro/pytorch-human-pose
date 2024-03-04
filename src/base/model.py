@@ -2,12 +2,15 @@ from abc import abstractmethod
 
 import torch
 from torch import Tensor, nn
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torchinfo import summary
 
 from src.logger.pylogger import log
 
 
-class BaseModel(nn.Module):
+class BaseModel:
+    net: nn.Module
+
     def __init__(
         self,
         net: nn.Module,
@@ -22,9 +25,31 @@ class BaseModel(nn.Module):
     def forward(self, x: Tensor):
         return self.net(x)
 
+    def to_CUDA(self, device_id: int):
+        self.net = self.net.cuda(device_id)
+
+    def to_DP(self, device_ids: list[int]):
+        self.net = nn.DataParallel(self.net, device_ids=device_ids)
+
+    def to_DDP(self, device_id: int, use_batchnorm: bool):
+        # NOTE: Issue with BatchNorm for DDP:
+        # https://discuss.pytorch.org/t/training-performance-degrades-with-distributeddataparallel/47152/31
+        # the forums say that the proper way to use DDP and BatchNorm layers is to use cudnn.enabled = False
+        # but it slows the training by 1.5-2x times
+        if use_batchnorm:
+            self.net = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.net)
+        self.net = DDP(
+            self.net,
+            device_ids=[device_id],  # , find_unused_parameters=True
+        )
+
+    def compile(self):
+        log.info("Compiling Module (`torch.compile(net)`)")
+        self.net = torch.compile(self.net)
+
     @property
     def device(self):
-        return next(self.parameters()).device
+        return next(self.net.parameters()).device
 
     @abstractmethod
     def example_input(self) -> dict[str, Tensor]:
@@ -35,7 +60,7 @@ class BaseModel(nn.Module):
 
     def export_to_onnx(self, filepath: str = "model.onnx"):
         torch.onnx.export(
-            self,
+            self.net.module if isinstance(self.net, DDP) else self.net,
             self.example_input(),
             filepath,
             export_params=True,
@@ -44,27 +69,24 @@ class BaseModel(nn.Module):
             dynamic_axes=self.dynamic_axes(),
         )
 
-    def summary(self, depth: int = 4):
+    def summary(self, depth: int = 4) -> str:
         col_names = ["input_size", "output_size", "num_params", "params_percent"]
-        return str(
-            summary(
-                self,
-                input_data=self.example_input(),
-                depth=depth,
-                col_names=col_names,
-            )
-        )
+        return summary(
+            self.net.module if isinstance(self.net, DDP) else self.net,
+            input_data=self.example_input(),
+            depth=depth,
+            col_names=col_names,
+        ).__str__()
 
     def freeze(self) -> None:
-        for param in self.parameters():
+        for param in self.net.parameters():
             param.requires_grad = False
 
     def export_layers_description_to_txt(self, filepath: str) -> str:
         return str(self)
 
     def parse_checkpoint(self, ckpt: dict) -> dict:
-        # TODO: dont know why DDP saves the names as _orig_mod
-        redundant_prefixes = ["module.", "_orig_mod."]
+        redundant_prefixes = ["module.", "_orig_mod.", "net."]
         for key in list(ckpt.keys()):
             renamed_key = str(key)
             for prefix in redundant_prefixes:
@@ -72,19 +94,25 @@ class BaseModel(nn.Module):
             ckpt[renamed_key] = ckpt.pop(key)
         return ckpt
 
-    def init_pretrained_weights(self, ckpt_path: str, map_location: dict):
-        log.info(f"..Loading pretrained weights (from {ckpt_path})..")
+    def state_dict(self) -> dict:
+        if isinstance(self.net, DDP):
+            return self.net.module.state_dict()
+        else:
+            return self.net.state_dict()
+
+    def load_state_dict(self, state_dict: dict):
+        self.net.load_state_dict(self.parse_checkpoint(state_dict))
+        log.info("     Loaded model state")
+
+    def init_pretrained_weights(self, ckpt: dict):
+        log.info("..Setting weights according to pretrained checkpoint..")
         parameters_names = set()
-        for name, _ in self.named_parameters():
+        for name, _ in self.net.named_parameters():
             parameters_names.add(name)
 
         buffers_names = set()
-        for name, _ in self.named_buffers():
+        for name, _ in self.net.named_buffers():
             buffers_names.add(name)
-
-        ckpt = torch.load(ckpt_path, map_location=map_location)
-        # NOTE: its trainer ckpt, so we need to extract model state from it
-        ckpt = ckpt["module"]["model"]
 
         total_from = len(ckpt.keys())  # numer of params in checkpoints module
         total_to = len(parameters_names) + len(buffers_names)  # number of params in current module
@@ -99,9 +127,9 @@ class BaseModel(nn.Module):
                 state_dict[name] = m
         log_method = log.warn if total_loaded == 0 else log.info
         log_method(
-            f"\tLoaded {total_loaded} parameters (total_from = {total_from}, total_to = {total_to})"
+            f"      Loaded {total_loaded} parameters (total_from = {total_from}, total_to = {total_to})"
         )
-        self.load_state_dict(state_dict, strict=False)
+        self.net.load_state_dict(state_dict, strict=False)
 
     @abstractmethod
     def init_weights(self):

@@ -2,6 +2,7 @@ import logging
 from abc import abstractmethod
 from dataclasses import dataclass, fields
 from pathlib import Path
+from typing import Literal
 
 from dacite import from_dict
 
@@ -36,7 +37,16 @@ class AbstractConfig:
             if hasattr(field_value, "to_dict"):
                 dct[field_name] = field_value.to_dict()
             else:
-                dct[field_name] = field_value
+                if isinstance(field_value, dict):  # Config class nested in dict (e.g. optimizers)
+                    init_dict = {}
+                    for k, v in field_value.items():
+                        if hasattr(v, "to_dict"):
+                            init_dict[k] = v.to_dict()
+                        else:
+                            init_dict[k] = v
+                    dct[field_name] = init_dict
+                else:
+                    dct[field_name] = field_value
         return dct
 
     @classmethod
@@ -46,15 +56,16 @@ class AbstractConfig:
 
 @dataclass
 class TransformConfig(AbstractConfig):
-    mean: tuple[float, ...] | list[float]
-    std: tuple[float, ...] | list[float]
-    out_size: list[int] | tuple[int, int]
+    out_size: int
+    mean: list[float]
+    std: list[float]
 
 
 @dataclass
 class DatasetConfig(AbstractConfig):
     name: str
-    transform: TransformConfig
+    root: str
+    split: str
 
 
 @dataclass
@@ -62,7 +73,8 @@ class DataloaderConfig(AbstractConfig):
     batch_size: int
     pin_memory: bool
     num_workers: int
-    dataset: DatasetConfig
+    train_ds: DatasetConfig
+    val_ds: DatasetConfig
 
 
 @dataclass
@@ -75,31 +87,59 @@ class TrainerConfig(AbstractConfig):
     accelerator: str
     max_epochs: int
     limit_batches: int
-    log_every_n_steps: int
-    use_distributed: bool
-    use_fp16: bool
+    use_DP: bool
+    use_DDP: bool
+    sync_batchnorm: bool
 
 
 @dataclass
 class SetupConfig(AbstractConfig):
     seed: int
     experiment_name: str
-    name_prefix: str
     is_train: bool
     ckpt_path: str | None
     pretrained_ckpt_path: str | None
 
 
 @dataclass
+class CUDNNConfig(AbstractConfig):
+    benchmark: bool
+    deterministic: bool
+    enabled: bool
+
+
+@dataclass
+class OptimizerConfig(AbstractConfig):
+    name: str
+    params: dict
+
+
+@dataclass
+class LRSchedulerConfig(AbstractConfig):
+    name: str
+    interval: Literal["epoch", "step"]
+    params: dict
+
+
+@dataclass
+class ModuleConfig(AbstractConfig):
+    optimizers: dict[str, OptimizerConfig]
+    lr_schedulers: dict[str, LRSchedulerConfig]
+
+
+@dataclass
 class BaseConfig(AbstractConfig):
     setup: SetupConfig
+    cudnn: CUDNNConfig
     dataloader: DataloaderConfig
+    transform: TransformConfig
     model: ModelConfig
+    module: ModuleConfig
     trainer: TrainerConfig
 
     def __post_init__(self):
         self.device, self.device_id = get_device_and_id(
-            self.trainer.accelerator, self.trainer.use_distributed
+            self.trainer.accelerator, self.trainer.use_DDP
         )
         if not self.setup.is_train:
             return
@@ -120,10 +160,9 @@ class BaseConfig(AbstractConfig):
     def run_name(self) -> str:
         ckpt_path = self.setup.ckpt_path
         if ckpt_path is None:
-            dataset = f"_{self.dataloader.dataset.name}"
-            name = f"_{self.setup.name_prefix}"
+            dataset = f"_{self.dataloader.train_ds.name}"
             architecture = f"_{self.model.architecture}"
-            return f"{NOW}_{name}{dataset}{architecture}"
+            return f"{NOW}_{dataset}{architecture}"
         else:
             # ckpt_path is like:
             # "<proj_root>/results/<exp_name>/<run_name>/<timestamp>/checkpoints/<ckpt_name>.pt"
@@ -153,6 +192,19 @@ class BaseConfig(AbstractConfig):
     def is_debug(self) -> bool:
         return self.trainer.limit_batches > 0
 
+    def get_optimizers_params(self) -> dict[str, dict]:
+        log.info("..Parsing Optimizers config..")
+        return {
+            name: optimizer_cfg.to_dict() for name, optimizer_cfg in self.module.optimizers.items()
+        }
+
+    def get_lr_schedulers_params(self) -> dict[str, dict]:
+        log.info("..Parsing LR Schedulers config..")
+        return {
+            name: scheduler_cfg.to_dict()
+            for name, scheduler_cfg in self.module.lr_schedulers.items()
+        }
+
     @classmethod
     def from_yaml(cls, filepath: str | Path):
         cfg = load_yaml(filepath)
@@ -181,7 +233,6 @@ class BaseConfig(AbstractConfig):
     def create_logger(self, file_log: logging.Logger) -> Loggers:
         log.info("..Creating Logger..")
         loggers = [
-            # TerminalLogger(self.logs_path, config=self.to_dict()),
             MLFlowLogger(
                 self.log_path,
                 config=self.to_dict(),

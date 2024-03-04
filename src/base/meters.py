@@ -1,17 +1,17 @@
-import torch.distributed as dist
 import torch
+import torch.distributed as dist
 
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
 
-    def __init__(self, name: str, use_distributed: bool):
+    def __init__(self, name: str, use_DDP: bool):
         self.name = name
-        self.use_distributed = use_distributed
+        self.use_DDP = use_DDP
         self.reset()
 
     def new(self) -> "AverageMeter":
-        return AverageMeter(self.name, self.use_distributed)
+        return AverageMeter(self.name, self.use_DDP)
 
     def reset(self):
         self.val = 0
@@ -31,7 +31,7 @@ class AverageMeter(object):
         else:
             device = torch.device("cpu")
         total = torch.tensor([self.sum, self.count], dtype=torch.float32, device=device)
-        if self.use_distributed:
+        if self.use_DDP:
             dist.all_reduce(total, dist.ReduceOp.SUM, async_op=False)
         self.sum, self.count = total.tolist()
         if self.count == 0:
@@ -49,12 +49,18 @@ class Meters:
     def __init__(
         self,
         meters: dict[str, AverageMeter] | None = None,
-        use_distributed: bool = True,
+        use_DDP: bool = True,
     ):
         if meters is None:
             meters = {}
         self.meters = meters
-        self.use_distributed = use_distributed
+        self.use_DDP = use_DDP
+
+    def __getitem__(self, metric: str) -> AverageMeter:
+        return self.meters[metric]
+
+    def __len__(self) -> int:
+        return len(self.meters)
 
     def reset(self):
         for name in self.meters:
@@ -68,15 +74,13 @@ class Meters:
         for name, value in metrics.items():
             if name not in self.meters:
                 # create new meter if metric not yet logged
-                self.meters[name] = AverageMeter(name, self.use_distributed)
+                self.meters[name] = AverageMeter(name, self.use_DDP)
             self.meters[name].update(value, n=n)
 
     def to_dict(self) -> dict[str, float | int]:
-        metrics = {
-            name: meter.avg for name, meter in self.meters.items()
-        }
+        metrics = {name: meter.avg for name, meter in self.meters.items()}
         return metrics
-        
+
     def __str__(self):
         txt = ""
         for name in self.meters:

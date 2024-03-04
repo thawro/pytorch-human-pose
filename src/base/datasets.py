@@ -1,32 +1,30 @@
 """Dataset classes"""
 
-from torch.utils.data import Dataset
-import albumentations as A
-from pathlib import Path
-from PIL import Image
-import numpy as np
-import cv2
 import glob
-from typing import Callable, Any
+from typing import Any, Callable
+
+import cv2
+import numpy as np
+from PIL import Image
+from torch.utils.data import Dataset
+
 from src.utils.files import load_yaml
-from src.base.transforms.transforms import ImageTransform
 
 
-class BaseDataset(Dataset):
-    root: Path
+class BaseImageDataset(Dataset):
+    images_filepaths: np.ndarray
+    annots_filepaths: np.ndarray
 
-    def __init__(self, root: str, split: str, transform: ImageTransform | None = None):
+    def __init__(self, root: str, split: str, transform: Callable | None = None):
         self.transform = transform
         self.split = split
-        self.root = Path(root)
+        self.root = root
         self.is_train = split == "train"
 
     def plot(self, idx: int) -> np.ndarray:
         raise NotImplementedError()
 
-    def explore(
-        self, idx: int = 0, callback: Callable[[int], Any] | None = None, **kwargs
-    ):
+    def explore(self, idx: int = 0, callback: Callable[[int], Any] | None = None, **kwargs):
         if callback is not None:
             callback(idx)
         image = self.plot(idx, **kwargs)
@@ -47,49 +45,20 @@ class BaseDataset(Dataset):
             idx -= 1
         self.explore(idx, callback, **kwargs)
 
-
-class BaseImageDataset(BaseDataset):
-    def __init__(self, root: str, split: str, transform: ImageTransform | None = None):
-        super().__init__(root, split, transform)
-        self.images_filepaths, self.annots_filepaths = (
-            self.get_images_annots_filepaths()
-        )
-
-    def get_images_annots_filepaths(self) -> tuple[np.ndarray, np.ndarray]:
-        images_filepaths = sorted(glob.glob(f"{str(self.root)}/images/{self.split}/*"))
-        if len(images_filepaths) == 0:
-            images_filepaths = sorted(glob.glob(f"{str(self.root)}/{self.split}/*"))
-        annots_filepaths = [
-            path.replace("images/", "annots/").replace(".jpg", ".yaml")
-            for path in images_filepaths
-        ]
-        images_filepaths = np.array(images_filepaths).astype(np.string_)
-        annots_filepaths = np.array(annots_filepaths).astype(np.string_)
-
-        return images_filepaths, annots_filepaths
+    def _set_paths(self):
+        # set images_filepaths and annots_filepaths
+        raise NotImplementedError()
 
     def __len__(self) -> int:
-        return len(self.images_filepaths)
+        return len(self.annots_filepaths)
 
-    # TODO: not all datasets have this form
     def load_image(self, idx: int) -> np.ndarray:
-        image = np.asarray(Image.open(self.images_filepaths[idx]))
-        if len(image.shape) == 2:
-            image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-        return image
+        return np.asarray(Image.open(self.images_filepaths[idx]).convert("RGB"))
 
     def load_annot(self, idx: int) -> dict:
-        annot_path = self.annots_filepaths[idx]
-        try:
-            return load_yaml(annot_path)
-        except UnicodeDecodeError:
-            return load_txt(annot_path)
+        return load_yaml(self.annots_filepaths[idx])
 
-    def perform_inference(
-        self,
-        callback: Callable[[np.ndarray], Any],
-        idx: int = 0,
-    ):
+    def perform_inference(self, callback: Callable[[np.ndarray], Any], idx: int = 0):
         image = self.load_image(idx)
         annot = self.load_annot(idx)
         callback(frame=image, annot=annot)

@@ -107,17 +107,17 @@ class Callbacks:
         for callback in self.callbacks:
             callback.on_failure(trainer, status)
 
-    @abstractmethod
-    def state_dict(self):
+    def state_dict(self) -> dict[str, dict]:
         state_dict = {}
         for callback in self.callbacks:
-            state_dict.update(callback.state_dict())
+            name = callback.__class__.__name__
+            state_dict[name] = callback.state_dict()
         return state_dict
 
-    @abstractmethod
-    def load_state_dict(self, state_dict: dict):
+    def load_state_dict(self, state_dict: dict[str, dict]):
         for callback in self.callbacks:
-            callback.load_state_dict(state_dict)
+            name = callback.__class__.__name__
+            callback.load_state_dict(state_dict[name])
 
 
 class LogsLoggerCallback(BaseCallback):
@@ -164,31 +164,41 @@ class SaveModelCheckpoint(BaseCallback):
 
     def save_model(self, trainer: Trainer):
         ckpt_dir = trainer.logger.loggers[0].ckpt_dir
-        if self.save_last:
-            trainer.save_checkpoint(str(ckpt_dir / "last.pt"))
+
         if self.metric is not None and self.stage is not None:
-            metrics = trainer.epochs_metrics.aggregate_over_key("epoch")
-            stage_metric_values = metrics.get(self.metric, self.stage)
-            if len(stage_metric_values) == 0:
-                raise ValueError(
-                    f"{self.metric} not yet logged to metrics storage. Current logged metrics: {metrics.logged_metrics}"
-                )
-            last = stage_metric_values[-1]["value"]
+            meters = trainer.meters[self.stage]
+            if len(meters) == 0:
+                e = ValueError(f"{self.metric} not yet logged to meters")
+                log.exception(e)
+                raise e
+            last = meters[self.metric].avg
+            log.info(
+                f"Current {self.stage}/{self.metric}={last:.3e},   Best {self.stage}/{self.metric}={self.best:.3e}"
+            )
             if self.compare(last, self.best) and self.top_k == 1:
                 self.best = last
-                log.info(
-                    f"{trainer.device_info}Found new best value for {self.metric} ({self.stage})"
-                )
+                log.info(f"Found new best value for {self.stage}/{self.metric} ({self.best:.3e})")
                 trainer.save_checkpoint(str(ckpt_dir / f"{self.name}.pt"))
+        if self.save_last:
+            filename = f"epoch_{trainer.current_epoch}_step_{trainer.current_step}"
+            # filename = "last"
+            trainer.save_checkpoint(str(ckpt_dir / f"{filename}.pt"))
 
     def on_epoch_end(self, trainer: Trainer):
         self.save_model(trainer)
 
+    @property
+    def state_metric_name(self) -> str:
+        return f"best_{self.stage}_{self.metric}"
+
     def state_dict(self) -> dict:
-        return {f"best_{self.stage}_{self.metric}": self.best}
+        return {self.state_metric_name: self.best}
 
     def load_state_dict(self, state_dict: dict):
-        self.best = state_dict.get(f"best_{self.stage}_{self.metric}", self.best)
+        self.best = state_dict.get(self.state_metric_name, self.best)
+        log.info(
+            f'     Loaded "{self.__class__.__name__}" state ({self.state_metric_name} = {self.best})'
+        )
 
 
 class BaseExamplesPlotterCallback(BaseCallback):
@@ -209,7 +219,7 @@ class BaseExamplesPlotterCallback(BaseCallback):
         filepath = str(dirpath / f"{prefix}{self.name}.jpg")
         if len(trainer.results) > 0:
             self.plot_example_results(trainer, trainer.results, filepath)
-            log.info(f"{self.name.capitalize()} results visualization saved at {filepath}")
+            log.info(f"{self.name.capitalize()} results visualization saved at '{filepath}'")
         else:
             log.warn("No results to visualize")
 
@@ -230,6 +240,7 @@ class MetricsPlotterCallback(BaseCallback):
         if len(storage.metrics) > 0:
             step_name = "epoch" if mode == "epoch" else "step"
             plot_metrics(storage, step_name, filepath=filepath)
+            log.info(f"Metrics plots saved at '{filepath}'")
         else:
             log.warn(f"No metrics to plot logged yet (mode={mode})")
 
@@ -265,13 +276,14 @@ class MetricsLogger(BaseCallback):
     """Log per epoch metrics to terminal"""
 
     def on_epoch_end(self, trainer: Trainer) -> None:
+        log.info(f"Epoch {trainer.current_epoch} metrics:")
         for stage, metrics in trainer.epochs_metrics.inverse_nest().items():
             last_epoch_metrics = {name: values[-1]["value"] for name, values in metrics.items()}
-            msg = [f"Epoch: {trainer.current_epoch}"]
+            msg = []
             for name, value in last_epoch_metrics.items():
-                msg.append(f"{stage}/{name}: {round(value, 3)}")
+                msg.append(f"{stage}/{name}: {value:.3e}")
             msg = "  ".join(msg)
-            log.info(msg)
+            log.info(f"     {msg}")
 
 
 class ModelSummary(BaseCallback):
@@ -279,6 +291,8 @@ class ModelSummary(BaseCallback):
         self.depth = depth
 
     def on_fit_start(self, trainer: Trainer):
+        log.info(f"Optimizers\n{trainer.module.optimizers}")
+        log.info(f"LR Schedulers\n{trainer.module.lr_schedulers}")
         log.info("Model layers summary")
         model = trainer.module.model
         model_summary = model.summary(self.depth)
@@ -301,7 +315,7 @@ class SaveLastAsOnnx(BaseCallback):
         model = trainer.module.model
         model_onnx_dir = trainer.logger.loggers[0].model_onnx_dir
         dirpath = str(model_onnx_dir)
-        log.info(f"{trainer.device_info}Saving model to onnx")
+        log.info("Saving model to onnx")
         filepath = f"{dirpath}/model.onnx"
         model.export_to_onnx(filepath)
 
@@ -315,8 +329,6 @@ class SaveLastAsOnnx(BaseCallback):
         diff_min = math.ceil(diff_s / 60)
         if diff_min / self.every_n_minutes > 1 or self.num_saved == 0:
             self.start_time = curr_time
-            log.info(
-                f"{trainer.device_info}{diff_min} minutes have passed. Saving model components to ONNX."
-            )
+            log.info(f"{diff_min} minutes have passed. Saving model components to ONNX.")
             model.export_to_onnx(filepath)
             self.num_saved += 1

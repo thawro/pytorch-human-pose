@@ -1,6 +1,7 @@
 """Loggers for training logging."""
 
 import logging
+import uuid
 from collections import defaultdict
 from enum import Enum
 from pathlib import Path
@@ -10,6 +11,7 @@ import yaml
 
 import mlflow
 from src.utils.config import LOG_DEVICE_ID
+from src.utils.utils import get_rank
 
 from .pylogger import log
 
@@ -27,17 +29,12 @@ class Status(Enum):
 class LoggerResults:
     """Storage for training results."""
 
-    def __init__(self, config: dict[str, Any]):
-        self.config = config
+    def __init__(self):
         self.steps: dict[str, list[int]] = defaultdict(lambda: [], {})
         self.metrics: dict[str, list[float]] = defaultdict(lambda: [], {})
         self.params: dict[str, Any] = {}
 
-    def update_metrics(
-        self,
-        metrics: dict[str, float],
-        step: int | None = None,
-    ) -> None:
+    def update_metrics(self, metrics: dict[str, float], step: int | None = None) -> None:
         """Append new metrics."""
         for name, value in metrics.items():
             self.metrics[name].append(value)
@@ -48,9 +45,7 @@ class LoggerResults:
         """Update params dictionary."""
         self.params.update(params)
 
-    def get_metrics(
-        self,
-    ) -> dict[str, dict[str, list[int | float]]]:
+    def get_metrics(self) -> dict[str, dict[str, list[int | float]]]:
         """Return metrics for each split and each step."""
         metrics: dict[str, dict] = {name: {} for name in self.metrics}
         for name in self.metrics:
@@ -61,14 +56,13 @@ class LoggerResults:
 
 
 class BaseLogger:
-    name: str = "base"
     """Base logger class."""
 
-    def __init__(
-        self,
-        log_path: str | Path = "results",
-        config: dict[str, Any] = {},
-    ):
+    name: str = "base"
+
+    def __init__(self, log_path: str | Path = "results", config: dict[str, Any] = {}):
+        self.config = config
+        self._log_config_info()
         self.log_path = Path(log_path) if isinstance(log_path, str) else log_path
         self.logs_path = self.log_path / "logs"
         self.ckpt_dir = self.log_path / "checkpoints"
@@ -80,36 +74,34 @@ class BaseLogger:
         self.model_summary_dir.mkdir(parents=True, exist_ok=True)
         self.model_onnx_dir.mkdir(parents=True, exist_ok=True)
         self.logs_path.mkdir(exist_ok=True, parents=True)
-        self.results = LoggerResults(config=config)
+        self.results = LoggerResults()
+
         self._run_id = None
+
+    def _log_config_info(self):
+        rank = get_rank()
+        if rank != 0:
+            return
+        log.info("Experiment config:")
+        for name, cfg in self.config.items():
+            log.info(f"     '{name}': {cfg}")
 
     @property
     def run_id(self) -> str:
         if self._run_id is not None:
             return self._run_id
         else:
-            import uuid
-
             self._run_id = str(uuid.uuid1())
             return self._run_id
 
     def start_run(self):
         log.info(f"..Starting {self.__class__.__name__} run")
 
-    def log(
-        self,
-        key: str,
-        value: float,
-        step: int | None = None,
-    ) -> None:
+    def log(self, key: str, value: float, step: int | None = None) -> None:
         """Log single metric."""
         self.results.update_metrics({key: value}, step=step)
 
-    def log_metrics(
-        self,
-        metrics: dict[str, float],
-        step: int | None = None,
-    ) -> None:
+    def log_metrics(self, metrics: dict[str, float], step: int | None = None) -> None:
         """Log multiple metrics."""
         self.results.update_metrics(metrics, step=step)
 
@@ -117,11 +109,7 @@ class BaseLogger:
         """Log params."""
         self.results.update_params(params)
 
-    def log_dict(
-        self,
-        dct: dict[str, Any],
-        filename: str = "dct.yaml",
-    ) -> None:
+    def log_dict(self, dct: dict[str, Any], filename: str = "dct.yaml") -> None:
         """Log dict to yaml file."""
         path = str(self.log_path / filename)
         with open(path, "w") as yaml_file:
@@ -129,30 +117,21 @@ class BaseLogger:
 
     def log_config(self) -> None:
         """Log config to yaml."""
-        self.log_dict(self.results.config, "config.yaml")
+        self.log_dict(self.config, "config.yaml")
 
-    def log_artifact(
-        self,
-        local_path: str,
-        artifact_path: str | None = None,
-    ) -> None:
+    def log_artifact(self, local_path: str, artifact_path: str | None = None) -> None:
         """Log artifact."""
         pass
 
     def finalize(self, status: Status) -> None:
         """Close logger"""
-        log.info(f"Experiment {status.value}. Closing {self.__class__.__name__}")
+        log.warn(f"Experiment {status.value}. Closing {self.__class__.__name__}")
 
 
 class Loggers:
     """Class to be used in Trainer"""
 
-    def __init__(
-        self,
-        loggers: list[BaseLogger],
-        device_id: int,
-        file_log: logging.Logger,
-    ):
+    def __init__(self, loggers: list[BaseLogger], device_id: int, file_log: logging.Logger):
         # make sure that only device at LOG_DEVICE_ID is logging
         if device_id != LOG_DEVICE_ID:
             loggers = []
@@ -165,20 +144,11 @@ class Loggers:
             logger.start_run()
             logger.log_config()
 
-    def log(
-        self,
-        key: str,
-        value: float,
-        step: int | None = None,
-    ):
+    def log(self, key: str, value: float, step: int | None = None):
         for logger in self.loggers:
             logger.log(key=key, value=value, step=step)
 
-    def log_metrics(
-        self,
-        metrics: dict[str, float],
-        step: int | None = None,
-    ):
+    def log_metrics(self, metrics: dict[str, float], step: int | None = None):
         for logger in self.loggers:
             logger.log_metrics(metrics=metrics, step=step)
 
@@ -186,11 +156,7 @@ class Loggers:
         for logger in self.loggers:
             logger.log_params(params=params)
 
-    def log_dict(
-        self,
-        dct: dict[str, Any],
-        filename: str = "dct.yaml",
-    ):
+    def log_dict(self, dct: dict[str, Any], filename: str = "dct.yaml"):
         for logger in self.loggers:
             logger.log_dict(dct=dct, filename=filename)
 
@@ -217,20 +183,11 @@ class TerminalLogger(BaseLogger):
     name: str = "terminal"
     """Terminal Logger (only prints info and saves locally)."""
 
-    def log(
-        self,
-        key: str,
-        value: float,
-        step: int | None = None,
-    ) -> None:
+    def log(self, key: str, value: float, step: int | None = None) -> None:
         super().log(key, value, step)
         log.info(f"Step {step}, {key}: {value}")
 
-    def log_metrics(
-        self,
-        metrics: dict[str, float],
-        step: int | None = None,
-    ) -> None:
+    def log_metrics(self, metrics: dict[str, float], step: int | None = None) -> None:
         super().log_metrics(metrics, step)
 
     def log_params(self, params: dict[str, Any]) -> None:
@@ -280,24 +237,27 @@ class MLFlowLogger(BaseLogger):
                 experiment_ids=[str(experiment_id)],
                 filter_string=f'tags.mlflow.runName = "{self.run_name}"',
             )
-            if len(runs) == 0:
-                log.info(f"\tThere is no run with {self.run_name} name on mlflow server")
-                log.info(f"\tCreating new run with {self.run_name} name")
+            num_runs = len(runs)
+            if num_runs == 0:
+                log.info(
+                    f"     There is no run with {self.run_name} name on mlflow server (for experiment '{self.experiment_name}')"
+                )
+                log.info(f"     Creating new run with {self.run_name} name")
                 run = client.create_run(experiment_id, run_name=self.run_name)
-            if len(runs) == 1:
-                log.info(f"\tFound existing run with {self.run_name} name on mlflow server")
+            if num_runs == 1:
+                log.info(f"     Found existing run with {self.run_name} name on mlflow server")
                 run = runs[0]
-                log.info(f"\tResuming Run {run.info.run_name} (ID = {run.info.run_id})")
-            elif len(runs) > 1:
-                msg = f"\tMore than one run with {self.run_name} name found on mlflow server. Raising Exception"
-                log.warn(msg)
+                log.info(f"     Resuming Run {run.info.run_name} (ID = {run.info.run_id})")
+            elif num_runs > 1:
+                log.warn(
+                    f"     More than one run with {self.run_name} name found on mlflow server. Raising Exception"
+                )
                 e = ValueError()
                 log.exception(e)
                 raise e
         else:
-            # get run by id
             try:
-                run = client.get_run(self._run_id)
+                run = client.get_run(self._run_id)  # get run by id
             except Exception as e:
                 log.exception(e)
                 raise e
@@ -306,26 +266,17 @@ class MLFlowLogger(BaseLogger):
         run_url = (
             f"{self.tracking_uri}/#/experiments/{experiment.experiment_id}/runs/{run.info.run_id}"
         )
-        log.info(f"\tVisit run at: {run_url}")
+        log.info(f"     Visit run at: {run_url}")
 
     @property
     def run_id(self) -> str:
         return self.run.info.run_id
 
-    def log(
-        self,
-        key: str,
-        value: float,
-        step: int | None = None,
-    ) -> None:
+    def log(self, key: str, value: float, step: int | None = None) -> None:
         super().log(key, value, step)
         self.client.log_metric(self.run_id, key, value, step=step)
 
-    def log_metrics(
-        self,
-        metrics: dict[str, float],
-        step: int | None = None,
-    ) -> None:
+    def log_metrics(self, metrics: dict[str, float], step: int | None = None) -> None:
         super().log_metrics(metrics, step)
         for key, value in metrics.items():
             self.log(key, value, step=step)
@@ -337,19 +288,11 @@ class MLFlowLogger(BaseLogger):
         for key, value in params.items():
             self.log_param(key, value)
 
-    def log_dict(
-        self,
-        config: dict[str, Any],
-        filename: str = "config.yaml",
-    ) -> None:
+    def log_dict(self, config: dict[str, Any], filename: str = "config.yaml") -> None:
         super().log_dict(config, filename)
         self.client.log_dict(self.run_id, config, filename)
 
-    def log_artifact(
-        self,
-        local_path: str,
-        artifact_path: str | None = None,
-    ) -> None:
+    def log_artifact(self, local_path: str, artifact_path: str | None = None) -> None:
         self.client.log_artifacts(self.run_id, local_path, artifact_path)
 
     def download_artifact(self, artifact_path: str) -> str:

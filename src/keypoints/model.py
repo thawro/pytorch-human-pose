@@ -1,19 +1,17 @@
 from torch import Tensor, nn
+
 from src.base.model import BaseImageModel
 from src.logger.pylogger import log
 
 
-
-class BaseKeypointsModel(BaseImageModel):
-    def __init__(self, net: nn.Module, num_keypoints: int):
+class KeypointsModel(BaseImageModel):
+    def __init__(self, net: nn.Module, num_kpts: int):
         super().__init__(net, ["images"], ["keypoints"])
-        self.num_keypoints = num_keypoints
+        self.num_kpts = num_kpts
 
-    def init_weights(
-        self
-    ):
+    def init_weights(self):
         log.info("..Initializing weights from normal distribution (Keypoints)..")
-        for m in self.modules():
+        for m in self.net.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.normal_(m.weight, std=0.001)
                 for name, _ in m.named_parameters():
@@ -28,16 +26,6 @@ class BaseKeypointsModel(BaseImageModel):
                     if name in ["bias"]:
                         nn.init.constant_(m.bias, 0)
 
-
-class KeypointsModel(BaseKeypointsModel):
-    def forward(self, images: Tensor) -> list[Tensor]:
-        return super().forward(images)
-
-    def example_input(self) -> dict[str, Tensor]:
-        return super().example_input(1, 3, 256, 256)
-
-
-class AEKeypointsModel(BaseKeypointsModel):
     def forward(self, images: Tensor) -> tuple[list[Tensor], list[Tensor]]:
         return super().forward(images)
 

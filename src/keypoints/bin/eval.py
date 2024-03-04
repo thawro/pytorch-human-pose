@@ -8,7 +8,7 @@ from PIL import Image
 from tqdm.auto import tqdm
 
 from src.base.datasets import BaseImageDataset
-from src.keypoints.bin.inference import MPPEInferenceKeypointsModel, load_model
+from src.keypoints.bin.inference import MPPEInferenceKeypointsModel, _set_paths, load_model
 from src.utils.config import DS_ROOT, YAML_EXP_PATH
 from src.utils.files import load_yaml, save_json
 from src.utils.model import seed_everything
@@ -21,7 +21,7 @@ def evaluate_dataset(dataset: BaseImageDataset, model: MPPEInferenceKeypointsMod
     results = []
     with torch.no_grad():
         for idx in tqdm(range(n_examples)):
-            image_path = filepaths[idx].decode("utf-8")
+            image_path = filepaths[idx]  # .decode("utf-8")
             annot_path = image_path.replace(".jpg", ".yaml").replace("images/", "annots/")
             image = np.asarray(Image.open(image_path))
             if len(image.shape) == 2:
@@ -65,16 +65,20 @@ def main() -> None:
     seed_everything(42)
     cfg_path = str(YAML_EXP_PATH / "keypoints" / "higher_hrnet_32.yaml")
 
-    run_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/keypoints/02-29_11:04___COCO_HigherHRNet/02-29_11:04"
+    run_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/keypoints/03-02_08:35__COCO_HigherHRNet/03-02_08:35"
+    # ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/keypoints/03-02_08:35__COCO_HigherHRNet/03-02_08:35/checkpoints/best.pt"
 
     ckpt_path = f"{run_path}/checkpoints/best.pt"
 
-    model = load_model(cfg_path, ckpt_path)
+    model = load_model(cfg_path, ckpt_path, device_id=1)
 
     root = str(DS_ROOT / f"{model.ds_name}/raw")
     split = "val2017"
 
+    BaseImageDataset._set_paths = _set_paths
     ds = BaseImageDataset(root=root, split=split, transform=None)
+    ds._set_paths()
+
     results = evaluate_dataset(ds, model)
 
     results_path = f"{run_path}/{split}_results.json"

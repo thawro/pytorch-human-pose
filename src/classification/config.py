@@ -1,44 +1,41 @@
-from src.base.config import BaseConfig
 from dataclasses import dataclass
+
+import torchvision.datasets as datasets
 from torch import nn
+
+from src.base.callbacks import BaseCallback
+from src.base.config import BaseConfig
 from src.logger.pylogger import log
+from src.utils.config import DS_ROOT
+
+from .architectures import ClassificationHRNet
 from .datamodule import ClassificationDataModule
+from .loss import ClassificationLoss
 from .model import ClassificationModel
 from .module import ClassificationModule
 from .transforms import ClassificationTransform
-from .architectures.hrnet import ClassificationHRNet
-from .architectures.original_hrnet import OriginalHRNet
-from .loss import ClassificationLoss
-
-from src.utils.config import DS_ROOT
-from src.base.callbacks import BaseCallback
-
-import torchvision.datasets as datasets
 
 
 @dataclass
 class ClassificationConfig(BaseConfig):
-
     def create_datamodule(self) -> ClassificationDataModule:
         log.info("..Creating ClassificationDataModule..")
-        ds_root = str(DS_ROOT / self.dataloader.dataset.name)
-        transform = ClassificationTransform(
-            **self.dataloader.dataset.transform.to_dict()
-        )
 
-        train_ds = datasets.ImageFolder(
-            str(DS_ROOT / ds_root / "train"), transform.random
+        transform = ClassificationTransform(**self.transform.to_dict())
+
+        train_ds_root = str(
+            DS_ROOT / self.dataloader.train_ds.name / self.dataloader.train_ds.split
         )
-        val_ds = datasets.ImageFolder(
-            str(DS_ROOT / ds_root / "val"), transform.inference
-        )
+        val_ds_root = str(DS_ROOT / self.dataloader.val_ds.name / self.dataloader.val_ds.split)
+
+        train_ds = datasets.ImageFolder(train_ds_root, transform.train)
+        val_ds = datasets.ImageFolder(val_ds_root, transform.inference)
         self.labels = []
 
         return ClassificationDataModule(
             train_ds=train_ds,
             val_ds=val_ds,
             test_ds=None,
-            transform=transform,
             batch_size=self.dataloader.batch_size,
             pin_memory=self.dataloader.pin_memory,
             num_workers=self.dataloader.num_workers,
@@ -48,8 +45,6 @@ class ClassificationConfig(BaseConfig):
         log.info(f"..Creating {self.model.architecture}..")
         if self.model.architecture == "HRNet":
             return ClassificationHRNet(C=32, num_classes=1000)
-        elif self.model.architecture == "OriginalHRNet":
-            return OriginalHRNet(C=32)
         else:
             raise ValueError("Wrong architecture type")
 

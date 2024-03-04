@@ -216,8 +216,8 @@ class InferenceMPPEKeypointsResult:
         image: np.ndarray,
         scale: float,
         center: tuple[int, int],
-        stages_pred_kpts_heatmaps: list[Tensor],
-        tags_heatmaps: Tensor,
+        stages_kpts_heatmaps: list[Tensor],
+        tags_heatmaps: list[Tensor],
         get_final_preds,
         limbs: list[tuple[int, int]],
         max_num_people: int = 20,
@@ -225,39 +225,43 @@ class InferenceMPPEKeypointsResult:
         tag_thr: float = 1,
     ) -> "InferenceMPPEKeypointsResult":
         img_h, img_w = model_input.shape[:2]
-        h, w = stages_pred_kpts_heatmaps[-1].shape[-2:]
-        stages_pred_kpts_heatmaps = [
+        h, w = stages_kpts_heatmaps[-1].shape[-2:]
+        stages_kpts_heatmaps = [
             torch.nn.functional.interpolate(
                 hm,
                 size=[h, w],
                 mode="bilinear",
                 align_corners=False,
             )
-            for hm in stages_pred_kpts_heatmaps[:-1]
-        ] + [stages_pred_kpts_heatmaps[-1]]
-        pred_tags_heatmaps = torch.nn.functional.interpolate(
-            tags_heatmaps,
-            size=[img_h, img_w],
-            mode="bilinear",
-            align_corners=False,
-        ).unsqueeze(-1)
+            for hm in stages_kpts_heatmaps[:-1]
+        ] + [stages_kpts_heatmaps[-1]]
 
-        num_kpts = stages_pred_kpts_heatmaps[0].shape[1]
+        num_kpts = stages_kpts_heatmaps[0].shape[1]
 
-        pred_kpts_heatmaps = torch.stack(stages_pred_kpts_heatmaps, dim=-1).mean(dim=-1)
+        kpts_heatmaps = torch.stack(stages_kpts_heatmaps, dim=-1).mean(dim=-1)
 
-        batch_size, num_kpts = pred_kpts_heatmaps.shape[:2]
+        batch_size, num_kpts = kpts_heatmaps.shape[:2]
         parser = MPPEHeatmapParser(
             num_kpts, max_num_people=max_num_people, det_thr=det_thr, tag_thr=tag_thr
         )
-        pred_kpts_heatmaps = torch.nn.functional.interpolate(
-            pred_kpts_heatmaps,
+        resized_kpts_heatmaps = torch.nn.functional.interpolate(
+            kpts_heatmaps,
             size=[img_h, img_w],
             mode="bilinear",
             align_corners=False,
         )
+        tags_heatmaps = [
+            torch.nn.functional.interpolate(
+                hms,
+                size=[img_h, img_w],
+                mode="bilinear",
+                align_corners=False,
+            )
+            for hms in tags_heatmaps
+        ]
+        resized_tags_heatmaps = torch.stack(tags_heatmaps, dim=4)
         grouped_joints, pred_obj_scores = parser.parse(
-            pred_kpts_heatmaps, pred_tags_heatmaps, adjust=True, refine=True
+            resized_kpts_heatmaps, resized_tags_heatmaps, adjust=True, refine=True
         )
 
         final_results = get_final_preds(grouped_joints, center, scale, [img_w, img_h])
@@ -276,8 +280,8 @@ class InferenceMPPEKeypointsResult:
             annot,
             model_input,
             image,
-            pred_kpts_heatmaps.cpu().numpy()[0],
-            pred_tags_heatmaps.cpu().numpy()[0, ..., 0],
+            resized_kpts_heatmaps.cpu().numpy()[0],
+            resized_tags_heatmaps.cpu().numpy()[0, ..., 0],
             pred_kpts_coords,
             pred_kpts_scores,
             pred_obj_scores,

@@ -1,57 +1,39 @@
 """Implementation of specialized Module"""
 
 import torch
-from torch import Tensor, optim
+from torch import Tensor
 
-from src.base.lr_scheduler import LRScheduler
 from src.base.module import BaseModule
+from src.logger.loggers import log
 
 from .datamodule import KeypointsDataModule
 from .loss import AEKeypointsLoss
-from .model import AEKeypointsModel, BaseKeypointsModel, KeypointsModel
+from .model import KeypointsModel
 from .results import MPPEKeypointsResult
 
 _batch = tuple[Tensor, list[Tensor], list[Tensor], list[Tensor]]
 
 
-class BaseKeypointsModule(BaseModule):
+class MPPEKeypointsModule(BaseModule):
+    model: KeypointsModel
+    loss_fn: AEKeypointsLoss
     datamodule: KeypointsDataModule
 
     def __init__(
         self,
-        model: BaseKeypointsModel,
+        model: KeypointsModel,
         loss_fn: AEKeypointsLoss,
         labels: list[str],
         limbs: list[tuple[int, int]],
+        optimizers: dict,
+        lr_schedulers: dict,
     ):
-        super().__init__(model, loss_fn)
+        super().__init__(model, loss_fn, optimizers, lr_schedulers)
         self.labels = labels
         self.limbs = limbs
+        log.info("..Using torch autocast to float16 in modules forward implementation..")
 
-    def create_optimizers(
-        self,
-    ) -> tuple[dict[str, optim.Optimizer], dict[str, LRScheduler]]:
-        optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
-
-        optimizers = {"optim": optimizer}
-        schedulers = {
-            "optim": LRScheduler(
-                optim.lr_scheduler.MultiStepLR(
-                    optimizer,
-                    milestones=[130, 170, 200],
-                    gamma=0.1,
-                ),
-                interval="epoch",
-            )
-        }
-        return optimizers, schedulers
-
-
-class MPPEKeypointsModule(BaseKeypointsModule):
-    model: AEKeypointsModel
-    loss_fn: AEKeypointsLoss
-
-    def _common_step(self, batch: _batch, batch_idx: int) -> dict[str, float]:
+    def training_step(self, batch: _batch, batch_idx: int) -> dict[str, float]:
         images, heatmaps, masks, joints = batch
 
         heatmaps = list(map(lambda x: x.cuda(non_blocking=True), heatmaps))
@@ -61,26 +43,56 @@ class MPPEKeypointsModule(BaseKeypointsModule):
         scaler, optimizer = self.scalers["optim"], self.optimizers["optim"]
 
         with torch.autocast(device_type="cuda", dtype=torch.float16):
-            stages_pred_kpts_heatmaps, pred_tags_heatmaps = self.model(images)
-            hm_loss, tags_loss = self.loss_fn.calculate_loss(
+            stages_pred_kpts_heatmaps, pred_tags_heatmaps = self.model.net(images)
+            heatmap_losses, push_losses, pull_losses = self.loss_fn.calculate_loss(
                 stages_pred_kpts_heatmaps, pred_tags_heatmaps, heatmaps, masks, joints
             )
-            loss = hm_loss + tags_loss
+            loss = 0
+            for i in range(2):
+                loss = loss + heatmap_losses[i]
+            loss = loss + push_losses[0]
+            loss = loss + pull_losses[0]
 
-        if self.stage == "train":
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-            optimizer.zero_grad()
+        optimizer.zero_grad()
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
 
-        metrics = {
-            "loss": loss.detach().item(),
-            "hm_loss": hm_loss.detach().item(),
-            "tags_loss": tags_loss.detach().item(),
-        }
+        metrics = {"loss": loss.detach().item()}
+        for i, hm_loss in enumerate(heatmap_losses):
+            metrics[f"hm_{i}_loss"] = hm_loss.item()
+        for i in range(len(push_losses)):
+            metrics[f"push_{i}_loss"] = push_losses[i].item()
+            metrics[f"pull_{i}_loss"] = pull_losses[i].item()
 
-        if self.stage == "train":
-            return metrics
+        return metrics
+
+    def validation_step(
+        self, batch: _batch, batch_idx: int
+    ) -> tuple[dict[str, float], list[MPPEKeypointsResult]]:
+        images, heatmaps, masks, joints = batch
+
+        heatmaps = list(map(lambda x: x.cuda(non_blocking=True), heatmaps))
+        masks = list(map(lambda x: x.cuda(non_blocking=True), masks))
+        images = images.cuda()
+
+        with torch.autocast(device_type="cuda", dtype=torch.float16):
+            stages_pred_kpts_heatmaps, pred_tags_heatmaps = self.model.net(images)
+            heatmap_losses, push_losses, pull_losses = self.loss_fn.calculate_loss(
+                stages_pred_kpts_heatmaps, pred_tags_heatmaps, heatmaps, masks, joints
+            )
+            loss = 0
+            for i in range(2):
+                loss = loss + heatmap_losses[i]
+            loss = loss + push_losses[0]
+            loss = loss + pull_losses[0]
+
+        metrics = {"loss": loss.detach().item()}
+        for i, hm_loss in enumerate(heatmap_losses):
+            metrics[f"hm_{i}_loss"] = hm_loss.item()
+        for i in range(len(push_losses)):
+            metrics[f"push_{i}_loss"] = push_losses[i].item()
+            metrics[f"pull_{i}_loss"] = pull_losses[i].item()
 
         pred_tags_heatmaps = pred_tags_heatmaps.detach()
         stages_pred_kpts_heatmaps = [hms.detach() for hms in stages_pred_kpts_heatmaps]

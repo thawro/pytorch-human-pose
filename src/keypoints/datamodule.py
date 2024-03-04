@@ -2,13 +2,10 @@
 
 from src.base.datamodule import DataModule
 
-from .transforms import KeypointsTransform
-
-# from .datasets import BaseKeypointsDataset
+from .datasets.coco_keypoints import CocoKeypoints
 
 
 class KeypointsDataModule(DataModule):
-    # train_ds: BaseKeypointsDataset
-    # val_ds: BaseKeypointsDataset
-    # test_ds: BaseKeypointsDataset
-    transform: KeypointsTransform
+    train_ds: CocoKeypoints
+    val_ds: CocoKeypoints
+    test_ds: CocoKeypoints

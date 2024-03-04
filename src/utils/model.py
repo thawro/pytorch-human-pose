@@ -1,13 +1,15 @@
 """Utility functions for model operations (checkpoint save/load, onnx export, etc.)"""
 
+import os
 import random
+from collections import namedtuple
+
 import numpy as np
 import torch
 from torch import Tensor, nn
 from torchinfo import summary
-import os
-from collections import namedtuple
 
+from src.logger.pylogger import log
 
 
 def export_to_onnx(
@@ -59,6 +61,7 @@ def export_summary_to_txt(
 
 
 def seed_everything(seed: int):
+    log.info(f"..Setting seed to {seed}..")
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -81,7 +84,6 @@ def get_model_summary(
     layer_instances = {}
 
     def add_hooks(module):
-
         def hook(module, input, output):
             class_name = str(module.__class__.__name__)
 

@@ -2,6 +2,7 @@ import glob
 import os
 from pathlib import Path
 
+import cv2
 import numpy as np
 import pycocotools
 import torch
@@ -10,12 +11,15 @@ from geda.data_providers.coco import LIMBS as coco_limbs
 from PIL import Image
 from pycocotools.coco import COCO
 from torch import Tensor
-from torch.utils.data import Dataset
 from tqdm.auto import tqdm
 
-from src.keypoints.datasets.transforms import Compose, KeypointsTransform
+from src.base.datasets import BaseImageDataset
+from src.keypoints.datasets.transforms import ComposeKeypointsTransform, KeypointsTransform
+from src.keypoints.visualization import plot_connections, plot_heatmaps
 from src.logger.pylogger import log
 from src.utils.files import load_yaml, save_yaml
+from src.utils.image import make_grid
+from src.utils.utils import get_rank
 
 
 class HeatmapGenerator:
@@ -23,15 +27,14 @@ class HeatmapGenerator:
     source: https://github.com/HRNet/HigherHRNet-Human-Pose-Estimation/blob/master/lib/dataset/target_generators/target_generators.py
     """
 
-    def __init__(self, num_kpts: int, out_size: tuple[int, int], sigma: float = 2):
+    def __init__(self, num_kpts: int, size: int, sigma: float = 2):
         self.num_kpts = num_kpts
-        self.out_size = out_size
-        self.h, self.w = out_size
+        self.size = size
+        self.h, self.w = size, size
         if sigma < 0:
-            sigma = max(out_size) / 64
+            sigma = size / 64
         self.sigma = sigma
-        size = 6 * sigma + 3
-        x = np.arange(0, size, 1, float)
+        x = np.arange(0, 6 * sigma + 3, 1, float)
         y = x[:, np.newaxis]
         x0, y0 = 3 * sigma + 1, 3 * sigma + 1
         self.gauss = np.exp(-((x - x0) ** 2 + (y - y0) ** 2) / (2 * sigma**2))
@@ -67,8 +70,8 @@ class HeatmapGenerator:
 
 
 class JointsGenerator:
-    def __init__(self, out_size: tuple[int, int] = (512, 512)):
-        self.h, self.w = out_size
+    def __init__(self, size: int = 512):
+        self.h, self.w = size, size
 
     def __call__(self, joints: np.ndarray) -> np.ndarray:
         for i in range(len(joints)):
@@ -122,19 +125,20 @@ def get_crowd_mask(annot: list, img_h: int, img_w: int) -> np.ndarray:
     return m < 0.5
 
 
-class CocoKeypoints(Dataset):
-    transform: Compose
+class CocoKeypoints(BaseImageDataset):
     limbs = coco_limbs
     labels = coco_labels
 
     def __init__(
         self,
+        name: str,
         root: str,
         split: str,
-        transform,
-        out_size: tuple[int, int] = (512, 512),
+        transform: ComposeKeypointsTransform,
+        out_size: int = 512,
         hm_resolutions: list[float] = [1 / 4, 1 / 2],
     ):
+        self.name = name
         self.root = root
         self.split = split
         kpts_dir = f"person_keypoints_{self.split}"
@@ -150,7 +154,7 @@ class CocoKeypoints(Dataset):
         self._set_paths()
         self.transform = transform
         self.hm_resolutions = hm_resolutions
-        self.hm_sizes = [(int(res * out_size[0]), int(res * out_size[1])) for res in hm_resolutions]
+        self.hm_sizes = [int(res * out_size) for res in hm_resolutions]
         hm_generators = []
         joints_generator = []
         for hm_size in self.hm_sizes:
@@ -182,10 +186,16 @@ class CocoKeypoints(Dataset):
 
     def _save_annots_to_files(self):
         # save mask to npy file and annot to yaml file
-        if os.path.exists(self.annots_dir):
-            log.info(f"{self.split} annotations already saved to files")
+        log.info(f"..Saving {self.split} annotations (keypoints and crowd masks) to files..")
+        rank = get_rank()
+        if rank != 0:
+            log.warn(
+                f"     Current process (rank = {rank}) is not the main process (rank = 0) -> Skipping"
+            )
             return
-        log.info(f"Saving {self.split} annotations to files")
+        if os.path.exists(self.annots_dir):
+            log.info(f"     {self.split} annotations already saved to files -> Skipping")
+            return
         Path(self.annots_dir).mkdir(exist_ok=True, parents=True)
         Path(self.masks_dir).mkdir(exist_ok=True, parents=True)
         coco = COCO(f"{self.root}/annotations/person_keypoints_{self.split}.json")
@@ -218,6 +228,22 @@ class CocoKeypoints(Dataset):
             joints[i] = np.array(obj["keypoints"]).reshape([-1, 3])
         return joints
 
+    def plot(self, idx: int) -> np.ndarray:
+        img, heatmaps, mask_list, joints_list = self[idx]
+        h, w = mask_list[1].shape[:2]
+        mean = np.array([0.485, 0.456, 0.406])
+        std = np.array([0.229, 0.224, 0.225])
+        img = (img.permute(1, 2, 0).numpy() * std) + mean
+        img = (img * 255).astype(np.uint8)
+        img = cv2.resize(img, (h, w))
+        kpts_coords = joints_list[1][..., :2]
+        visibility = joints_list[1][..., 2]
+        kpts_heatmaps = plot_heatmaps(img, heatmaps[1])
+        img = plot_connections(img.copy(), kpts_coords, visibility, self.limbs, thr=0.5)
+        mask = cv2.cvtColor((mask_list[1] * 255).astype(np.uint8), cv2.COLOR_GRAY2RGB)
+        grid = make_grid([img, mask, *kpts_heatmaps]).astype(np.uint8)
+        return grid
+
     def __getitem__(self, idx):
         img, annot, mask = self.get_raw_data(idx)
         annots = [obj for obj in annot if obj["iscrowd"] == 0 or obj["num_keypoints"] > 0]
@@ -241,22 +267,9 @@ if __name__ == "__main__":
 
     from src.keypoints.datasets.transforms import KeypointsTransform
 
-    transform = KeypointsTransform("COCO")
-    ds = CocoKeypoints("data/COCO/raw", "val2017", transform.random, (512, 512), [1 / 4, 1 / 2])
-    # ds = CocoKeypoints("data/COCO/raw", "train2017", transform.random, (512, 512), [1 / 4, 1 / 2])
-
-    # for idx in range(len(ds)):
-    # img, heatmaps, mask_list, joints_list = ds[idx]
-    img, heatmaps, mask_list, joints_list = ds[2]
-
-    fig, axes = plt.subplots(1, 4, figsize=(20, 10))
-    mean = np.array([0.485, 0.456, 0.406])
-    std = np.array([0.229, 0.224, 0.225])
-    img = (img.permute(1, 2, 0).numpy() * std) + mean
-    axes[0].imshow(img)
-    axes[1].imshow(mask_list[1], cmap="grey")
-    axes[2].imshow(heatmaps[1].max(0))
-
-    axes[3].imshow(heatmaps[0].max(0))
-
-    fig.savefig("test.jpg")
+    out_size = 512
+    hm_resolutions = [1 / 4, 1 / 2]
+    transform = KeypointsTransform(out_size, hm_resolutions)
+    # ds = CocoKeypoints("data/COCO/raw", "val2017", transform.inference, out_size, hm_resolutions)
+    ds = CocoKeypoints("data/COCO/raw", "train2017", transform.train, out_size, hm_resolutions)
+    ds.explore(0)

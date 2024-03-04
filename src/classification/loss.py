@@ -1,7 +1,5 @@
-from torch import nn, Tensor
-from src.base.loss import BaseLoss, WeightedLoss
+from torch import Tensor, nn
 from torch.nn.modules.loss import _Loss
-import torch
 
 
 class ClassificationLoss(_Loss):

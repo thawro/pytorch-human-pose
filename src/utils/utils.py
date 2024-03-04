@@ -1,11 +1,32 @@
 """Other utilities"""
 
+import os
 import random
 from datetime import datetime
-import os
-import torch
 
-def random_float(min: float, max: float):
+import torch
+import torch.distributed as dist
+
+
+def is_dist_avail_and_initialized() -> bool:
+    if not dist.is_available():
+        return False
+    if not dist.is_initialized():
+        return False
+    return True
+
+
+def get_rank() -> int:
+    if not is_dist_avail_and_initialized():
+        return 0
+    return dist.get_rank()
+
+
+def is_main_process() -> bool:
+    return get_rank() == 0
+
+
+def random_float(min: float, max: float) -> float:
     return random.random() * (max - min) + min
 
 
@@ -15,15 +36,16 @@ def get_current_date_and_time() -> str:
     dt_string = now.strftime("%m-%d_%H:%M")
     return dt_string
 
+
 def prepend_exception_message(exception: Exception, prefix: str):
     _args = exception.args
     if len(_args) >= 1:
         exception.args = (f"{prefix}{_args[0]}", *_args[1:])
 
 
-def get_device_and_id(accelerator: str, use_distributed: bool) -> tuple[str, int]:
+def get_device_and_id(accelerator: str, use_DDP: bool) -> tuple[str, int]:
     if accelerator == "gpu" and torch.cuda.is_available():
-        if use_distributed and "LOCAL_RANK" in os.environ:
+        if use_DDP and "LOCAL_RANK" in os.environ:
             device_id = int(os.environ["LOCAL_RANK"])
         else:
             device_id = 0

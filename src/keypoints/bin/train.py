@@ -13,15 +13,14 @@ def main() -> None:
     pretrained_ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/classification/02-15_10:12___imagenet_HRNet/02-19_09:14/checkpoints/best.pt"
     # pretrained_ckpt_path = None
 
-    ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/keypoints/02-28_15:01___COCO_HigherHRNet/02-28_15:01/checkpoints/last.pt"
+    ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/keypoints/03-01_15:51__COCO_HigherHRNet/03-01_17:58/checkpoints/best.pt"
     ckpt_path = None
 
     cfg["setup"]["ckpt_path"] = ckpt_path
     cfg["setup"]["pretrained_ckpt_path"] = pretrained_ckpt_path
     cfg["trainer"]["limit_batches"] = -1
-    cfg["trainer"]["use_distributed"] = True
+    cfg["trainer"]["use_DDP"] = True
 
-    # cfg["model"]["architecture"] = "OriginalHigherHRNet"
     cfg = KeypointsConfig.from_dict(cfg)
 
     train(cfg)

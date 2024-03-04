@@ -1,27 +1,65 @@
 setup:
   seed: 42
   experiment_name: keypoints
-  name_prefix: ""
   is_train: true
   ckpt_path: null
   pretrained_ckpt_path: null
+
+cudnn:
+  benchmark: True
+  deterministic: False
+  enabled: True
+
 dataloader:
+  seed: 42
   batch_size: 36
   pin_memory: true
-  num_workers: 8
-  dataset:
+  num_workers: 4
+  train_ds:
     name: COCO
-    mode: MPPE
-    transform:
-      mean: [0.485, 0.456, 0.406]
-      std: [0.229, 0.224, 0.225]
-      out_size: [512, 512]
+    root: data/COCO/raw
+    split: train2017
+    out_size: 512
+    hm_resolutions: [0.25, 0.5]
+  val_ds:
+    name: COCO
+    root: data/COCO/raw
+    split: val2017
+    out_size: 512
+    hm_resolutions: [0.25, 0.5]
+
+transform:
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]
+  out_size: 512
+  hm_resolutions: [0.25, 0.5]
+  max_rotation: 30
+  min_scale: 0.75
+  max_scale: 1.5
+  scale_type: short
+  max_translate: 40
+
+module:
+  optimizers:
+    optim:
+      name: Adam
+      params:
+        lr: 0.0015 # 0.001 * ((2*36)/(4*12)) scale LR from paper by my batch_size (36) and GPU (2)
+  lr_schedulers:
+    optim:
+      name: MultiStepLR
+      interval: epoch
+      params:
+        milestones: [200, 260]
+        gamma: 0.1
+
 model:
   architecture: HigherHRNet
+
 trainer:
   accelerator: gpu
   max_epochs: 300
   limit_batches: -1
-  log_every_n_steps: 0
-  use_distributed: true
-  use_fp16: true
+  use_DDP: true
+  use_DP: false
+  sync_batchnorm: false

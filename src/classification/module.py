@@ -9,9 +9,22 @@ from src.base.module import BaseModule
 from .datamodule import ClassificationDataModule
 from .loss import ClassificationLoss
 from .model import ClassificationModel
+from .results import ClassificationResult
 
 
-class BaseClassificationModule(BaseModule):
+def get_metrics(logits: Tensor, targets: Tensor) -> dict[str, float]:
+    logits = logits.detach().cpu()
+    targets = targets.detach().cpu()
+    top_5 = logits.topk(k=5, dim=1).indices
+    expanded_targets = targets.unsqueeze(-1).expand_as(top_5)
+    top_5_acc = torch.any(top_5 == expanded_targets, dim=1).float().mean().item()
+    top_1_acc = (top_5[:, 0] == targets).float().mean().item()
+    return {"top-1_error": 1 - top_1_acc, "top-5_error": 1 - top_5_acc}
+
+
+class ClassificationModule(BaseModule):
+    model: ClassificationModel
+    loss_fn: ClassificationLoss
     datamodule: ClassificationDataModule
 
     def __init__(self, model: ClassificationModel, loss_fn: ClassificationLoss, labels: list[str]):
@@ -42,58 +55,28 @@ class BaseClassificationModule(BaseModule):
         }
         return optimizers, schedulers
 
-
-class ClassificationModule(BaseClassificationModule):
-    model: ClassificationModel
-    loss_fn: ClassificationLoss
-
     def training_step(self, batch: tuple[Tensor, Tensor], batch_idx: int) -> dict[str, float]:
-        self.stage = "train"
         images, targets = batch
-        logits = self.model(images)
+        logits = self.model.net(images)
 
         loss = self.loss_fn.calculate_loss(targets, logits)
-        if self.stage == "train":
-            self.optimizers["optim"].zero_grad()
-            if self.use_fp16:
-                self.optimizers["optim"].backward(loss)
-            else:
-                loss.backward()
-            self.optimizers["optim"].step()
+        self.optimizers["optim"].zero_grad()
+        loss.backward()
+        self.optimizers["optim"].step()
 
         with torch.no_grad():
-            logits = logits.detach().cpu()
-            targets = targets.detach().cpu()
-            loss = loss.detach().item()
-            top_5 = logits.topk(k=5, dim=1).indices
-            expanded_targets = targets.unsqueeze(-1).expand_as(top_5)
-            top_5_acc = torch.any(top_5 == expanded_targets, dim=1).float().mean().item()
-            top_1_acc = (top_5[:, 0] == targets).float().mean().item()
-            metrics = {
-                "loss": loss,
-                "top-1_error": 1 - top_1_acc,
-                "top-5_error": 1 - top_5_acc,
-            }
-            return metrics
+            metrics = get_metrics(logits, targets)
+            metrics["loss"] = loss = loss.detach().item()
+        return metrics
 
     def validation_step(
-        self, batch: tuple[Tensor, Tensor], batch_idx: int, stage: str
-    ) -> dict[str, float]:
-        self.stage = stage
+        self, batch: tuple[Tensor, Tensor], batch_idx: int
+    ) -> tuple[dict[str, float], list[ClassificationResult]]:
         images, targets = batch
-        logits = self.model(images)
+        logits = self.model.net(images)
+
         loss = self.loss_fn.calculate_loss(targets, logits)
 
-        logits = logits.cpu()
-        targets = targets.cpu()
-
-        top_5 = logits.topk(k=5, dim=1).indices
-        expanded_targets = targets.unsqueeze(-1).expand_as(top_5)
-        top_5_acc = torch.any(top_5 == expanded_targets, dim=1).float().mean().item()
-        top_1_acc = (top_5[:, 0] == targets).float().mean().item()
-        metrics = {
-            "loss": loss.item(),
-            "top-1_error": 1 - top_1_acc,
-            "top-5_error": 1 - top_5_acc,
-        }
+        metrics = get_metrics(logits, targets)
+        metrics["loss"] = loss = loss.detach().item()
         return metrics, []

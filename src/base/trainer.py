@@ -2,8 +2,8 @@ import random
 
 import torch
 import torch.distributed as dist
-from torch import Tensor
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from tqdm.auto import tqdm
 
 from src.logger.loggers import Loggers, Status
@@ -19,13 +19,13 @@ from .storage import MetricsStorage
 
 # TODO: ctrl+C sometimes doesnt rise the KeyboardInterrupt (graceful shutdown?)
 # it would still be nice to log it somehow so one can know why training stopped just by reading the logs
-# log info about used batch size, limit_batches, accelerator, etc.
-# add info about epoch/step while loading pretrained weights if possible
-# append old logs or just copy the files and add date of the run info (when resuming)
-# optimize keypoints training (make dataset return only arrays if possible)
-# introduce fp16 by torch: https://pytorch.org/docs/stable/amp.html
-# https://pytorch.org/docs/stable/notes/amp_examples.html#amp-dataparallel
-# evaluate trainer HigherHRNet model
+# log some train/val datasets examples on training start (new callback)
+# check checkpoint saving/loading: something weird happens on training resume
+# resume training in old directory
+# add plot gradients callback
+# add DP training (use_DP flag) and switch use_DDP flag to use_DDP
+# check results with flip LR
+# train for 200 epochs
 
 
 class Trainer:
@@ -39,21 +39,24 @@ class Trainer:
         callbacks: list[BaseCallback],
         max_epochs: int = 100,
         limit_batches: int = -1,
-        log_every_n_steps: int = -1,
-        use_distributed: bool = True,
-        use_fp16: bool = True,
+        use_DP: bool = False,
+        use_DDP: bool = False,
+        sync_batchnorm: bool = True,
     ):
         stages = ["train", "val", "eval_val"]
-        self.use_distributed = use_distributed
-        self.use_fp16 = use_fp16
-        self.meters = {stage: Meters(use_distributed=use_distributed) for stage in stages}
+        self.use_DP = use_DP
+        self.use_DDP = use_DDP
+        assert (
+            use_DP != use_DDP
+        ), "DataParallel and DistributedDataParallel can't be used at the same time"
+        self.sync_batchnorm = sync_batchnorm
+        self.meters = {stage: Meters(use_DDP=use_DDP) for stage in stages}
         self.accelerator = accelerator
-        self.device, self.device_id = get_device_and_id(self.accelerator, self.use_distributed)
+        self.device, self.device_id = get_device_and_id(self.accelerator, self.use_DDP)
         self.callbacks = Callbacks(callbacks, device_id=self.device_id)
         self.logger = logger
         self.max_epochs = max_epochs
         self._limit_batches = limit_batches
-        self.log_every_n_steps = log_every_n_steps
         self.current_step = 0
         self.current_epoch = 0
         self.epochs_metrics = MetricsStorage(name="Epochs")  # every step metrics
@@ -75,25 +78,33 @@ class Trainer:
         else:
             storage = self.epochs_metrics
         if "train" in stages:
-            optizers_lr = {
+            metrics = {
                 f"{name}_LR": optimizer.param_groups[0]["lr"]
                 for name, optimizer in self.module.optimizers.items()
             }
-            self.logger.log_metrics(optizers_lr, self.current_epoch)
-            storage.append(optizers_lr, self.current_step, self.current_epoch, split="train")
+            metrics["epoch"] = self.current_epoch
+            metrics["step"] = self.current_step
+            self.logger.log_metrics(metrics, self.current_epoch)
+            storage.append(metrics, self.current_step, self.current_epoch, split="train")
         for stage in stages:
             metrics = self.meters[stage].to_dict()
             storage.append(metrics, self.current_step, self.current_epoch, stage)
             stage_metrics = {f"{stage}/{name}": value for name, value in metrics.items()}
             self.logger.log_metrics(stage_metrics, self.current_epoch)
 
-    def evaluate(self, dataloader: DataLoader, stage: _stage):
+    def evaluate(self, dataloader: DataLoader, stage: _stage, sanity: bool = False):
         """Evaluate on validation set"""
         self.module.model.net.eval()
+
         meters = self.meters[stage]
         meters.reset()
         limit_batches = self.get_limit_batches(dataloader)
+
         random_idx = random.randint(0, limit_batches - 1)
+
+        if sanity:
+            limit_batches = 10
+            random_idx = 0
 
         def fn(
             batch,
@@ -104,10 +115,12 @@ class Trainer:
             stage: str,
             trainer: "Trainer",
         ):
-            val_metrics, val_results = trainer.module.validation_step(batch, batch_idx, stage=stage)
+            val_metrics, val_results = trainer.module._validation_step(
+                batch, batch_idx, stage=stage
+            )
             meters.update(val_metrics, batch[0].shape[0])
 
-            if batch_idx == random_idx:
+            if batch_idx == random_idx and not sanity:
                 self.results.extend(val_results)
             trainer.callbacks.on_step_end(self)
             batch_idx += 1
@@ -138,37 +151,7 @@ class Trainer:
 
     def sanity_check(self, dataloader: DataLoader):
         """Run sanity check"""
-        self.module.model.net.eval()
-        limit_batches = 10
-
-        def fn(batch, batch_idx: int, limit_batches: int, stage: str, trainer: "Trainer"):
-            trainer.module.validation_step(batch, batch_idx, stage=stage)
-            trainer.callbacks.on_step_end(self)
-            limit_batches -= 1
-            is_break = limit_batches == -1
-            kwargs = dict(
-                batch_idx=batch_idx,
-                limit_batches=limit_batches,
-                stage=stage,
-                trainer=trainer,
-            )
-            return kwargs, is_break
-
-        with torch.no_grad():
-            kwargs = dict(
-                batch_idx=0,
-                limit_batches=limit_batches,
-                stage="sanity_check",
-                trainer=self,
-            )
-            tqdm_iter = tqdm(
-                dataloader,
-                leave=True,
-                desc="Sanity check",
-                ncols=100,
-                total=limit_batches,
-            )
-            logged_tqdm(self.logger.file_log, tqdm_iter, fn, kwargs)
+        self.evaluate(dataloader, stage="sanity", sanity=True)
 
     def single_epoch(self, train_dataloader: DataLoader):
         self.module.model.net.train()
@@ -183,7 +166,7 @@ class Trainer:
             meters: Meters,
             trainer: "Trainer",
         ):
-            train_metrics = trainer.module.training_step(batch, batch_idx)
+            train_metrics = trainer.module._training_step(batch, batch_idx)
             meters.update(train_metrics, batch[0].shape[0])
             trainer.callbacks.on_step_end(self)
             trainer.current_step += 1
@@ -204,6 +187,10 @@ class Trainer:
         logged_tqdm(self.logger.file_log, tqdm_iter, fn, kwargs)
         meters.all_reduce()
 
+    def _wait_for_all_workers(self):
+        if self.use_DDP:
+            dist.barrier()
+
     def fit(
         self,
         module: BaseModule,
@@ -211,65 +198,69 @@ class Trainer:
         pretrained_ckpt_path: str | None = None,
         ckpt_path: str | None = None,
     ):
-        train_dataloader = datamodule.train_dataloader(self.use_distributed)
-        val_dataloader = datamodule.val_dataloader(self.use_distributed)
-
-        n_train_batches = datamodule.total_batches["train"] - 1
-        limit_batches = self._limit_batches if self._limit_batches > 0 else n_train_batches
-        if self.log_every_n_steps < 0:
-            self.log_every_n_steps = abs(self.log_every_n_steps) * min(
-                n_train_batches, limit_batches
-            )
-
-        if self.use_fp16:
-            log.info("..Using FP16 mode (torch autocast in modules implementation)..")
+        train_dataloader = datamodule.train_dataloader(self.use_DDP)
+        val_dataloader = datamodule.val_dataloader(self.use_DDP)
 
         module.pass_attributes(
             device_id=self.device_id,
             device=self.device,
-            use_distributed=self.use_distributed,
-            use_fp16=self.use_fp16,
             logger=self.logger,
             callbacks=self.callbacks,
             datamodule=datamodule,
             limit_batches=int(self._limit_batches),
-            log_every_n_steps=self.log_every_n_steps,
         )
+        # Correct order (?):
+        # Compile -> CUDA -> weights init -> pretrained weights load -> previous run ckpt load -> DDP
 
-        # self.module.compile()
+        # module.model.compile()
+        module.model.to_CUDA(self.device_id)
+        module.loss_fn.cuda(self.device_id)
+
         module.model.init_weights()
         if pretrained_ckpt_path is None:
-            log.warn("Skipping pretrained weights loading (pretrained_ckpt_path is None)")
+            log.warn("..Skipping pretrained weights loading (pretrained_ckpt_path is None)..")
         else:
-            module.model.init_pretrained_weights(pretrained_ckpt_path, self.map_location)
+            log.info(f"..Loading pretrained checkpoint (from '{pretrained_ckpt_path}')..")
+            pretrained_ckpt = torch.load(pretrained_ckpt_path, map_location=self.map_location)
+            # NOTE: its trainer ckpt, so we need to extract model state from it
+            if "module" in pretrained_ckpt:
+                pretrained_ckpt = pretrained_ckpt["module"]["model"]
+            module.model.init_pretrained_weights(pretrained_ckpt)
 
         self.module = module
         self.datamodule = datamodule
         if ckpt_path is not None:
             self.load_checkpoint(ckpt_path)
-        self.callbacks.on_fit_start(self)
-        if self.use_distributed:
-            log.info("..Moving model to DDP (Data Distributed Parallel)..")
-            self.module.to_DDP(self.device_id)
-        else:
-            self.module.model.cuda(self.device_id)
-        self.module.loss_fn.cuda(self.device_id)
-        self.module.set_optimizers()
 
+        if self.use_DDP:
+            log.info("..Moving model to DDP (Data Distributed Parallel)..")
+            self.module.model.to_DDP(self.device_id, self.sync_batchnorm)
+        elif self.use_DP:
+            log.info("..Moving model to DP (Data Parallel)..")
+            self.module.model.to_DP(self.device_ids)  # TODO
+
+        self.module.set_optimizers()
         self.module.set_attributes(current_step=self.current_step)
 
+        self.callbacks.on_fit_start(self)
         # self.sanity_check(val_dataloader)
+
+        self._wait_for_all_workers()
+        if ckpt_path is None:
+            msg = "<<<  Training started  >>>"
+        else:
+            msg = f"<<<  The training is resumed at: epoch={self.current_epoch}, step={self.current_step}  >>>"
+        log_breaking_point(
+            msg, n_top=2, n_bottom=2, top_char="*", bottom_char="*", num_chars=150, worker=0
+        )
         start_epoch = int(self.current_epoch)
-        end_epoch = (
-            start_epoch + self.max_epochs
-        )  # TODO: should end_epoch be max_epochs or start+max?
-        if self.use_distributed:
-            dist.barrier()
-        log_breaking_point("<<<  Training started  >>>")
         try:
-            for epoch in range(start_epoch, end_epoch):
-                if self.use_distributed:
-                    train_dataloader.sampler.set_epoch(epoch)  # DDP
+            for epoch in range(start_epoch, self.max_epochs):
+                log_breaking_point(
+                    f"<<<  Epoch {epoch} started  >>>", n_top=1, top_char=" ", worker=0
+                )
+                if isinstance(train_dataloader.sampler, DistributedSampler):
+                    train_dataloader.sampler.set_epoch(epoch)  # train_dl uses shuffle=True
                 self.current_epoch = epoch
                 self.module.on_epoch_start()
                 self.callbacks.on_epoch_start(self)
@@ -277,12 +268,14 @@ class Trainer:
                 self.single_epoch(train_dataloader)
                 self.evaluate(val_dataloader, stage="val")
                 self._update_metrics(stages=["train", "val"])
+                self._wait_for_all_workers()
                 self.module.on_epoch_end()
                 self.callbacks.on_epoch_end(self)
+                self._wait_for_all_workers()
                 self.results.clear()
-                log_breaking_point(f"<<<  Epoch {epoch} finished  >>>")
-                if self.use_distributed:
-                    dist.barrier()
+                log_breaking_point(
+                    f"<<<  Epoch {epoch} finished  >>>", n_bottom=1, worker=0, bottom_char="="
+                )
         except KeyboardInterrupt as e:
             log.error(str(e) + "KeyboardInterrupt")
             self.callbacks.on_failure(self, Status.KILLED)
@@ -291,34 +284,24 @@ class Trainer:
         self.logger.finalize(status=Status.FINISHED)
 
     def load_checkpoint(self, ckpt_path: str, lr: float | None = None):
-        log.info(f"..Loading checkpoint from {ckpt_path}..")
-
+        log.info(f"..Loading checkpoint from '{ckpt_path}'..")
         ckpt_state = torch.load(ckpt_path, map_location=self.map_location)
         self.epochs_metrics.load_state_dict(ckpt_state["metrics"]["steps"])
         self.validation_metrics.load_state_dict(ckpt_state["metrics"]["validation"])
         self.module.load_state_dict(ckpt_state["module"], lr=lr)
         self.datamodule.load_state_dict(ckpt_state["datamodule"])
         self.callbacks.load_state_dict(ckpt_state["callbacks"])
-        self.current_step = ckpt_state["step"]
-        self.current_epoch = ckpt_state["epoch"] + 1
-        log.info(
-            f"The training is resumed at: "
-            f"epoch={self.current_epoch}, "
-            f"step={self.current_step}"
-        )
-
-    @property
-    def device_info(self) -> str:
-        return ""
-
-    # @property
-    # def device_info(self) -> str:
-    #     return f"[{self.device}] "
+        step, epoch = ckpt_state["step"], ckpt_state["epoch"]
+        self.current_step = step
+        self.current_epoch = epoch + 1
+        log.info(f"     Loaded current_step ({step}) and current_epoch ({epoch}) state")
 
     def save_checkpoint(self, ckpt_path: str):
-        log.info(f"Saving checkpoint to {ckpt_path}")
         if self.device_id != 0:  # save only for cuda:0 (DDP)
             return
+        log.info(
+            f"Saving checkpoint (epoch={self.current_epoch}, step={self.current_step}) to '{ckpt_path}'"
+        )
         module_state = self.module.state_dict()
         datamodule_state = self.datamodule.state_dict()
         callbacks_state = self.callbacks.state_dict()
@@ -338,8 +321,3 @@ class Trainer:
             "step": self.current_step,
         }
         torch.save(ckpt_state, ckpt_path)
-        log.info(
-            f"The training is saved at: "
-            f"epoch={self.current_epoch}, "
-            f"step={self.current_step}"
-        )

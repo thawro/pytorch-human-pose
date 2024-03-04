@@ -2,11 +2,9 @@
 Based on https://github.com/HRNet/HigherHRNet-Human-Pose-Estimation/blob/master/lib/core/group.py
 """
 
+import numpy as np
+import torch
 from munkres import Munkres
-import numpy as np
-import torch
-import numpy as np
-import torch
 
 
 class SPPEHeatmapParser:
@@ -119,6 +117,10 @@ class MPPEHeatmapParser(object):
                 diff_normed = np.linalg.norm(diff, ord=2, axis=2)
                 diff_saved = np.copy(diff_normed)
 
+                use_detection_val = True
+                if use_detection_val:
+                    diff_normed = np.round(diff_normed) * 100 - joints[:, 2:3]
+
                 num_added, num_grouped = diff.shape[:2]
 
                 if num_added > num_grouped:
@@ -171,7 +173,7 @@ class MPPEHeatmapParser(object):
         # quarter offset adjustment
         h, w = kpts_hms.shape[-2:]
         for person_idx, person_joints in enumerate(grouped_joints):
-            for joint_idx, (y, x, score, tag) in enumerate(person_joints):
+            for joint_idx, (y, x, score, *tag) in enumerate(person_joints):
                 if score == 0:
                     continue
                 xx, yy = int(x), int(y)

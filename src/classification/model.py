@@ -1,18 +1,16 @@
 from torch import Tensor, nn
+
 from src.base.model import BaseImageModel
 from src.logger.pylogger import log
-
 
 
 class BaseClassificationModel(BaseImageModel):
     def __init__(self, net: nn.Module):
         super().__init__(net, ["images"], ["logits"])
 
-    def init_weights(
-        self
-    ):
+    def init_weights(self):
         log.info("..Initializing weights from normal distribution (Classification)..")
-        for m in self.modules():
+        for m in self.net.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
             elif isinstance(m, nn.BatchNorm2d):

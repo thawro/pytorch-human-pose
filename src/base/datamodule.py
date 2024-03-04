@@ -12,8 +12,6 @@ from src.logger.pylogger import log
 from src.utils.image import make_grid
 from src.utils.types import _split
 
-from .transforms.transforms import ImageTransform
-
 
 class DataModule:
     def __init__(
@@ -26,8 +24,10 @@ class DataModule:
         pin_memory: bool = True,
         drop_last: bool = True,
         collate_fn=None,
+        seed: int = 42,
     ):
         super().__init__()
+        self.seed = seed
         self.train_ds = train_ds
         self.val_ds = val_ds
         self.test_ds = test_ds
@@ -46,11 +46,12 @@ class DataModule:
         )
 
         self.datasets = {"train": train_ds, "val": val_ds, "test": test_ds}
+        log.info("DataModule statistics:")
         for split, ds in self.datasets.items():
             if ds is not None:
-                log.info(f"\t{split}: {len(ds)} samples ({ds.__class__.__name__})")
+                log.info(f"     {split}: {len(ds)} samples ({ds.__class__.__name__})")
             else:
-                log.warn(f"\t{split}: 0 (dataset is None)")
+                log.warn(f"     {split}: 0 (dataset is None)")
         self.total_batches = {}
 
     def _dataloader(
@@ -91,15 +92,18 @@ class DataModule:
         return {
             "random_state": random.getstate(),
             "torch_random_state": torch.random.get_rng_state(),
-            "torch_cuda_random_state": torch.cuda.get_rng_state_all(),
+            "torch_cuda_random_state_all": torch.cuda.get_rng_state_all(),
+            "torch_cuda_random_state": torch.cuda.get_rng_state(),
             "numpy_random_state": np.random.get_state(),
         }
 
     def load_state_dict(self, state_dict: dict) -> None:
         random.setstate(state_dict["random_state"])
         torch.random.set_rng_state(state_dict["torch_random_state"].cpu())
-        torch.cuda.set_rng_state_all(state_dict["torch_cuda_random_state"])
+        torch.cuda.set_rng_state_all(state_dict["torch_cuda_random_state_all"])
+        # torch.cuda.set_rng_state(state_dict["torch_cuda_random_state"])
         np.random.set_state(state_dict["numpy_random_state"])
+        log.info("     Loaded datamodule state")
 
     def explore(self):
         import cv2
