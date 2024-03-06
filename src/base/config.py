@@ -2,9 +2,10 @@ import logging
 from abc import abstractmethod
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Type
 
 from dacite import from_dict
+from torch import nn
 
 from src.logger.loggers import Loggers, MLFlowLogger, Status
 from src.logger.pylogger import get_file_pylogger, log
@@ -15,6 +16,7 @@ from src.utils.utils import get_device_and_id
 
 from .callbacks import (
     BaseCallback,
+    DatasetExamplesCallback,
     LogsLoggerCallback,
     MetricsLogger,
     MetricsPlotterCallback,
@@ -63,7 +65,6 @@ class TransformConfig(AbstractConfig):
 
 @dataclass
 class DatasetConfig(AbstractConfig):
-    name: str
     root: str
     split: str
 
@@ -78,8 +79,8 @@ class DataloaderConfig(AbstractConfig):
 
 
 @dataclass
-class ModelConfig(AbstractConfig):
-    architecture: str
+class NetConfig(AbstractConfig):
+    params: dict
 
 
 @dataclass
@@ -87,9 +88,9 @@ class TrainerConfig(AbstractConfig):
     accelerator: str
     max_epochs: int
     limit_batches: int
-    use_DP: bool
     use_DDP: bool
     sync_batchnorm: bool
+    use_compile: bool
 
 
 @dataclass
@@ -99,6 +100,9 @@ class SetupConfig(AbstractConfig):
     is_train: bool
     ckpt_path: str | None
     pretrained_ckpt_path: str | None
+    deterministic: bool
+    architecture: str
+    dataset: str
 
 
 @dataclass
@@ -133,7 +137,7 @@ class BaseConfig(AbstractConfig):
     cudnn: CUDNNConfig
     dataloader: DataloaderConfig
     transform: TransformConfig
-    model: ModelConfig
+    net: NetConfig
     module: ModuleConfig
     trainer: TrainerConfig
 
@@ -160,8 +164,8 @@ class BaseConfig(AbstractConfig):
     def run_name(self) -> str:
         ckpt_path = self.setup.ckpt_path
         if ckpt_path is None:
-            dataset = f"_{self.dataloader.train_ds.name}"
-            architecture = f"_{self.model.architecture}"
+            dataset = f"_{self.setup.dataset}"
+            architecture = f"_{self.setup.architecture}"
             return f"{NOW}_{dataset}{architecture}"
         else:
             # ckpt_path is like:
@@ -210,6 +214,25 @@ class BaseConfig(AbstractConfig):
         cfg = load_yaml(filepath)
         return cls.from_dict(cfg)
 
+    @property
+    @abstractmethod
+    def architectures(self) -> dict[str, Type[nn.Module]]:
+        raise NotImplementedError()
+
+    def create_net(self) -> nn.Module:
+        arch = self.setup.architecture
+        params_repr = "\n".join([f"     {k}: {v}" for k, v in self.net.params.items()])
+        arch_repr = f"{arch}\n{params_repr}"
+        log.info(f"..Creating {arch} Neural Network..\n{arch_repr}")
+
+        assert (
+            arch in self.architectures
+        ), f"model.architecture must be one of {list(self.architectures.keys())}"
+
+        ArchitectureClass = self.architectures[arch]
+        net = ArchitectureClass(**self.net.params)
+        return net
+
     @abstractmethod
     def create_datamodule(self) -> DataModule:
         raise NotImplementedError()
@@ -227,6 +250,7 @@ class BaseConfig(AbstractConfig):
             LogsLoggerCallback(),
             ModelSummary(depth=5),
             SaveModelCheckpoint(name="best", metric="loss", last=True, mode="min", stage="val"),
+            DatasetExamplesCallback(splits=["train", "val"], n=20, random_idxs=True),
         ]
         return callbacks
 
@@ -238,16 +262,21 @@ class BaseConfig(AbstractConfig):
                 config=self.to_dict(),
                 experiment_name=self.setup.experiment_name,
                 run_name=self.run_name,
+                resume=True,
             )
         ]
         logger = Loggers(loggers, self.device_id, file_log)
         return logger
 
+    @property
+    def TrainerClass(self) -> Type[Trainer]:
+        return Trainer
+
     def create_trainer(self) -> Trainer:
         log.info("..Creating Trainer..")
         try:
             callbacks = self.create_callbacks()
-            trainer = Trainer(
+            trainer = self.TrainerClass(
                 logger=self.logger,
                 callbacks=callbacks,
                 **self.trainer.to_dict(),

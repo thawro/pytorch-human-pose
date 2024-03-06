@@ -1,11 +1,13 @@
+from typing import TYPE_CHECKING
+
 import cv2
 import numpy as np
-from src.utils.image import make_grid, get_color
-from typing import TYPE_CHECKING
 from PIL import Image
 
+from src.utils.image import get_color, make_grid
+
 if TYPE_CHECKING:
-    from .results import SPPEKeypointsResult, MPPEKeypointsResult
+    from .results import KeypointsResult
 
 
 def plot_connections(
@@ -21,8 +23,8 @@ def plot_connections(
 
     """
     h, w = image.shape[:2]
-    radius = max(3, max(h, w) // 100 - 4)
-    thickness = max(3, max(h, w) // 100 - 4)
+    radius = max(2, max(h, w) // 200 - 4)
+    thickness = max(2, max(h, w) // 200 - 4)
     for i in range(len(all_kpts_coords)):
         kpts_coords = all_kpts_coords[i]
         kpts_scores = all_kpts_scores[i]
@@ -68,9 +70,7 @@ def plot_heatmaps(
     return heatmaps_vis
 
 
-def plot_sppe_results_heatmaps(
-    results: list["SPPEKeypointsResult"], filepath: str | None = None
-):
+def plot_sppe_results_heatmaps(results: list["SPPEKeypointsResult"], filepath: str | None = None):
     n_rows = min(20, len(results))
     grids = []
     for i in range(n_rows):
@@ -85,9 +85,7 @@ def plot_sppe_results_heatmaps(
     return grids
 
 
-def plot_mppe_results_heatmaps(
-    results: list["MPPEKeypointsResult"], filepath: str | None = None
-):
+def plot_mppe_results_heatmaps(results: list["MPPEKeypointsResult"], filepath: str | None = None):
     n_rows = min(20, len(results))
     grids = []
     for i in range(n_rows):

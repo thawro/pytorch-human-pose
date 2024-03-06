@@ -36,15 +36,19 @@ def train(cfg: BaseConfig):
     )
     cfg.setup.seed += rank
     seed_everything(cfg.setup.seed)
-
-    datamodule = cfg.create_datamodule()
-    module = cfg.create_module()
-    trainer = cfg.create_trainer()
+    if cfg.setup.deterministic:
+        log.info("..Using deterministic algorithms..")
+        torch.use_deterministic_algorithms(True)
 
     try:
         cudnn.benchmark = cfg.cudnn.benchmark
         cudnn.deterministic = cfg.cudnn.deterministic
         cudnn.enabled = cfg.cudnn.enabled
+
+        datamodule = cfg.create_datamodule()
+        module = cfg.create_module()
+        trainer = cfg.create_trainer()
+
         trainer.fit(
             module,
             datamodule,

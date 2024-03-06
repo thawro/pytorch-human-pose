@@ -1,5 +1,5 @@
-import numpy as np
 import cv2
+import numpy as np
 
 _xyxy_coords = tuple[int, int, int, int]
 _xy_coords = tuple[int, int]
@@ -45,18 +45,14 @@ def mask_to_head_xyxy(mask: _mask) -> _xyxy_coords:
 def polygons_to_mask(polygons: _coco_polygons, h: int, w: int) -> _mask:
     if isinstance(polygons, dict):
         return coco_rle_seg_to_mask(polygons)
-    seg_polygons = [
-        np.array(polygon).reshape(-1, 2).astype(np.int32) for polygon in polygons
-    ]
+    seg_polygons = [np.array(polygon).reshape(-1, 2).astype(np.int32) for polygon in polygons]
     mask = np.zeros((h, w), dtype=np.uint8)
     mask = cv2.drawContours(mask, seg_polygons, -1, 255, -1)
     return mask
 
 
 def coco_polygons_to_mask(segmentation: _coco_polygons, h: int, w: int) -> _mask:
-    contours = [
-        np.array(polygon).reshape(-1, 2).astype(int) for polygon in segmentation
-    ]
+    contours = [np.array(polygon).reshape(-1, 2).astype(int) for polygon in segmentation]
     mask = np.zeros((h, w), dtype=np.uint8)
     mask = cv2.drawContours(mask, contours, -1, 255, -1)
     return mask
@@ -72,3 +68,8 @@ def coco_rle_seg_to_mask(segmentation: dict[str, list[int]]) -> _mask:
         value = (not value) * 255
     mask = np.array(values, dtype=np.uint8).reshape(w, h).T
     return mask
+
+
+def coco_rle_to_seg(segmentation: dict[str, list[int]]) -> _coco_polygons | _polygons:
+    mask = coco_rle_seg_to_mask(segmentation)
+    return mask_to_polygons(mask)

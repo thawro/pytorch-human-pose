@@ -1,7 +1,9 @@
 import glob
 import os
+import random
 from pathlib import Path
 
+import albumentations as A
 import cv2
 import numpy as np
 import pycocotools
@@ -14,11 +16,12 @@ from torch import Tensor
 from tqdm.auto import tqdm
 
 from src.base.datasets import BaseImageDataset
-from src.keypoints.datasets.transforms import ComposeKeypointsTransform, KeypointsTransform
+from src.keypoints.transforms import ComposeKeypointsTransform, KeypointsTransform
+from src.keypoints.utils import coco_rle_to_seg, mask_to_polygons, polygons_to_mask
 from src.keypoints.visualization import plot_connections, plot_heatmaps
 from src.logger.pylogger import log
 from src.utils.files import load_yaml, save_yaml
-from src.utils.image import make_grid
+from src.utils.image import get_color, make_grid, put_txt, stack_horizontally
 from src.utils.utils import get_rank
 
 
@@ -125,20 +128,23 @@ def get_crowd_mask(annot: list, img_h: int, img_w: int) -> np.ndarray:
     return m < 0.5
 
 
-class CocoKeypoints(BaseImageDataset):
+class CocoKeypointsDataset(BaseImageDataset):
     limbs = coco_limbs
     labels = coco_labels
+    name: str = "COCO"
 
     def __init__(
         self,
-        name: str,
         root: str,
         split: str,
         transform: ComposeKeypointsTransform,
         out_size: int = 512,
         hm_resolutions: list[float] = [1 / 4, 1 / 2],
+        num_kpts: int = 17,
+        max_num_people: int = 30,
+        sigma: float = 2,
+        mosaic_probability: float = 0,
     ):
-        self.name = name
         self.root = root
         self.split = split
         kpts_dir = f"person_keypoints_{self.split}"
@@ -148,8 +154,9 @@ class CocoKeypoints(BaseImageDataset):
         self.out_size = out_size
         self.is_train = "train" in split
         self.num_scales = len(hm_resolutions)
-        self.num_kpts = 17
-        self.max_num_people = 30
+        self.num_kpts = num_kpts
+        self.max_num_people = max_num_people
+        self.mosaic_probability = mosaic_probability
         self._save_annots_to_files()
         self._set_paths()
         self.transform = transform
@@ -158,7 +165,7 @@ class CocoKeypoints(BaseImageDataset):
         hm_generators = []
         joints_generator = []
         for hm_size in self.hm_sizes:
-            hm_generators.append(HeatmapGenerator(self.num_kpts, hm_size, sigma=2))
+            hm_generators.append(HeatmapGenerator(self.num_kpts, hm_size, sigma=sigma))
             joints_generator.append(JointsGenerator(hm_size))
         self.hm_generators = hm_generators
         self.joints_generators = joints_generator
@@ -221,6 +228,78 @@ class CocoKeypoints(BaseImageDataset):
         mask = np.load(self.masks_filepaths[idx])
         return image, annot, mask
 
+    def get_raw_mosaiced_data(
+        self, idx: int, add_segmentation: bool = False
+    ) -> tuple[np.ndarray, list[dict], np.ndarray]:
+        out_size = self.out_size * 2
+        img_size = out_size // 2
+        idxs = [idx] + [random.randint(0, len(self) - 1) for _ in range(3)]
+
+        mosaic_annot = []
+        mosaic_img = np.zeros([out_size, out_size, 3], dtype=np.uint8)
+        mosaic_mask = np.empty([out_size, out_size], dtype=np.bool_)
+
+        new_h, new_w = img_size, img_size
+
+        for i in range(4):
+            idx = idxs[i]
+            img, annot, mask = self.get_raw_data(idx)
+            img_h, img_w = img.shape[:2]
+
+            if i == 0:  # top-left
+                s_y, s_x = 0, 0
+            elif i == 1:  # top-right
+                s_y, s_x = 0, new_w
+            elif i == 2:  # bottom-left
+                s_y, s_x = new_h, 0
+            else:
+                s_y, s_x = new_h, new_w
+
+            new_img = cv2.resize(img, (new_w, new_h))
+            new_mask = cv2.resize((mask * 255).astype(np.uint8), (new_w, new_h)) > 0.5
+
+            scale_y, scale_x = new_h / img_h, new_w / img_w
+            objects = []
+            for obj in annot:
+                bbox = obj["bbox"]
+                bbox[0] = int(bbox[0] * scale_x + s_x)
+                bbox[2] = int(bbox[2] * scale_x + s_x)
+                bbox[1] = int(bbox[1] * scale_y + s_y)
+                bbox[3] = int(bbox[3] * scale_y + s_y)
+                kpts = np.array(obj["keypoints"]).reshape([-1, 3])
+                vis_mask = kpts[:, 2] <= 0
+                kpts[:, 0] = kpts[:, 0] * scale_x + s_x
+                kpts[:, 1] = kpts[:, 1] * scale_y + s_y
+                kpts[vis_mask] = kpts[vis_mask] * 0
+
+                segmentation = None
+                if add_segmentation:
+                    segmentation = obj["segmentation"]
+                    if isinstance(segmentation, dict):
+                        segmentation = mask_to_polygons(
+                            polygons_to_mask(segmentation, img_h, img_w)
+                        )
+                    for j in range(len(segmentation)):
+                        seg = np.array(segmentation[j])
+                        seg[::2] = seg[::2] * scale_x + s_x
+                        seg[1::2] = seg[1::2] * scale_y + s_y
+                        segmentation[j] = seg.astype(np.int32).tolist()
+
+                objects.append(
+                    {
+                        "bbox": bbox,
+                        "iscrowd": obj["iscrowd"],
+                        "keypoints": kpts,
+                        "num_keypoints": obj["num_keypoints"],
+                        "segmentation": segmentation,
+                    }
+                )
+
+            mosaic_img[s_y : s_y + new_h, s_x : s_x + new_w] = new_img
+            mosaic_mask[s_y : s_y + new_h, s_x : s_x + new_w] = new_mask
+            mosaic_annot.extend(objects)
+        return mosaic_img, mosaic_annot, mosaic_mask
+
     def get_joints(self, annots: list[dict]):
         num_people = len(annots)
         joints = np.zeros((num_people, self.num_kpts, 3))
@@ -228,24 +307,94 @@ class CocoKeypoints(BaseImageDataset):
             joints[i] = np.array(obj["keypoints"]).reshape([-1, 3])
         return joints
 
-    def plot(self, idx: int) -> np.ndarray:
+    def plot_examples(
+        self, idxs: list[int], nrows: int = 1, stage_idxs: list[int] = [1, 0]
+    ) -> np.ndarray:
+        return super().plot_examples(idxs, nrows=nrows, stage_idxs=stage_idxs)
+
+    def plot_raw(self, idx: int, max_size: int) -> np.ndarray:
+        raw_image, raw_annot, raw_mask = self.get_raw_data(idx)
+        raw_joints = self.get_joints(raw_annot)
+        kpts = raw_joints[..., :2]
+        visibility = raw_joints[..., 2]
+        raw_image = plot_connections(raw_image.copy(), kpts, visibility, self.limbs, thr=0.5)
+        overlay = raw_image.copy()
+
+        for i, obj in enumerate(raw_annot):
+            seg = obj["segmentation"]
+            if isinstance(seg, dict):  # RLE annotation
+                seg = coco_rle_to_seg(seg)
+            c = get_color(i).tolist()
+            for poly_seg in seg:
+                poly_seg = np.array(poly_seg).reshape(-1, 2).astype(np.int32)
+                overlay = cv2.fillPoly(overlay, [poly_seg], color=c)
+                overlay = cv2.drawContours(overlay, [poly_seg], -1, color=c, thickness=1)
+
+        alpha = 0.4  # Transparency factor.
+
+        # Following line overlays transparent rectangle over the image
+        raw_image = cv2.addWeighted(overlay, alpha, raw_image, 1 - alpha, 0)
+
+        raw_h, raw_w = raw_image.shape[:2]
+
+        raw_img_transform = A.Compose(
+            [
+                A.LongestMaxSize(max_size),
+                A.PadIfNeeded(max_size, max_size, border_mode=cv2.BORDER_CONSTANT),
+            ],
+        )
+        raw_image = raw_img_transform(image=raw_image)["image"]
+        put_txt(raw_image, ["Raw Image", f"Shape: {raw_h} x {raw_w}"])
+        return raw_image
+
+    def plot(self, idx: int, nrows: int = 3, stage_idxs: list[int] = [1]) -> np.ndarray:
+        def plot_stage(stage_idx: int) -> np.ndarray:
+            crowd_mask = mask_list[stage_idx]
+            h, w = crowd_mask.shape[:2]
+            filename = Path(self.images_filepaths[idx]).stem
+            if stage_idx == 1:
+                font_scale = 0.5
+                labels = [
+                    "Transformed Image",
+                    f"Sample: {filename}",
+                    f"Stage: {stage_idx} ({h} x {w})",
+                ]
+            else:
+                font_scale = 0.25
+                labels = [f"Stage: {stage_idx} ({h} x {w})"]
+            image = cv2.resize(img, (h, w))
+            kpts_coords = joints_list[stage_idx][..., :2]
+            visibility = joints_list[stage_idx][..., 2]
+            kpts_heatmaps = plot_heatmaps(image, heatmaps[stage_idx])
+            image = plot_connections(image.copy(), kpts_coords, visibility, self.limbs, thr=0.5)
+            crowd_mask = cv2.cvtColor((crowd_mask * 255).astype(np.uint8), cv2.COLOR_GRAY2RGB)
+            if stage_idx == 1:
+                for i in range(len(kpts_heatmaps)):
+                    put_txt(kpts_heatmaps[i], [self.labels[i]], alpha=0.8, font_scale=font_scale)
+                put_txt(crowd_mask, ["Crowd Mask"], alpha=1, font_scale=font_scale)
+            put_txt(image, labels, alpha=0.8, font_scale=font_scale)
+            grid = make_grid([image, crowd_mask, *kpts_heatmaps], nrows=nrows).astype(np.uint8)
+            return grid
+
         img, heatmaps, mask_list, joints_list = self[idx]
-        h, w = mask_list[1].shape[:2]
         mean = np.array([0.485, 0.456, 0.406])
         std = np.array([0.229, 0.224, 0.225])
         img = (img.permute(1, 2, 0).numpy() * std) + mean
         img = (img * 255).astype(np.uint8)
-        img = cv2.resize(img, (h, w))
-        kpts_coords = joints_list[1][..., :2]
-        visibility = joints_list[1][..., 2]
-        kpts_heatmaps = plot_heatmaps(img, heatmaps[1])
-        img = plot_connections(img.copy(), kpts_coords, visibility, self.limbs, thr=0.5)
-        mask = cv2.cvtColor((mask_list[1] * 255).astype(np.uint8), cv2.COLOR_GRAY2RGB)
-        grid = make_grid([img, mask, *kpts_heatmaps]).astype(np.uint8)
-        return grid
+        stages_grids = [plot_stage(stage_idx) for stage_idx in stage_idxs]
+        model_input_grid = make_grid(stages_grids, nrows=len(stages_grids), match_size=True).astype(
+            np.uint8
+        )
+        raw_image = self.plot_raw(idx, max_size=model_input_grid.shape[0])
+        sample_vis = stack_horizontally([raw_image, model_input_grid])
+        return sample_vis
 
-    def __getitem__(self, idx):
-        img, annot, mask = self.get_raw_data(idx)
+    def __getitem__(self, idx: int):
+        if random.random() < self.mosaic_probability:
+            img, annot, mask = self.get_raw_mosaiced_data(idx)
+        else:
+            img, annot, mask = self.get_raw_data(idx)
+
         annots = [obj for obj in annot if obj["iscrowd"] == 0 or obj["num_keypoints"] > 0]
         joints = self.get_joints(annots)
         mask_list = [mask.copy() for _ in range(self.num_scales)]
@@ -263,13 +412,22 @@ class CocoKeypoints(BaseImageDataset):
 
 
 if __name__ == "__main__":
-    import matplotlib.pyplot as plt
+    from PIL import Image
 
-    from src.keypoints.datasets.transforms import KeypointsTransform
+    from src.keypoints.transforms import KeypointsTransform
 
     out_size = 512
     hm_resolutions = [1 / 4, 1 / 2]
-    transform = KeypointsTransform(out_size, hm_resolutions)
-    # ds = CocoKeypoints("data/COCO/raw", "val2017", transform.inference, out_size, hm_resolutions)
-    ds = CocoKeypoints("data/COCO/raw", "train2017", transform.train, out_size, hm_resolutions)
-    ds.explore(0)
+    transform = KeypointsTransform(out_size, hm_resolutions, min_scale=0.25, max_scale=1.25)
+    # ds = CocoKeypointsDataset("data/COCO/raw", "val2017", transform.inference, out_size, hm_resolutions)
+    ds = CocoKeypointsDataset(
+        "data/COCO/raw",
+        "train2017",
+        transform.train,
+        out_size,
+        hm_resolutions,
+        mosaic_probability=0.25,
+    )
+    grid = ds.plot_examples([0, 1, 2, 3, 4, 5, 6], nrows=1, stage_idxs=[1, 0])
+    Image.fromarray(grid).save("test.jpg")
+    # ds.explore(0)

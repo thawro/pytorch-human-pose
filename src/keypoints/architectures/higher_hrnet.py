@@ -9,7 +9,7 @@ class DeconvHeatmapsHead(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        num_keypoints: int,
+        num_kpts: int,
         num_resid_blocks: int = 4,
         kernel_size: int = 4,
         padding: int = 1,
@@ -35,7 +35,7 @@ class DeconvHeatmapsHead(nn.Module):
         for i in range(num_resid_blocks):
             resid_blocks.append(BasicBlock(out_channels))
         self.resid_blocks = nn.Sequential(*resid_blocks)
-        self.final_layer = nn.Conv2d(out_channels, num_keypoints, 1, 1, 0)
+        self.final_layer = nn.Conv2d(out_channels, num_kpts, 1, 1, 0)
 
     def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
         out = self.deconv(x)
@@ -45,20 +45,20 @@ class DeconvHeatmapsHead(nn.Module):
 
 
 class HigherHRNet(nn.Module):
-    def __init__(self, num_keypoints: int, C: int = 32):
+    def __init__(self, num_kpts: int, C: int = 32):
         super().__init__()
         self.backbone = HRNetBackbone(C, final_stage_single_scale=True)
-        self.num_keypoints = num_keypoints
-        self.init_heatmaps_head = nn.Conv2d(C, num_keypoints * 2, 1, 1, 0)
+        self.num_kpts = num_kpts
+        self.init_heatmaps_head = nn.Conv2d(C, num_kpts * 2, 1, 1, 0)
 
-        deconv_channels = [C + num_keypoints * 2, C]
+        deconv_channels = [C + num_kpts * 2, C]
         self.num_deconv_layers = len(deconv_channels) - 1
 
         deconv_layers = []
         for i in range(self.num_deconv_layers):
             in_channels = deconv_channels[i]
             out_channels = deconv_channels[i + 1]
-            deconv_layer = DeconvHeatmapsHead(in_channels, out_channels, num_keypoints)
+            deconv_layer = DeconvHeatmapsHead(in_channels, out_channels, num_kpts)
             deconv_layers.append(deconv_layer)
 
         self.deconv_layers = nn.ModuleList(deconv_layers)
@@ -75,8 +75,8 @@ class HigherHRNet(nn.Module):
             feats, out = deconv_layer(deconv_input)
             heatmaps.append(out)
 
-        tags_heatmaps = init_heatmaps[:, self.num_keypoints :]
-        stages_kpts_heatmaps = [hm[:, : self.num_keypoints] for hm in heatmaps]
+        tags_heatmaps = init_heatmaps[:, self.num_kpts :]
+        stages_kpts_heatmaps = [hm[:, : self.num_kpts] for hm in heatmaps]
 
         return stages_kpts_heatmaps, tags_heatmaps
 
@@ -85,7 +85,7 @@ if __name__ == "__main__":
     from thop import profile
     from torchinfo import summary
 
-    net = HigherHRNet(num_keypoints=17)
+    net = HigherHRNet(num_kpts=17)
 
     x = torch.randn(1, 3, 224, 224)
 

@@ -9,12 +9,12 @@ from src.logger.loggers import log
 from .datamodule import KeypointsDataModule
 from .loss import AEKeypointsLoss
 from .model import KeypointsModel
-from .results import MPPEKeypointsResult
+from .results import KeypointsResult
 
 _batch = tuple[Tensor, list[Tensor], list[Tensor], list[Tensor]]
 
 
-class MPPEKeypointsModule(BaseModule):
+class KeypointsModule(BaseModule):
     model: KeypointsModel
     loss_fn: AEKeypointsLoss
     datamodule: KeypointsDataModule
@@ -69,7 +69,7 @@ class MPPEKeypointsModule(BaseModule):
 
     def validation_step(
         self, batch: _batch, batch_idx: int
-    ) -> tuple[dict[str, float], list[MPPEKeypointsResult]]:
+    ) -> tuple[dict[str, float], list[KeypointsResult]]:
         images, heatmaps, masks, joints = batch
 
         heatmaps = list(map(lambda x: x.cuda(non_blocking=True), heatmaps))
@@ -99,7 +99,7 @@ class MPPEKeypointsModule(BaseModule):
         images = images.detach().cpu()
         results = []
         for i in range(len(images)):
-            result = MPPEKeypointsResult(
+            result = KeypointsResult(
                 image=images[i],
                 stages_pred_kpts_heatmaps=[hms[i] for hms in stages_pred_kpts_heatmaps],
                 tags_heatmaps=pred_tags_heatmaps[i],

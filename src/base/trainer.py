@@ -17,15 +17,14 @@ from .meters import Meters
 from .module import BaseModule
 from .storage import MetricsStorage
 
-# TODO: ctrl+C sometimes doesnt rise the KeyboardInterrupt (graceful shutdown?)
-# it would still be nice to log it somehow so one can know why training stopped just by reading the logs
-# log some train/val datasets examples on training start (new callback)
-# check checkpoint saving/loading: something weird happens on training resume
+# TODO:
+# metrics plot with plotly
+# log CPU/GPU params (create some new logger which will gather the metrics every 1 sec (?))
 # resume training in old directory
 # add plot gradients callback
-# add DP training (use_DP flag) and switch use_DDP flag to use_DDP
-# check results with flip LR
-# train for 200 epochs
+# add info about logged optimizer state and lr scheduler state (num steps/epochs) passed
+
+# fix compile + DDP
 
 
 class Trainer:
@@ -39,17 +38,14 @@ class Trainer:
         callbacks: list[BaseCallback],
         max_epochs: int = 100,
         limit_batches: int = -1,
-        use_DP: bool = False,
         use_DDP: bool = False,
         sync_batchnorm: bool = True,
+        use_compile: bool = False,
     ):
         stages = ["train", "val", "eval_val"]
-        self.use_DP = use_DP
         self.use_DDP = use_DDP
-        assert (
-            use_DP != use_DDP
-        ), "DataParallel and DistributedDataParallel can't be used at the same time"
         self.sync_batchnorm = sync_batchnorm
+        self.use_compile = use_compile
         self.meters = {stage: Meters(use_DDP=use_DDP) for stage in stages}
         self.accelerator = accelerator
         self.device, self.device_id = get_device_and_id(self.accelerator, self.use_DDP)
@@ -191,6 +187,9 @@ class Trainer:
         if self.use_DDP:
             dist.barrier()
 
+    def on_epoch_start(self):
+        pass
+
     def fit(
         self,
         module: BaseModule,
@@ -198,8 +197,8 @@ class Trainer:
         pretrained_ckpt_path: str | None = None,
         ckpt_path: str | None = None,
     ):
-        train_dataloader = datamodule.train_dataloader(self.use_DDP)
-        val_dataloader = datamodule.val_dataloader(self.use_DDP)
+        train_dataloader = datamodule.train_dataloader
+        val_dataloader = datamodule.val_dataloader
 
         module.pass_attributes(
             device_id=self.device_id,
@@ -212,7 +211,8 @@ class Trainer:
         # Correct order (?):
         # Compile -> CUDA -> weights init -> pretrained weights load -> previous run ckpt load -> DDP
 
-        # module.model.compile()
+        if self.use_compile and not self.use_DDP:
+            module.model.compile()
         module.model.to_CUDA(self.device_id)
         module.loss_fn.cuda(self.device_id)
 
@@ -229,20 +229,19 @@ class Trainer:
 
         self.module = module
         self.datamodule = datamodule
+        self.module.set_optimizers()
         if ckpt_path is not None:
             self.load_checkpoint(ckpt_path)
 
         if self.use_DDP:
-            log.info("..Moving model to DDP (Data Distributed Parallel)..")
             self.module.model.to_DDP(self.device_id, self.sync_batchnorm)
-        elif self.use_DP:
-            log.info("..Moving model to DP (Data Parallel)..")
-            self.module.model.to_DP(self.device_ids)  # TODO
+            if self.use_compile:
+                self.module.model.compile()
 
-        self.module.set_optimizers()
         self.module.set_attributes(current_step=self.current_step)
 
         self.callbacks.on_fit_start(self)
+
         # self.sanity_check(val_dataloader)
 
         self._wait_for_all_workers()
@@ -262,6 +261,7 @@ class Trainer:
                 if isinstance(train_dataloader.sampler, DistributedSampler):
                     train_dataloader.sampler.set_epoch(epoch)  # train_dl uses shuffle=True
                 self.current_epoch = epoch
+                self.on_epoch_start()
                 self.module.on_epoch_start()
                 self.callbacks.on_epoch_start(self)
                 self.module.set_attributes(current_epoch=epoch)

@@ -26,17 +26,17 @@ class BaseModel:
         return self.net(x)
 
     def to_CUDA(self, device_id: int):
+        log.info(f"..Moving model to CUDA device (cuda:{device_id})..")
         self.net = self.net.cuda(device_id)
-
-    def to_DP(self, device_ids: list[int]):
-        self.net = nn.DataParallel(self.net, device_ids=device_ids)
 
     def to_DDP(self, device_id: int, use_batchnorm: bool):
         # NOTE: Issue with BatchNorm for DDP:
         # https://discuss.pytorch.org/t/training-performance-degrades-with-distributeddataparallel/47152/31
         # the forums say that the proper way to use DDP and BatchNorm layers is to use cudnn.enabled = False
         # but it slows the training by 1.5-2x times
+        log.info("..Moving Module to DDP (Data Distributed Parallel)..")
         if use_batchnorm:
+            log.info("      ..Converting BatchNorm to SyncBatchNorm..")
             self.net = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.net)
         self.net = DDP(
             self.net,
@@ -44,7 +44,7 @@ class BaseModel:
         )
 
     def compile(self):
-        log.info("Compiling Module (`torch.compile(net)`)")
+        log.info("..Compiling Module (`torch.compile(net)`)..")
         self.net = torch.compile(self.net)
 
     @property
@@ -101,7 +101,7 @@ class BaseModel:
             return self.net.state_dict()
 
     def load_state_dict(self, state_dict: dict):
-        self.net.load_state_dict(self.parse_checkpoint(state_dict))
+        self.net.load_state_dict(state_dict)
         log.info("     Loaded model state")
 
     def init_pretrained_weights(self, ckpt: dict):

@@ -8,17 +8,19 @@ from src.utils.files import load_yaml
 
 def main() -> None:
     cfg_path = YAML_EXP_PATH / "keypoints" / "higher_hrnet_32.yaml"
+    # cfg_path = YAML_EXP_PATH / "keypoints" / "higher_hrnet_32_mosaic.yaml"
+
     cfg = load_yaml(cfg_path)
 
     pretrained_ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/classification/02-15_10:12___imagenet_HRNet/02-19_09:14/checkpoints/best.pt"
     # pretrained_ckpt_path = None
 
-    ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/keypoints/03-01_15:51__COCO_HigherHRNet/03-01_17:58/checkpoints/best.pt"
+    ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/keypoints/03-05_15:47__COCO_HigherHRNet/03-06_20:00/checkpoints/last.pt"
     ckpt_path = None
 
     cfg["setup"]["ckpt_path"] = ckpt_path
     cfg["setup"]["pretrained_ckpt_path"] = pretrained_ckpt_path
-    cfg["trainer"]["limit_batches"] = -1
+    cfg["trainer"]["limit_batches"] = 5
     cfg["trainer"]["use_DDP"] = True
 
     cfg = KeypointsConfig.from_dict(cfg)

@@ -5,9 +5,8 @@ from src.logger.pylogger import log
 
 
 class KeypointsModel(BaseImageModel):
-    def __init__(self, net: nn.Module, num_kpts: int):
+    def __init__(self, net: nn.Module):
         super().__init__(net, ["images"], ["keypoints"])
-        self.num_kpts = num_kpts
 
     def init_weights(self):
         log.info("..Initializing weights from normal distribution (Keypoints)..")

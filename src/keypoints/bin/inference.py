@@ -1,5 +1,4 @@
 from functools import partial
-from typing import Literal
 
 import cv2
 import numpy as np
@@ -13,7 +12,7 @@ from src.base.transforms.utils import (
     resize_align_multi_scale,
 )
 from src.keypoints.config import KeypointsConfig
-from src.keypoints.datasets.coco_keypoints import coco_limbs
+from src.keypoints.datasets.coco import coco_limbs
 from src.keypoints.results import InferenceMPPEKeypointsResult
 from src.logger.pylogger import log
 from src.utils.config import DS_ROOT, YAML_EXP_PATH
@@ -49,7 +48,6 @@ class MPPEInferenceKeypointsModel:
         tag_thr: float = 1.0,
         use_flip: bool = False,
         device: str = "cuda:1",
-        ds_name: Literal["COCO", "MPII"] = "COCO",
     ):
         super().__init__()
         self.net = net.to(device)
@@ -57,7 +55,6 @@ class MPPEInferenceKeypointsModel:
         self.det_thr = det_thr
         self.tag_thr = tag_thr
         self.input_size = 512
-        self.ds_name = ds_name
         self.limbs = coco_limbs
         self.use_flip = use_flip
 
@@ -160,7 +157,7 @@ def load_model(cfg_path: str, ckpt_path: str, device_id: int = 0) -> MPPEInferen
     model = MPPEInferenceKeypointsModel(
         net,
         device=device,
-        ds_name=cfg.dataloader.train_ds.name,
+        ds_name="COCO",
         det_thr=0.1,
         tag_thr=1.0,
         use_flip=False,
@@ -193,7 +190,7 @@ def main() -> None:
     model = load_model(cfg_path, ckpt_path, device_id=1)
 
     BaseImageDataset._set_paths = _set_paths
-    ds = BaseImageDataset(root=str(DS_ROOT / f"{model.ds_name}/HumanPose"), split="val")
+    ds = BaseImageDataset(root=str(DS_ROOT / "COCO/HumanPose"), split="val")
     ds._set_paths()
     ds.perform_inference(partial(processing_fn, model=model))
 

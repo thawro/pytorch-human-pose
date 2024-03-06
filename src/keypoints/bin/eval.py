@@ -72,7 +72,7 @@ def main() -> None:
 
     model = load_model(cfg_path, ckpt_path, device_id=1)
 
-    root = str(DS_ROOT / f"{model.ds_name}/raw")
+    root = str(DS_ROOT / "COCO/raw")
     split = "val2017"
 
     BaseImageDataset._set_paths = _set_paths

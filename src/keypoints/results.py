@@ -3,10 +3,9 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 import torch
-import torchvision.transforms.functional as F
 from torch import Tensor
 
-from src.keypoints.grouping import MPPEHeatmapParser, SPPEHeatmapParser
+from src.keypoints.grouping import MPPEHeatmapParser
 from src.keypoints.metrics import OKS
 from src.keypoints.visualization import plot_connections, plot_heatmaps
 from src.utils.image import make_grid
@@ -45,35 +44,7 @@ def match_preds_to_targets(
     return target_matches_idx
 
 
-class SPPEKeypointsResult:
-    def __init__(
-        self,
-        image: np.ndarray,
-        pred_heatmaps: Tensor,
-        limbs: list[tuple[int, int]],
-        det_thr: float = 0.1,
-    ):
-        self.image = image
-        self.pred_heatmaps = pred_heatmaps
-        self.num_kpts = pred_heatmaps.shape[0]
-        self.limbs = limbs
-        self.det_thr = det_thr
-        self.hm_parser = SPPEHeatmapParser(self.num_kpts, det_thr)
-
-    def set_preds(self):
-        if hasattr(self, "pred_keypoints"):
-            print("Preds already set. Returning")
-            return
-        h, w = self.image.shape[:2]
-        pred_heatmaps = F.resize(self.pred_heatmaps, [h, w], antialias=True)
-        person_joints = self.hm_parser.parse(pred_heatmaps.unsqueeze(0))
-
-        self.pred_keypoints = person_joints[..., :2]
-        self.pred_scores = person_joints[..., 2]
-        self.pred_kpts_heatmaps = pred_heatmaps.cpu().numpy()[0]
-
-
-class MPPEKeypointsResult:
+class KeypointsResult:
     def __init__(
         self,
         image: Tensor,
@@ -195,7 +166,7 @@ class MPPEKeypointsResult:
 
 
 @dataclass
-class InferenceMPPEKeypointsResult:
+class InferenceKeypointsResult:
     annot: np.ndarray | None
     model_input: np.ndarray
     image: np.ndarray

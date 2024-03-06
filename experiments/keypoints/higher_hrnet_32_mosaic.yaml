@@ -34,7 +34,7 @@ dataloader:
     num_kpts: 17
     max_num_people: 30
     sigma: 2.0
-    mosaic_probability: 0
+    mosaic_probability: 1
   val_ds:
     root: data/COCO/raw
     split: val2017
@@ -51,8 +51,8 @@ transform:
   out_size: 512
   hm_resolutions: [0.25, 0.5]
   max_rotation: 30
-  min_scale: 0.7
-  max_scale: 1.6
+  min_scale: 0.25
+  max_scale: 1.25
   scale_type: short
   max_translate: 40
 

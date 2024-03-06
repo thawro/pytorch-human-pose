@@ -1,15 +1,15 @@
 from dataclasses import dataclass
+from typing import Type
 
-import torchvision.datasets as datasets
 from torch import nn
 
 from src.base.callbacks import BaseCallback
 from src.base.config import BaseConfig
 from src.logger.pylogger import log
-from src.utils.config import DS_ROOT
 
 from .architectures import ClassificationHRNet
 from .datamodule import ClassificationDataModule
+from .datasets import ImagenetClassificationDataset
 from .loss import ClassificationLoss
 from .model import ClassificationModel
 from .module import ClassificationModule
@@ -23,13 +23,12 @@ class ClassificationConfig(BaseConfig):
 
         transform = ClassificationTransform(**self.transform.to_dict())
 
-        train_ds_root = str(
-            DS_ROOT / self.dataloader.train_ds.name / self.dataloader.train_ds.split
+        train_ds = ImagenetClassificationDataset(
+            **self.dataloader.train_ds.to_dict(), transform=transform.train
         )
-        val_ds_root = str(DS_ROOT / self.dataloader.val_ds.name / self.dataloader.val_ds.split)
-
-        train_ds = datasets.ImageFolder(train_ds_root, transform.train)
-        val_ds = datasets.ImageFolder(val_ds_root, transform.inference)
+        val_ds = ImagenetClassificationDataset(
+            **self.dataloader.val_ds.to_dict(), transform=transform.inference
+        )
         self.labels = []
 
         return ClassificationDataModule(
@@ -39,14 +38,12 @@ class ClassificationConfig(BaseConfig):
             batch_size=self.dataloader.batch_size,
             pin_memory=self.dataloader.pin_memory,
             num_workers=self.dataloader.num_workers,
+            use_DDP=self.trainer.use_DDP,
         )
 
-    def create_net(self) -> nn.Module:
-        log.info(f"..Creating {self.model.architecture}..")
-        if self.model.architecture == "HRNet":
-            return ClassificationHRNet(C=32, num_classes=1000)
-        else:
-            raise ValueError("Wrong architecture type")
+    @property
+    def architectures(self) -> dict[str, Type[nn.Module]]:
+        return {"ClassificationHRNet": ClassificationHRNet}
 
     def _create_model(self) -> ClassificationModel:
         log.info("..Creating ClassificationModel..")

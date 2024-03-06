@@ -2,10 +2,10 @@
 
 from src.base.datamodule import DataModule
 
-from .datasets.coco_keypoints import CocoKeypoints
+from .datasets.coco import CocoKeypointsDataset
 
 
 class KeypointsDataModule(DataModule):
-    train_ds: CocoKeypoints
-    val_ds: CocoKeypoints
-    test_ds: CocoKeypoints
+    train_ds: CocoKeypointsDataset
+    val_ds: CocoKeypointsDataset
+    test_ds: CocoKeypointsDataset

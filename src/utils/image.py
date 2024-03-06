@@ -1,7 +1,8 @@
-import numpy as np
-import cv2
 from typing import Literal
+
+import cv2
 import matplotlib.pyplot as plt
+import numpy as np
 
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
@@ -11,9 +12,7 @@ WHITE = (255, 255, 255)
 YELLOW = (255, 255, 0)
 
 
-def stack_frames_horizontally(
-    frames: list[np.ndarray], vspace: int = 10, hspace: int = 10
-):
+def stack_frames_horizontally(frames: list[np.ndarray], vspace: int = 10, hspace: int = 10):
     img_w = sum([img.shape[1] for img in frames]) + (len(frames) + 1) * vspace
     img_h = max([img.shape[0] for img in frames]) + 2 * hspace
     img = np.zeros((img_h, img_w, 3), dtype=np.uint8)
@@ -37,12 +36,14 @@ def stack_frames_horizontally(
 
 
 def make_grid(
-    images: list[np.ndarray], nrows: int = 2, pad: int = 5, resize: float = -1
+    images: list[np.ndarray], nrows: int = 1, pad: int = 5, match_size: bool = False
 ) -> np.ndarray:
     _images = [img.copy() for img in images]
-    if resize > 0:
+    if match_size:
+        max_h = max([img.shape[0] for img in _images])
+        max_w = max([img.shape[1] for img in _images])
         for i in range(len(_images)):
-            _images[i] = cv2.resize(_images[i], (0, 0), fx=resize, fy=resize)
+            _images[i] = cv2.resize(_images[i], (max_w, max_h))
 
     h, w = _images[0].shape[:2]
     ncols = int(np.ceil(len(_images) / nrows).item())
@@ -60,6 +61,32 @@ def make_grid(
     return grid
 
 
+# def resize_pad(image: np.ndarray, height: int, width: int) -> np.ndarray:
+
+
+def stack_horizontally(images: list[np.ndarray], pad: int = 5):
+    max_h = max([img.shape[0] for img in images])
+    new_h = max_h
+    resized_images = []
+    for img in images:
+        h, w = img.shape[:2]
+        if h != new_h:
+            new_w = int(w / h * new_h)
+            resized_images.append(cv2.resize(img, (new_w, new_h)))
+        else:
+            resized_images.append(img)
+    grid_h = pad + new_h + pad
+    grid_w = sum([img.shape[1] + pad for img in resized_images]) + pad
+    grid = np.zeros((grid_h, grid_w, 3), dtype=images[0].dtype)
+
+    x = pad
+    for idx, image in enumerate(resized_images):
+        img_w = image.shape[1]
+        grid[pad:-pad, x : x + img_w] = image
+        x = x + img_w + pad
+    return grid
+
+
 def put_txt(
     image: np.ndarray,
     labels: list[str],
@@ -70,6 +97,7 @@ def put_txt(
     loc: Literal["tl", "tc", "tr", "bl", "bc", "br"] = "tl",
     bg_color: tuple[int, int, int] = GRAY,
     txt_color: tuple[int, int, int] = WHITE,
+    alpha: float = 1.0,
 ) -> np.ndarray:
     img_h, img_w = image.shape[:2]
     txt_h = vspace
@@ -99,13 +127,17 @@ def put_txt(
         y = img_h - txt_h - vspace
         x = img_w // 2 - txt_w // 2 - vspace
 
-    cv2.rectangle(
-        image,
-        (x - vspace, y - vspace),
-        (x - vspace + txt_w, y - vspace + txt_h),
-        bg_color,
-        -1,
-    )
+    _x = x - vspace
+    _y = y - vspace
+    if alpha < 1:
+        sub_img = image[_y : _y + txt_h, _x : _x + txt_w]
+        white_rect = np.ones(sub_img.shape, dtype=np.uint8) * 255
+        cv2.rectangle(white_rect, (0, 0), (txt_w, txt_h), bg_color, -1)
+        res = cv2.addWeighted(sub_img, 0.5, white_rect, 0.5, 1.0)
+        image[_y : _y + txt_h, _x : _x + txt_w] = res
+    else:
+        cv2.rectangle(image, (_x, _y), (_x + txt_w, _y + txt_h), bg_color, -1)
+
     for label in labels:
         (width, height), _ = cv2.getTextSize(label, font, font_scale, thickness)
         cv2.putText(image, label, (x, y + height), font, font_scale, txt_color)

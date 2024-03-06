@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import random
 from typing import TYPE_CHECKING, Literal
+
+from PIL import Image
 
 if TYPE_CHECKING:
     from src.base.storage import MetricsStorage
@@ -19,7 +22,7 @@ from src.utils.config import LOG_DEVICE_ID
 from src.utils.files import save_txt_to_file, save_yaml
 
 from .results import BaseResult
-from .visualization import plot_metrics
+from .visualization import plot_metrics_matplotlib, plot_metrics_plotly
 
 _log_mode = Literal["step", "epoch", "validation"]
 
@@ -117,7 +120,7 @@ class Callbacks:
     def load_state_dict(self, state_dict: dict[str, dict]):
         for callback in self.callbacks:
             name = callback.__class__.__name__
-            callback.load_state_dict(state_dict[name])
+            callback.load_state_dict(state_dict.get(name, {}))
 
 
 class LogsLoggerCallback(BaseCallback):
@@ -143,14 +146,13 @@ class SaveModelCheckpoint(BaseCallback):
         metric: str | None = None,
         mode: str | None = "min",
         last: bool = False,
-        top_k: int = 1,
         verbose: bool = False,
     ):
         self.name = name if name is not None else "best"
+
         self.stage = stage
         self.metric = metric
         self.save_last = last
-        self.top_k = top_k
         self.verbose = verbose
         self.mode = mode
 
@@ -175,13 +177,13 @@ class SaveModelCheckpoint(BaseCallback):
             log.info(
                 f"Current {self.stage}/{self.metric}={last:.3e},   Best {self.stage}/{self.metric}={self.best:.3e}"
             )
-            if self.compare(last, self.best) and self.top_k == 1:
+            if self.compare(last, self.best):
                 self.best = last
                 log.info(f"Found new best value for {self.stage}/{self.metric} ({self.best:.3e})")
                 trainer.save_checkpoint(str(ckpt_dir / f"{self.name}.pt"))
         if self.save_last:
-            filename = f"epoch_{trainer.current_epoch}_step_{trainer.current_step}"
-            # filename = "last"
+            filename = "last"
+            # f"epoch_{trainer.current_epoch}_step_{trainer.current_step}"
             trainer.save_checkpoint(str(ckpt_dir / f"{filename}.pt"))
 
     def on_epoch_end(self, trainer: Trainer):
@@ -204,7 +206,7 @@ class SaveModelCheckpoint(BaseCallback):
 class BaseExamplesPlotterCallback(BaseCallback):
     """Plot prediction examples"""
 
-    def __init__(self, name: str = ""):
+    def __init__(self, name: str | None = ""):
         self.name = name
 
     @abstractmethod
@@ -235,12 +237,17 @@ class MetricsPlotterCallback(BaseCallback):
 
     def plot(self, trainer: Trainer, mode: _log_mode) -> None:
         log_path = trainer.logger.loggers[0].log_path
-        filepath = f"{log_path}/{mode}_metrics.jpg"
+
         storage = get_metrics_storage(trainer, mode)
         if len(storage.metrics) > 0:
             step_name = "epoch" if mode == "epoch" else "step"
-            plot_metrics(storage, step_name, filepath=filepath)
-            log.info(f"Metrics plots saved at '{filepath}'")
+            filepath = f"{log_path}/{mode}_metrics.jpg"
+            plot_metrics_matplotlib(storage, step_name, filepath=filepath)
+            log.info(f"Metrics plots (matplotlib) saved at '{filepath}'")
+
+            filepath = f"{log_path}/{mode}_metrics.html"
+            plot_metrics_plotly(storage, step_name, filepath=filepath)
+            log.info(f"Metrics plots (plotly) saved at '{filepath}'")
         else:
             log.warn(f"No metrics to plot logged yet (mode={mode})")
 
@@ -302,6 +309,34 @@ class ModelSummary(BaseCallback):
         Path(model_dir).mkdir(exist_ok=True, parents=True)
         filepath = f"{model_dir}/model_summary.txt"
         save_txt_to_file(model_summary, filepath)
+
+
+class DatasetExamplesCallback(BaseCallback):
+    def __init__(
+        self,
+        splits: list[Literal["train", "val", "test"]] = ["train"],
+        n: int = 10,
+        random_idxs: bool = False,
+    ) -> None:
+        self.splits = splits
+        self.n = n
+        self.random_idxs = random_idxs
+
+    def on_fit_start(self, trainer: Trainer):
+        log.info("..Saving datasets samples examples..")
+        dirpath = trainer.logger.loggers[0].data_examples_dir
+        for split in self.splits:
+            dataset = trainer.datamodule.datasets[split]
+            dirpath.mkdir(exist_ok=True, parents=True)
+            filepath = str(dirpath / f"{split}.jpg")
+
+            if self.random_idxs:
+                idxs = [random.randint(0, len(dataset)) for _ in range(self.n)]
+            else:
+                idxs = list(range(self.n))
+            grid = dataset.plot_examples(idxs, nrows=1)
+            Image.fromarray(grid).save(filepath)
+            log.info(f"      ..{split} dataset examples saved at '{filepath}'..")
 
 
 # TODO: replace with epochs

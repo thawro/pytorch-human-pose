@@ -25,6 +25,7 @@ class DataModule:
         drop_last: bool = True,
         collate_fn=None,
         seed: int = 42,
+        use_DDP: bool = False,
     ):
         super().__init__()
         self.seed = seed
@@ -36,6 +37,7 @@ class DataModule:
         self.pin_memory = pin_memory
         self.drop_last = drop_last
         self._shuffle = None
+        self.use_DDP = use_DDP
 
         self.dl_params = dict(
             num_workers=num_workers,
@@ -46,23 +48,34 @@ class DataModule:
         )
 
         self.datasets = {"train": train_ds, "val": val_ds, "test": test_ds}
-        log.info("DataModule statistics:")
+        self._log_statistics()
+        self.total_batches = {}
+        self.train_dataloader = self._dataloader("train")
+        self.val_dataloader = self._dataloader("val")
+        if test_ds is not None:
+            self.test_dataloader = self._dataloader("test")
+
+    def _log_statistics(self):
+        statistics_repr = []
         for split, ds in self.datasets.items():
             if ds is not None:
-                log.info(f"     {split}: {len(ds)} samples ({ds.__class__.__name__})")
+                ds_repr = f"{split}: {len(ds)} samples ({ds.__class__.__name__})"
+
             else:
-                log.warn(f"     {split}: 0 (dataset is None)")
-        self.total_batches = {}
+                ds_repr = f"{split}: 0 (dataset is None)"
+            statistics_repr.append(ds_repr)
+        statistics_repr = "\n".join(statistics_repr)
+        log.info(f"DataModule statistics:\n{statistics_repr}")
 
     def _dataloader(
         self,
-        use_distributed: bool,
         split: _split,
     ):
         shuffle = split == "train"
         dataset = self.datasets[split]
 
-        if use_distributed:
+        if self.use_DDP:
+            log.info("..Using DistributedSampler..")
             rank = int(os.environ["LOCAL_RANK"])
             params = dict(
                 shuffle=False,
@@ -74,19 +87,20 @@ class DataModule:
                 ),
             )
         else:
+            log.info("..Using default Sampler..")
             params = dict(shuffle=shuffle)
         dataloader = DataLoader(dataset, **self.dl_params, **params)
         self.total_batches[split] = len(dataloader)
         return dataloader
 
-    def train_dataloader(self, use_distributed: bool):
-        return self._dataloader(use_distributed, "train")
+    # def train_dataloader(self):
+    #     return self._dataloader("train")
 
-    def val_dataloader(self, use_distributed: bool):
-        return self._dataloader(use_distributed, "val")
+    # def val_dataloader(self):
+    #     return self._dataloader("val")
 
-    def test_dataloader(self, use_distributed: bool):
-        return self._dataloader(use_distributed, "test")
+    # def test_dataloader(self):
+    #     return self._dataloader("test")
 
     def state_dict(self) -> dict:
         return {

@@ -95,18 +95,17 @@ class BaseModule:
 
     def load_state_dict(self, state_dict: dict, lr: float | None = None):
         self.model.load_state_dict(state_dict["model"])
-        self.set_optimizers()
         for name, optimizer in self.optimizers.items():
             optimizer.load_state_dict(state_dict["optimizers"][name])
             if lr is not None:
                 optimizer.param_groups[0]["lr"] = lr
-            log.info(f'     Loaded "{name}" optimizer state')
+            log.info(f'     Loaded "{name}" Optimizer state')
         for name, lr_scheduler in self.lr_schedulers.items():
-            lr_scheduler.load_state_dict(state_dict["schedulers"][name])
-            log.info(f'     Loaded "{name}" scheduler state')
+            lr_scheduler.load_state_dict(state_dict["lr_schedulers"][name])
+            log.info(f'     Loaded "{name}" LR Scheduler state')
         for name, scaler in self.scalers.items():
             scaler.load_state_dict(state_dict["scalers"][name])
-            log.info(f'     Loaded "{name}" scaler state')
+            log.info(f'     Loaded "{name}" Scaler state')
 
     def state_dict(self) -> dict:
         optimizers_state = {

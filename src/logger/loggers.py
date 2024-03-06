@@ -70,10 +70,14 @@ class BaseLogger:
         self.model_summary_dir = self.log_path / "model/summary"
         self.model_onnx_dir = self.log_path / "model/onnx"
         self.eval_examples_dir = self.log_path / "eval_examples"
+        self.data_examples_dir = self.log_path / "data_examples"
+        # creating directories
         self.ckpt_dir.mkdir(parents=True, exist_ok=True)
         self.model_summary_dir.mkdir(parents=True, exist_ok=True)
         self.model_onnx_dir.mkdir(parents=True, exist_ok=True)
         self.logs_path.mkdir(exist_ok=True, parents=True)
+        self.eval_examples_dir.mkdir(exist_ok=True, parents=True)
+        self.data_examples_dir.mkdir(exist_ok=True, parents=True)
         self.results = LoggerResults()
 
         self._run_id = None
@@ -82,9 +86,8 @@ class BaseLogger:
         rank = get_rank()
         if rank != 0:
             return
-        log.info("Experiment config:")
-        for name, cfg in self.config.items():
-            log.info(f"     '{name}': {cfg}")
+        config_repr = "\n".join([f"     '{name}': {cfg}" for name, cfg in self.config.items()])
+        log.info(f"Experiment config:\n{config_repr}")
 
     @property
     def run_id(self) -> str:
@@ -210,6 +213,7 @@ class MLFlowLogger(BaseLogger):
         run_name: str | None = None,
         tracking_uri: str | None = None,
         run_id: str | None = None,
+        resume: bool = True,
         description: str = "",
     ):
         super().__init__(log_path=log_path, config=config)
@@ -220,6 +224,7 @@ class MLFlowLogger(BaseLogger):
         self.tracking_uri = tracking_uri
         self.experiment_name = experiment_name
         self.run_name = run_name
+        self.resume = resume
         self.description = description
         self._run_id = run_id
 
@@ -231,7 +236,10 @@ class MLFlowLogger(BaseLogger):
             experiment_id = client.create_experiment(self.experiment_name)
             experiment = client.get_experiment(experiment_id)
         experiment_id = experiment.experiment_id
-        if self._run_id is None:
+        if not self.resume:
+            log.info(f"     Creating new run with {self.run_name} name")
+            run = client.create_run(experiment_id, run_name=self.run_name)
+        elif self._run_id is None:
             # get run by name
             runs = client.search_runs(
                 experiment_ids=[str(experiment_id)],

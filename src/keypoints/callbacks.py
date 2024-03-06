@@ -1,14 +1,19 @@
 """Dummy results callbacks."""
 
 from __future__ import annotations
-from typing import TYPE_CHECKING
-from .results import SPPEKeypointsResult, MPPEKeypointsResult
-from .visualization import plot_sppe_results_heatmaps, plot_mppe_results_heatmaps
-from src.base.callbacks import BaseExamplesPlotterCallback
 
+import random
+from typing import TYPE_CHECKING, Literal
+
+from PIL import Image
+
+from src.base.callbacks import BaseCallback, BaseExamplesPlotterCallback, DatasetExamplesCallback
+
+from .results import KeypointsResult
+from .visualization import plot_mppe_results_heatmaps
 
 if TYPE_CHECKING:
-    from src.base.trainer import Trainer
+    from .trainer import KeypointsTrainer
 
 
 class KeypointsExamplesPlotterCallback(BaseExamplesPlotterCallback):
@@ -19,13 +24,16 @@ class KeypointsExamplesPlotterCallback(BaseExamplesPlotterCallback):
         self.det_thr = det_thr
 
     def plot_example_results(
-        self,
-        trainer: Trainer,
-        results: list[SPPEKeypointsResult] | list[MPPEKeypointsResult],
-        filepath: str,
+        self, trainer: KeypointsTrainer, results: list[KeypointsResult], filepath: str
     ):
-        limbs = trainer.datamodule.train_ds.limbs
-        if isinstance(results[0], SPPEKeypointsResult):
-            plot_sppe_results_heatmaps(results, limbs, filepath, thr=self.det_thr)
-        else:
-            plot_mppe_results_heatmaps(results, filepath)
+        plot_mppe_results_heatmaps(results, filepath)
+
+
+class KeypointsDatasetExamplesCallback(DatasetExamplesCallback):
+    def __init__(
+        self,
+        splits: list[Literal["train", "val", "test"]] = ["train"],
+        n: int = 10,
+        random_idxs: bool = False,
+    ) -> None:
+        super().__init__(splits, n, random_idxs)

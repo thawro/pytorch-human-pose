@@ -8,12 +8,12 @@ packages = [{ include = "src" }]
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.13"
-torch = { version = "2.0.1+cu118", source = "torchcu118" }
+torch = { version = "2.2.1+cu121", source = "torchcu121" }
 pre-commit = "^3.2.2"
 black = "^23.3.0"
 isort = "^5.12.0"
 torchinfo = "^1.7.2"
-torchvision = { version = "0.15.2", source = "torchcu118" }
+torchvision = { version = "0.17.1", source = "torchcu121" }
 rich = "^13.3.5"
 matplotlib = "^3.7.1"
 colorlog = "^6.7.0"
@@ -40,6 +40,7 @@ thop = "^0.1.1.post2209072238"
 pycocotools = "^2.0.7"
 json-tricks = "^3.17.3"
 line-profiler = "^4.1.2"
+plotly = "^5.19.0"
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^2.17.4"
@@ -49,11 +50,15 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 
-[[tool.poetry.source]]
-name = "torchcu118"
-url = "https://download.pytorch.org/whl/cu118"
-priority = "explicit"
+# [[tool.poetry.source]]
+# name = "torchcu118"
+# url = "https://download.pytorch.org/whl/cu118"
+# priority = "explicit"
 
+[[tool.poetry.source]]
+name = "torchcu121"
+url = "https://download.pytorch.org/whl/cu121"
+priority = "explicit"
 
 
 [tool.ruff.per-file-ignores]
