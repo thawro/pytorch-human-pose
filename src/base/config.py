@@ -15,6 +15,7 @@ from src.utils.files import load_yaml
 from src.utils.utils import get_device_and_id
 
 from .callbacks import (
+    ArtifactsLoggerCallback,
     BaseCallback,
     DatasetExamplesCallback,
     LogsLoggerCallback,
@@ -103,6 +104,19 @@ class SetupConfig(AbstractConfig):
     deterministic: bool
     architecture: str
     dataset: str
+    run_name: str | Literal["auto"] = "auto"
+
+    def _auto_run_name(self) -> str:
+        if self.ckpt_path is not None:
+            # ckpt_path is like:
+            # "<proj_root>/results/<exp_name>/<run_name>/<timestamp>/checkpoints/<ckpt_name>.pt"
+            # so run_name is -4 idx after split
+            return self.ckpt_path.split("/")[-4]
+        return f"{NOW}__{self.dataset}_{self.architecture}"
+
+    def __post_init__(self):
+        if self.run_name == "auto":
+            self.run_name = self._auto_run_name()
 
 
 @dataclass
@@ -142,6 +156,8 @@ class BaseConfig(AbstractConfig):
     trainer: TrainerConfig
 
     def __post_init__(self):
+        if self.is_debug:
+            self.setup.experiment_name = "debug"
         self.device, self.device_id = get_device_and_id(
             self.trainer.accelerator, self.trainer.use_DDP
         )
@@ -161,34 +177,18 @@ class BaseConfig(AbstractConfig):
             self.logger.start_run()
 
     @property
-    def run_name(self) -> str:
-        ckpt_path = self.setup.ckpt_path
-        if ckpt_path is None:
-            dataset = f"_{self.setup.dataset}"
-            architecture = f"_{self.setup.architecture}"
-            return f"{NOW}_{dataset}{architecture}"
-        else:
-            # ckpt_path is like:
-            # "<proj_root>/results/<exp_name>/<run_name>/<timestamp>/checkpoints/<ckpt_name>.pt"
-            # so run_name is -4 idx after split
-            run_name = ckpt_path.split("/")[-4]
-            return run_name
-
-    @property
     def log_path(self) -> str:
         ckpt_path = self.setup.ckpt_path
-        is_train = self.setup.is_train
         if ckpt_path is None:
             exp_name = "debug" if self.is_debug else self.setup.experiment_name
-            _log_path = str(RESULTS_PATH / exp_name / self.run_name / NOW)
+            _log_path = str(RESULTS_PATH / exp_name / self.setup.run_name / NOW)
         else:
             ckpt_path = Path(ckpt_path)
             loaded_ckpt_run_path = ckpt_path.parent.parent
             loaded_run_path = loaded_ckpt_run_path.parent
-            if is_train:
-                _log_path = str(loaded_run_path / NOW)
-            else:
-                _log_path = str(loaded_ckpt_run_path)
+            _log_path = str(loaded_run_path / NOW)
+            if self.is_debug:
+                _log_path = _log_path.replace(self.setup.experiment_name, "debug")
         Path(_log_path).mkdir(exist_ok=True, parents=True)
         return _log_path
 
@@ -251,6 +251,7 @@ class BaseConfig(AbstractConfig):
             ModelSummary(depth=5),
             SaveModelCheckpoint(name="best", metric="loss", last=True, mode="min", stage="val"),
             DatasetExamplesCallback(splits=["train", "val"], n=20, random_idxs=True),
+            ArtifactsLoggerCallback(),
         ]
         return callbacks
 
@@ -261,7 +262,7 @@ class BaseConfig(AbstractConfig):
                 self.log_path,
                 config=self.to_dict(),
                 experiment_name=self.setup.experiment_name,
-                run_name=self.run_name,
+                run_name=self.setup.run_name,
                 resume=True,
             )
         ]

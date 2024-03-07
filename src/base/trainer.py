@@ -18,12 +18,9 @@ from .module import BaseModule
 from .storage import MetricsStorage
 
 # TODO:
-# metrics plot with plotly
-# log CPU/GPU params (create some new logger which will gather the metrics every 1 sec (?))
+# plot gradients callback
 # resume training in old directory
-# add plot gradients callback
 # add info about logged optimizer state and lr scheduler state (num steps/epochs) passed
-
 # fix compile + DDP
 
 

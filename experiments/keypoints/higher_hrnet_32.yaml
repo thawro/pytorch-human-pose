@@ -2,6 +2,7 @@ setup:
   seed: 42
   experiment_name: keypoints
   architecture: HigherHRNet
+  run_name: auto
   dataset: COCO
   is_train: true
   ckpt_path: null

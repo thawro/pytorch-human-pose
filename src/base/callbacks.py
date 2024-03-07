@@ -138,6 +138,22 @@ class LogsLoggerCallback(BaseCallback):
         trainer.logger.finalize(status=status)
 
 
+class ArtifactsLoggerCallback(BaseCallback):
+    """Call logger logging methods"""
+
+    def on_fit_start(self, trainer: Trainer) -> None:
+        data_examples_dir = str(trainer.logger.loggers[0].data_examples_dir)
+        trainer.logger.log_artifact(data_examples_dir, "data_examples")
+
+    def on_epoch_end(self, trainer: Trainer) -> None:
+        """Log logs files"""
+        eval_examples_dir = str(trainer.logger.loggers[0].eval_examples_dir)
+        log_dir = str(trainer.logger.loggers[0].log_path)
+        trainer.logger.log_artifact(eval_examples_dir, "eval_examples")
+        trainer.logger.log_artifact(f"{log_dir}/epoch_metrics.html", "epoch_metrics.html")
+        trainer.logger.log_artifact(f"{log_dir}/epoch_metrics.yaml", "epoch_metrics.yaml")
+
+
 class SaveModelCheckpoint(BaseCallback):
     def __init__(
         self,

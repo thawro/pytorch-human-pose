@@ -10,10 +10,14 @@ from typing import Any
 import yaml
 
 import mlflow
+import mlflow.client
+import mlflow.entities
 from src.utils.config import LOG_DEVICE_ID
 from src.utils.utils import get_rank
 
 from .pylogger import log
+
+mlflow.enable_system_metrics_logging()
 
 
 class Status(Enum):
@@ -198,6 +202,9 @@ class TerminalLogger(BaseLogger):
         log.info(f"Params: {params}")
 
 
+run_id_to_system_metrics_monitor = {}
+
+
 class MLFlowLogger(BaseLogger):
     """Logger for logging with MLFlow."""
 
@@ -215,6 +222,7 @@ class MLFlowLogger(BaseLogger):
         run_id: str | None = None,
         resume: bool = True,
         description: str = "",
+        log_system_metrics: bool = True,
     ):
         super().__init__(log_path=log_path, config=config)
         if tracking_uri is None:
@@ -227,10 +235,12 @@ class MLFlowLogger(BaseLogger):
         self.resume = resume
         self.description = description
         self._run_id = run_id
+        self.log_system_metrics = log_system_metrics
 
     def start_run(self):
         super().start_run()
         client = mlflow.client.MlflowClient(self.tracking_uri)
+        mlflow.set_tracking_uri(self.tracking_uri)
         experiment = client.get_experiment_by_name(self.experiment_name)
         if experiment is None:
             experiment_id = client.create_experiment(self.experiment_name)
@@ -239,6 +249,7 @@ class MLFlowLogger(BaseLogger):
         if not self.resume:
             log.info(f"     Creating new run with {self.run_name} name")
             run = client.create_run(experiment_id, run_name=self.run_name)
+
         elif self._run_id is None:
             # get run by name
             runs = client.search_runs(
@@ -255,6 +266,7 @@ class MLFlowLogger(BaseLogger):
             if num_runs == 1:
                 log.info(f"     Found existing run with {self.run_name} name on mlflow server")
                 run = runs[0]
+                run = client.get_run(run.info.run_id)
                 log.info(f"     Resuming Run {run.info.run_name} (ID = {run.info.run_id})")
             elif num_runs > 1:
                 log.warn(
@@ -266,10 +278,24 @@ class MLFlowLogger(BaseLogger):
         else:
             try:
                 run = client.get_run(self._run_id)  # get run by id
+                log.info(f"     Resuming Run {run.info.run_name} (ID = {run.info.run_id})")
             except Exception as e:
                 log.exception(e)
                 raise e
         self.client = client
+        if self.log_system_metrics:
+            log.info("     Starting SystemMetricsMonitor")
+            from mlflow.system_metrics.system_metrics_monitor import SystemMetricsMonitor
+
+            system_monitor = SystemMetricsMonitor(
+                run.info.run_id,
+                resume_logging=self._run_id is not None,
+            )
+            global run_id_to_system_metrics_monitor
+
+            run_id_to_system_metrics_monitor[run.info.run_id] = system_monitor
+            system_monitor.start()
+        client.update_run(run_id=run.info.run_id, status=Status.RUNNING.value)
         self.run = run
         run_url = (
             f"{self.tracking_uri}/#/experiments/{experiment.experiment_id}/runs/{run.info.run_id}"
