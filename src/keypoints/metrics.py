@@ -1,6 +1,7 @@
-import numpy as np
-import cv2
 from abc import abstractmethod
+
+import cv2
+import numpy as np
 
 _polygons = list[list[int]]
 _head_coords = list[list[int]]  # one-element list (to match COCO polygons)
@@ -28,8 +29,6 @@ def object_PCKh(
     norm_target_kpts = target_kpts / head_size
     sqared_diff = (norm_pred_kpts - norm_target_kpts) ** 2
     distances = sqared_diff.sum(-1) ** 0.5
-    # both coords must be seen
-    # kpts_vis = np.array([x > 0 and y > 0 for x, y in target_kpts])
     kpts_vis = target_visibilities > 0
     # pckh = (distances < alpha).sum().item()
     # pckh[~target_mask] = -1
@@ -52,8 +51,7 @@ def object_OKS(
 
     kpts_vis = target_visibilities > 0
     area = sum(
-        cv2.contourArea(np.array(poly).reshape(-1, 2).astype(np.int32))
-        for poly in obj_polygons
+        cv2.contourArea(np.array(poly).reshape(-1, 2).astype(np.int32)) for poly in obj_polygons
     )
     area += np.spacing(1)
 
@@ -116,9 +114,7 @@ class OKS(EvaluationMetric):
         oks_values = []
         for j in range(num_obj):
             dist = ((pred_kpts[j] - target_kpts[j]) ** 2).sum(-1) ** 0.5
-            oks = object_OKS(
-                pred_kpts[j], target_kpts[j], target_visibilities[j], seg_polygons[j]
-            )
+            oks = object_OKS(pred_kpts[j], target_kpts[j], target_visibilities[j], seg_polygons[j])
             oks_values.append(oks)
 
         oks_values = np.array(oks_values).round(3)
@@ -135,9 +131,7 @@ class OKS(EvaluationMetric):
         target_visibilities: np.ndarray,
         extra_coords: list,
     ):
-        oks = super().evaluate_results(
-            pred_kpts, target_kpts, target_visibilities, extra_coords
-        )
+        oks = super().evaluate_results(pred_kpts, target_kpts, target_visibilities, extra_coords)
         return {"OKS": oks}
 
 
@@ -176,7 +170,5 @@ class PCKh(EvaluationMetric):
         target_visibilities: np.ndarray,
         extra_coords: list,
     ):
-        pckh = super().evaluate_results(
-            pred_kpts, target_kpts, target_visibilities, extra_coords
-        )
+        pckh = super().evaluate_results(pred_kpts, target_kpts, target_visibilities, extra_coords)
         return {f"PCKh@{self.alpha}": pckh}

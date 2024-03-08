@@ -2,18 +2,33 @@
 
 from __future__ import annotations
 
-import random
 from typing import TYPE_CHECKING, Literal
 
+import numpy as np
 from PIL import Image
 
 from src.base.callbacks import BaseCallback, BaseExamplesPlotterCallback, DatasetExamplesCallback
+from src.utils.image import make_grid
 
 from .results import KeypointsResult
-from .visualization import plot_mppe_results_heatmaps
 
 if TYPE_CHECKING:
     from .trainer import KeypointsTrainer
+
+
+def plot_results(results: list["KeypointsResult"], filepath: str | None = None) -> np.ndarray:
+    n_rows = min(20, len(results))
+    grids = []
+    for i in range(n_rows):
+        result = results[i]
+        result.set_preds()
+        result_plot = result.plot()
+        grids.append(result_plot)
+    final_grid = make_grid(grids, nrows=len(grids), pad=20)
+    if filepath is not None:
+        im = Image.fromarray(final_grid)
+        im.save(filepath)
+    return final_grid
 
 
 class KeypointsExamplesPlotterCallback(BaseExamplesPlotterCallback):
@@ -26,7 +41,7 @@ class KeypointsExamplesPlotterCallback(BaseExamplesPlotterCallback):
     def plot_example_results(
         self, trainer: KeypointsTrainer, results: list[KeypointsResult], filepath: str
     ):
-        plot_mppe_results_heatmaps(results, filepath)
+        plot_results(results, filepath)
 
 
 class KeypointsDatasetExamplesCallback(DatasetExamplesCallback):

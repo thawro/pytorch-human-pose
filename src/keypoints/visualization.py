@@ -68,34 +68,3 @@ def plot_heatmaps(
         img_hm = cv2.addWeighted(image, 0.25, hm, 0.75, 0)
         heatmaps_vis.append(img_hm)
     return heatmaps_vis
-
-
-def plot_sppe_results_heatmaps(results: list["SPPEKeypointsResult"], filepath: str | None = None):
-    n_rows = min(20, len(results))
-    grids = []
-    for i in range(n_rows):
-        result = results[i]
-        result.set_preds()
-        result_plot = result.plot()  # TODO
-        grids.append(result_plot)
-    final_grid = make_grid(grids, nrows=len(grids), pad=20)
-    if filepath is not None:
-        im = Image.fromarray(final_grid)
-        im.save(filepath)
-    return grids
-
-
-def plot_mppe_results_heatmaps(results: list["MPPEKeypointsResult"], filepath: str | None = None):
-    n_rows = min(20, len(results))
-    grids = []
-    for i in range(n_rows):
-        result = results[i]
-        result.set_preds()
-        result_plot = result.plot()
-        grids.append(result_plot)
-    final_grid = make_grid(grids, nrows=len(grids), pad=20)
-
-    if filepath is not None:
-        im = Image.fromarray(final_grid)
-        im.save(filepath)
-    return grids

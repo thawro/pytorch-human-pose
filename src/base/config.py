@@ -18,7 +18,6 @@ from .callbacks import (
     ArtifactsLoggerCallback,
     BaseCallback,
     DatasetExamplesCallback,
-    LogsLoggerCallback,
     MetricsLogger,
     MetricsPlotterCallback,
     MetricsSaverCallback,
@@ -179,16 +178,12 @@ class BaseConfig(AbstractConfig):
     @property
     def log_path(self) -> str:
         ckpt_path = self.setup.ckpt_path
-        if ckpt_path is None:
-            exp_name = "debug" if self.is_debug else self.setup.experiment_name
-            _log_path = str(RESULTS_PATH / exp_name / self.setup.run_name / NOW)
+        if ckpt_path is None or self.is_debug:
+            _log_path = str(RESULTS_PATH / "debug" / self.setup.run_name / NOW)
         else:
-            ckpt_path = Path(ckpt_path)
-            loaded_ckpt_run_path = ckpt_path.parent.parent
+            loaded_ckpt_run_path = Path(ckpt_path).parent.parent
             loaded_run_path = loaded_ckpt_run_path.parent
             _log_path = str(loaded_run_path / NOW)
-            if self.is_debug:
-                _log_path = _log_path.replace(self.setup.experiment_name, "debug")
         Path(_log_path).mkdir(exist_ok=True, parents=True)
         return _log_path
 
@@ -247,7 +242,6 @@ class BaseConfig(AbstractConfig):
             MetricsPlotterCallback(),
             MetricsSaverCallback(),
             MetricsLogger(),
-            LogsLoggerCallback(),
             ModelSummary(depth=5),
             SaveModelCheckpoint(name="best", metric="loss", last=True, mode="min", stage="val"),
             DatasetExamplesCallback(splits=["train", "val"], n=20, random_idxs=True),

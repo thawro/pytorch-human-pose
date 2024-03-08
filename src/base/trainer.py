@@ -22,6 +22,8 @@ from .storage import MetricsStorage
 # resume training in old directory
 # add info about logged optimizer state and lr scheduler state (num steps/epochs) passed
 # fix compile + DDP
+# w loggerze: run_name=None -> auto run name
+# przemyslec kwestie wznawiania treningu i tworzenia nowych katalogow lokalnie/w logerach
 
 
 class Trainer:

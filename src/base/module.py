@@ -102,6 +102,9 @@ class BaseModule:
             log.info(f'     Loaded "{name}" Optimizer state')
         for name, lr_scheduler in self.lr_schedulers.items():
             lr_scheduler.load_state_dict(state_dict["lr_schedulers"][name])
+            # for i in range(18):
+            #     log.warn(f"Extra LR Scheduler step ({i})")
+            #     lr_scheduler.step()
             log.info(f'     Loaded "{name}" LR Scheduler state')
         for name, scaler in self.scalers.items():
             scaler.load_state_dict(state_dict["scalers"][name])

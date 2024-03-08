@@ -101,7 +101,7 @@ class KeypointsModule(BaseModule):
         for i in range(len(images)):
             result = KeypointsResult(
                 image=images[i],
-                stages_pred_kpts_heatmaps=[hms[i] for hms in stages_pred_kpts_heatmaps],
+                kpts_heatmaps=[hms[i] for hms in stages_pred_kpts_heatmaps],
                 tags_heatmaps=pred_tags_heatmaps[i],
                 limbs=self.limbs,
                 max_num_people=20,

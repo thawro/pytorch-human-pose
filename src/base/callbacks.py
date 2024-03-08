@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from src.base.storage import MetricsStorage
 
     from .trainer import Trainer
+import glob
 import math
 import time
 from abc import abstractmethod
@@ -123,35 +124,33 @@ class Callbacks:
             callback.load_state_dict(state_dict.get(name, {}))
 
 
-class LogsLoggerCallback(BaseCallback):
-    """Call logger logging methods"""
-
-    def on_step_end(self, trainer: Trainer) -> None:
-        """Log logs files"""
-        logs_path = str(trainer.logger.loggers[0].logs_path)
-        trainer.logger.log_artifact(logs_path, "logs")
-
-    def on_failure(self, trainer: Trainer, status: Status):
-        log.warn("Finalizing loggers.")
-        logs_path = str(trainer.logger.loggers[0].logs_path)
-        trainer.logger.log_artifact(logs_path, "logs")
-        trainer.logger.finalize(status=status)
-
-
 class ArtifactsLoggerCallback(BaseCallback):
-    """Call logger logging methods"""
+    """Call logger artifacts logging methods"""
 
     def on_fit_start(self, trainer: Trainer) -> None:
         data_examples_dir = str(trainer.logger.loggers[0].data_examples_dir)
-        trainer.logger.log_artifact(data_examples_dir, "data_examples")
+        trainer.logger.log_artifacts(data_examples_dir, "data_examples")
+
+    def on_step_end(self, trainer: Trainer) -> None:
+        """Log logs files"""
+        logs_dir = str(trainer.logger.loggers[0].logs_dir)
+        trainer.logger.log_artifacts(logs_dir, "logs")
 
     def on_epoch_end(self, trainer: Trainer) -> None:
-        """Log logs files"""
+        """Log artifacts directories and/or files"""
         eval_examples_dir = str(trainer.logger.loggers[0].eval_examples_dir)
+        trainer.logger.log_artifacts(eval_examples_dir, "eval_examples")
+
         log_dir = str(trainer.logger.loggers[0].log_path)
-        trainer.logger.log_artifact(eval_examples_dir, "eval_examples")
-        trainer.logger.log_artifact(f"{log_dir}/epoch_metrics.html", "epoch_metrics.html")
-        trainer.logger.log_artifact(f"{log_dir}/epoch_metrics.yaml", "epoch_metrics.yaml")
+        metrics_filepaths = glob.glob(f"{log_dir}/epoch_metrics.*")
+        for filepath in metrics_filepaths:
+            trainer.logger.log_artifact(filepath, "epoch_metrics")
+
+    def on_failure(self, trainer: Trainer, status: Status):
+        log.warn("Finalizing loggers.")
+        logs_dir = str(trainer.logger.loggers[0].logs_dir)
+        trainer.logger.log_artifacts(logs_dir, "logs")
+        trainer.logger.finalize(status=status)
 
 
 class SaveModelCheckpoint(BaseCallback):

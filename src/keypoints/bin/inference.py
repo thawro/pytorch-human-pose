@@ -3,17 +3,14 @@ from functools import partial
 import cv2
 import numpy as np
 import torch
+import torchvision
 from torch import Tensor, nn
 
 from src.base.datasets import BaseImageDataset
-from src.base.transforms.utils import (
-    affine_transform,
-    get_affine_transform,
-    resize_align_multi_scale,
-)
+from src.base.transforms.utils import resize_align_multi_scale
 from src.keypoints.config import KeypointsConfig
 from src.keypoints.datasets.coco import coco_limbs
-from src.keypoints.results import InferenceMPPEKeypointsResult
+from src.keypoints.results import InferenceKeypointsResult
 from src.logger.pylogger import log
 from src.utils.config import DS_ROOT, YAML_EXP_PATH
 from src.utils.files import load_yaml
@@ -22,25 +19,7 @@ from src.utils.model import seed_everything
 coco_flip_index = [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15]
 
 
-def transform_preds(coords, center, scale, output_size):
-    # target_coords = np.zeros(coords.shape)
-    target_coords = coords.copy()
-    transform_matrix = get_affine_transform(center, scale, 0, output_size, inverse=True)
-    for p in range(coords.shape[0]):
-        target_coords[p, 0:2] = affine_transform(coords[p, 0:2], transform_matrix)
-    return target_coords
-
-
-def get_final_preds(grouped_joints, center, scale, heatmap_size):
-    final_results = []
-    for person in grouped_joints:
-        joints = np.zeros((person.shape[0], 3))
-        joints = transform_preds(person, center, scale, heatmap_size)
-        final_results.append(joints)
-    return final_results
-
-
-class MPPEInferenceKeypointsModel:
+class InferenceKeypointsModel:
     def __init__(
         self,
         net: nn.Module,
@@ -58,9 +37,9 @@ class MPPEInferenceKeypointsModel:
         self.limbs = coco_limbs
         self.use_flip = use_flip
 
-    def prepare_input(self, image: np.ndarray) -> Tensor:
-        import torchvision
-
+    def prepare_input(
+        self, image: np.ndarray
+    ) -> tuple[Tensor, tuple[int, int], tuple[float, float]]:
         transforms = torchvision.transforms.Compose(
             [
                 torchvision.transforms.ToTensor(),
@@ -76,47 +55,41 @@ class MPPEInferenceKeypointsModel:
         x = image_resized.unsqueeze(0).to(self.device)
         return x, center, scale
 
-    def __call__(self, image: np.ndarray, annot) -> InferenceMPPEKeypointsResult:
+    def __call__(self, image: np.ndarray, annot) -> InferenceKeypointsResult:
         x, center, scale = self.prepare_input(image)
 
-        stages_pred_kpts_heatmaps, pred_tags_heatmaps = self.net(x)
+        kpts_heatmaps, tags_heatmaps = self.net(x)
         if self.use_flip:
-            flip_stages_pred_kpts_heatmaps, flip_pred_tags_heatmaps = self.net(torch.flip(x, [3]))
-            for i in range(len(stages_pred_kpts_heatmaps)):
-                pred_hms = stages_pred_kpts_heatmaps[i]
-                flip_pred_hms = torch.flip(flip_stages_pred_kpts_heatmaps[i], [3])
-                stages_pred_kpts_heatmaps[i] = (pred_hms + flip_pred_hms[:, coco_flip_index]) / 2
-            pred_tags_heatmaps = [
-                pred_tags_heatmaps,
-                torch.flip(flip_pred_tags_heatmaps, [3])[:, coco_flip_index],
+            flip_kpts_heatmaps, flip_tags_heatmaps = self.net(torch.flip(x, [3]))
+            for i in range(len(kpts_heatmaps)):
+                pred_hms = kpts_heatmaps[i]
+                flip_pred_hms = torch.flip(flip_kpts_heatmaps[i], [3])
+                kpts_heatmaps[i] = (pred_hms + flip_pred_hms[:, coco_flip_index]) / 2
+            tags_heatmaps = [
+                tags_heatmaps,
+                torch.flip(flip_tags_heatmaps, [3])[:, coco_flip_index],
             ]
         else:
-            pred_tags_heatmaps = [pred_tags_heatmaps]
+            tags_heatmaps = [tags_heatmaps]
 
-        input_image = x[0].permute(1, 2, 0).cpu().numpy()
-        _mean = np.array([0.485, 0.456, 0.406]) * 255
-        _std = np.array([0.229, 0.224, 0.225]) * 255
-        input_image = (input_image * _std) + _mean
-        input_image = input_image.astype(np.uint8)
-
-        return InferenceMPPEKeypointsResult.from_preds(
-            annot,
+        input_image = x[0]
+        return InferenceKeypointsResult.from_preds(
             input_image,
             image,
             scale,
             center,
-            stages_pred_kpts_heatmaps,
-            pred_tags_heatmaps,
-            get_final_preds,
+            kpts_heatmaps,
+            tags_heatmaps,
             self.limbs,
             max_num_people=30,
             det_thr=self.det_thr,
             tag_thr=self.tag_thr,
+            annot=annot,
         )
 
 
 def processing_fn(
-    model: MPPEInferenceKeypointsModel,
+    model: InferenceKeypointsModel,
     frame: np.ndarray,
     annot,
 ) -> dict:
@@ -144,7 +117,7 @@ def parse_checkpoint(ckpt: dict) -> dict:
     return ckpt
 
 
-def load_model(cfg_path: str, ckpt_path: str, device_id: int = 0) -> MPPEInferenceKeypointsModel:
+def load_model(cfg_path: str, ckpt_path: str, device_id: int = 0) -> InferenceKeypointsModel:
     cfg = load_yaml(cfg_path)
     cfg["setup"]["is_train"] = False
     cfg["setup"]["ckpt_path"] = ckpt_path
@@ -154,10 +127,9 @@ def load_model(cfg_path: str, ckpt_path: str, device_id: int = 0) -> MPPEInferen
     device = f"cuda:{device_id}"
 
     net = cfg.create_net()
-    model = MPPEInferenceKeypointsModel(
+    model = InferenceKeypointsModel(
         net,
         device=device,
-        ds_name="COCO",
         det_thr=0.1,
         tag_thr=1.0,
         use_flip=False,
@@ -185,6 +157,7 @@ def _set_paths(self: BaseImageDataset):
 def main() -> None:
     seed_everything(42)
     ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/keypoints/03-02_08:35__COCO_HigherHRNet/03-02_08:35/checkpoints/best.pt"
+    ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/keypoints/03-05_15:47__COCO_HigherHRNet/03-08_07:35/checkpoints/best.pt"
     cfg_path = str(YAML_EXP_PATH / "keypoints" / "higher_hrnet_32.yaml")
 
     model = load_model(cfg_path, ckpt_path, device_id=1)

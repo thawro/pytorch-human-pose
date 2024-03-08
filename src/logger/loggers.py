@@ -68,7 +68,7 @@ class BaseLogger:
         self.config = config
         self._log_config_info()
         self.log_path = Path(log_path) if isinstance(log_path, str) else log_path
-        self.logs_path = self.log_path / "logs"
+        self.logs_dir = self.log_path / "logs"
         self.ckpt_dir = self.log_path / "checkpoints"
         self.model_dir = self.log_path / "model"
         self.model_summary_dir = self.log_path / "model/summary"
@@ -79,7 +79,7 @@ class BaseLogger:
         self.ckpt_dir.mkdir(parents=True, exist_ok=True)
         self.model_summary_dir.mkdir(parents=True, exist_ok=True)
         self.model_onnx_dir.mkdir(parents=True, exist_ok=True)
-        self.logs_path.mkdir(exist_ok=True, parents=True)
+        self.logs_dir.mkdir(exist_ok=True, parents=True)
         self.eval_examples_dir.mkdir(exist_ok=True, parents=True)
         self.data_examples_dir.mkdir(exist_ok=True, parents=True)
         self.results = LoggerResults()
@@ -125,6 +125,10 @@ class BaseLogger:
     def log_config(self) -> None:
         """Log config to yaml."""
         self.log_dict(self.config, "config.yaml")
+
+    def log_artifacts(self, local_dir: str, artifact_path: str | None = None) -> None:
+        """Log directory artifacts."""
+        pass
 
     def log_artifact(self, local_path: str, artifact_path: str | None = None) -> None:
         """Log artifact."""
@@ -174,6 +178,10 @@ class Loggers:
     def log_artifact(self, local_path: str, artifact_path: str):
         for logger in self.loggers:
             logger.log_artifact(local_path, artifact_path)
+
+    def log_artifacts(self, local_dir: str, artifact_path: str):
+        for logger in self.loggers:
+            logger.log_artifacts(local_dir, artifact_path)
 
     def finalize(self, status: Status):
         for logger in self.loggers:
@@ -326,8 +334,11 @@ class MLFlowLogger(BaseLogger):
         super().log_dict(config, filename)
         self.client.log_dict(self.run_id, config, filename)
 
+    def log_artifacts(self, local_dir: str, artifact_path: str | None = None) -> None:
+        self.client.log_artifacts(self.run_id, local_dir, artifact_path)
+
     def log_artifact(self, local_path: str, artifact_path: str | None = None) -> None:
-        self.client.log_artifacts(self.run_id, local_path, artifact_path)
+        self.client.log_artifact(self.run_id, local_path, artifact_path)
 
     def download_artifact(self, artifact_path: str) -> str:
         """Download artifact from mlflow.
@@ -344,5 +355,5 @@ class MLFlowLogger(BaseLogger):
 
     def finalize(self, status: Status) -> None:
         super().finalize(status)
-        self.log_artifact(str(self.logs_path), "logs")
+        self.log_artifacts(str(self.logs_dir), "logs")
         self.client.set_terminated(self.run_id, status=status.value)

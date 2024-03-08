@@ -5,16 +5,19 @@ import cv2
 import numpy as np
 import torch
 from PIL import Image
+from pycocotools.coco import COCO
+from pycocotools.cocoeval import COCOeval
 from tqdm.auto import tqdm
 
 from src.base.datasets import BaseImageDataset
-from src.keypoints.bin.inference import MPPEInferenceKeypointsModel, _set_paths, load_model
+from src.keypoints.bin.inference import InferenceKeypointsModel, _set_paths, load_model
+from src.logger.pylogger import log
 from src.utils.config import DS_ROOT, YAML_EXP_PATH
 from src.utils.files import load_yaml, save_json
 from src.utils.model import seed_everything
 
 
-def evaluate_dataset(dataset: BaseImageDataset, model: MPPEInferenceKeypointsModel):
+def evaluate_dataset(dataset: BaseImageDataset, model: InferenceKeypointsModel):
     filepaths = dataset.images_filepaths.tolist()
     n_examples = len(dataset)
     # n_examples = 100
@@ -35,15 +38,15 @@ def evaluate_dataset(dataset: BaseImageDataset, model: MPPEInferenceKeypointsMod
             else:
                 image_id = int(Path(image_path).stem.lstrip("0"))
             result = model(image, None)
-            pred_kpts = result.pred_keypoints
+            kpts_coords = result.kpts_coords
 
-            pred_scores = result.pred_obj_scores
+            obj_scores = result.obj_scores
 
-            num_obj = len(pred_scores)
+            num_obj = len(obj_scores)
 
             for i in range(num_obj):
-                kpts = pred_kpts[i]
-                scores = pred_scores[i]
+                kpts = kpts_coords[i]
+                scores = obj_scores[i]
                 num_kpts = len(kpts)
 
                 coco_kpts = np.zeros((num_kpts * 3,))
@@ -61,13 +64,30 @@ def evaluate_dataset(dataset: BaseImageDataset, model: MPPEInferenceKeypointsMod
     return results
 
 
+def eval_coco(annots_path: str, results_path: str):
+    # iouType: one of ["segm", "bbox", "keypoints"]
+
+    cocoGt = COCO(annots_path)
+
+    cocoDt = cocoGt.loadRes(results_path)
+    img_ids = list(set([ann["image_id"] for i, ann in cocoDt.anns.items()]))
+    log.info(f"Evaluating {len(img_ids)} samples")
+
+    cocoEval = COCOeval(cocoGt, cocoDt, iouType="keypoints")
+    cocoEval.params.imgIds = img_ids
+    cocoEval.params.useSegm = None
+
+    cocoEval.evaluate()
+    cocoEval.accumulate()
+    cocoEval.summarize()
+
+
 def main() -> None:
     seed_everything(42)
     cfg_path = str(YAML_EXP_PATH / "keypoints" / "higher_hrnet_32.yaml")
 
     run_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/keypoints/03-02_08:35__COCO_HigherHRNet/03-02_08:35"
-    # ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/keypoints/03-02_08:35__COCO_HigherHRNet/03-02_08:35/checkpoints/best.pt"
-
+    run_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/keypoints/03-05_15:47__COCO_HigherHRNet/03-08_07:35"
     ckpt_path = f"{run_path}/checkpoints/best.pt"
 
     model = load_model(cfg_path, ckpt_path, device_id=1)
@@ -83,6 +103,9 @@ def main() -> None:
 
     results_path = f"{run_path}/{split}_results.json"
     save_json(results, results_path)
+
+    gt_annot_path = str(DS_ROOT / "COCO/raw/annotations/person_keypoints_val2017.json")
+    eval_coco(gt_annot_path, results_path)
 
 
 if __name__ == "__main__":
