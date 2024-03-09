@@ -12,7 +12,7 @@ import yaml
 import mlflow
 import mlflow.client
 import mlflow.entities
-from src.utils.config import LOG_DEVICE_ID
+from src.utils.config import LOG_DEVICE_ID, NOW
 from src.utils.utils import get_rank
 
 from .pylogger import log
@@ -71,19 +71,16 @@ class BaseLogger:
         self.logs_dir = self.log_path / "logs"
         self.ckpt_dir = self.log_path / "checkpoints"
         self.model_dir = self.log_path / "model"
-        self.model_summary_dir = self.log_path / "model/summary"
-        self.model_onnx_dir = self.log_path / "model/onnx"
         self.eval_examples_dir = self.log_path / "eval_examples"
         self.data_examples_dir = self.log_path / "data_examples"
         # creating directories
         self.ckpt_dir.mkdir(parents=True, exist_ok=True)
-        self.model_summary_dir.mkdir(parents=True, exist_ok=True)
-        self.model_onnx_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(exist_ok=True, parents=True)
         self.eval_examples_dir.mkdir(exist_ok=True, parents=True)
         self.data_examples_dir.mkdir(exist_ok=True, parents=True)
         self.results = LoggerResults()
-
+        self.timestamp = NOW
+        self.history_artifacts_dir = f"history/{self.timestamp}"
         self._run_id = None
 
     def _log_config_info(self):
@@ -116,15 +113,28 @@ class BaseLogger:
         """Log params."""
         self.results.update_params(params)
 
-    def log_dict(self, dct: dict[str, Any], filename: str = "dct.yaml") -> None:
+    def log_dict(self, dct: dict[str, Any], filepath: str = "dct.yaml") -> None:
         """Log dict to yaml file."""
-        path = str(self.log_path / filename)
-        with open(path, "w") as yaml_file:
-            yaml.dump(dct, yaml_file, default_flow_style=False)
+        with open(filepath, "w") as file:
+            yaml.dump(dct, file, default_flow_style=False)
 
     def log_config(self) -> None:
         """Log config to yaml."""
-        self.log_dict(self.config, "config.yaml")
+        config_local_filepath = f"{self.log_path}/config.yaml"
+        with open(config_local_filepath, "w") as file:
+            yaml.dump(self.config, file, default_flow_style=False)
+        # log to remote root directory
+        self.log_artifact(config_local_filepath, "")
+        # log to remote history directory
+        self.log_artifact(config_local_filepath, self.history_artifacts_dir)
+
+    def log_logs(self):
+        logs_local_dirpath = str(self.logs_dir)
+        # log to remote root directory
+        self.log_artifacts(logs_local_dirpath, "logs")
+        # log to remote history directory
+        logs_remote_dirpath = f"{self.history_artifacts_dir}/logs"
+        self.log_artifacts(logs_local_dirpath, logs_remote_dirpath)
 
     def log_artifacts(self, local_dir: str, artifact_path: str | None = None) -> None:
         """Log directory artifacts."""
@@ -154,6 +164,7 @@ class Loggers:
         for logger in self.loggers:
             logger.start_run()
             logger.log_config()
+            logger.log_logs()
 
     def log(self, key: str, value: float, step: int | None = None):
         for logger in self.loggers:
@@ -167,9 +178,9 @@ class Loggers:
         for logger in self.loggers:
             logger.log_params(params=params)
 
-    def log_dict(self, dct: dict[str, Any], filename: str = "dct.yaml"):
+    def log_dict(self, dct: dict[str, Any], filepath: str = "dct.yaml"):
         for logger in self.loggers:
-            logger.log_dict(dct=dct, filename=filename)
+            logger.log_dict(dct=dct, filepath=filepath)
 
     def log_config(self):
         for logger in self.loggers:
@@ -182,6 +193,10 @@ class Loggers:
     def log_artifacts(self, local_dir: str, artifact_path: str):
         for logger in self.loggers:
             logger.log_artifacts(local_dir, artifact_path)
+
+    def log_logs(self):
+        for logger in self.loggers:
+            logger.log_logs()
 
     def finalize(self, status: Status):
         for logger in self.loggers:
@@ -314,6 +329,11 @@ class MLFlowLogger(BaseLogger):
     def run_id(self) -> str:
         return self.run.info.run_id
 
+    # def log_config(self) -> None:
+    #     """Log config to yaml."""
+    #     super().log_config()
+    #     self.log_artifact(str(self.log_path / "config.yaml"), self.history_artifacts_dir)
+
     def log(self, key: str, value: float, step: int | None = None) -> None:
         super().log(key, value, step)
         self.client.log_metric(self.run_id, key, value, step=step)
@@ -330,9 +350,8 @@ class MLFlowLogger(BaseLogger):
         for key, value in params.items():
             self.log_param(key, value)
 
-    def log_dict(self, config: dict[str, Any], filename: str = "config.yaml") -> None:
-        super().log_dict(config, filename)
-        self.client.log_dict(self.run_id, config, filename)
+    def log_dict(self, dct: dict[str, Any], filename: str = "config.yaml") -> None:
+        self.client.log_dict(self.run_id, dct, filename)
 
     def log_artifacts(self, local_dir: str, artifact_path: str | None = None) -> None:
         self.client.log_artifacts(self.run_id, local_dir, artifact_path)
@@ -355,5 +374,5 @@ class MLFlowLogger(BaseLogger):
 
     def finalize(self, status: Status) -> None:
         super().finalize(status)
-        self.log_artifacts(str(self.logs_dir), "logs")
+        self.log_logs()
         self.client.set_terminated(self.run_id, status=status.value)

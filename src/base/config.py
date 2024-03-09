@@ -103,18 +103,22 @@ class SetupConfig(AbstractConfig):
     deterministic: bool
     architecture: str
     dataset: str
-    run_name: str | Literal["auto"] = "auto"
+    run_name: str | None = None
 
     def _auto_run_name(self) -> str:
-        if self.ckpt_path is not None:
-            # ckpt_path is like:
-            # "<proj_root>/results/<exp_name>/<run_name>/<timestamp>/checkpoints/<ckpt_name>.pt"
-            # so run_name is -4 idx after split
-            return self.ckpt_path.split("/")[-4]
-        return f"{NOW}__{self.dataset}_{self.architecture}"
+        if self.ckpt_path is None:
+            # new run
+            return f"{self.timestamp}__{self.dataset}_{self.architecture}"
+        # resumed run
+        # ckpt_path is like:
+        # "<proj_root>/results/<exp_name>/<run_name>/<timestamp>/checkpoints/<ckpt_name>.pt"
+        # so run_name is -4 idx after split
+        run_name = self.ckpt_path.split("/")[-4]
+        return run_name
 
     def __post_init__(self):
-        if self.run_name == "auto":
+        self.timestamp = NOW
+        if self.run_name is None:
             self.run_name = self._auto_run_name()
 
 
@@ -145,6 +149,11 @@ class ModuleConfig(AbstractConfig):
 
 
 @dataclass
+class InferenceConfig(AbstractConfig):
+    use_flip: bool
+
+
+@dataclass
 class BaseConfig(AbstractConfig):
     setup: SetupConfig
     cudnn: CUDNNConfig
@@ -153,6 +162,7 @@ class BaseConfig(AbstractConfig):
     net: NetConfig
     module: ModuleConfig
     trainer: TrainerConfig
+    inference: InferenceConfig
 
     def __post_init__(self):
         if self.is_debug:
@@ -160,29 +170,33 @@ class BaseConfig(AbstractConfig):
         self.device, self.device_id = get_device_and_id(
             self.trainer.accelerator, self.trainer.use_DDP
         )
-        if not self.setup.is_train:
+        if not self.setup.is_train:  # no logging for eval/test/inference
             return
-        logs_path = Path(self.log_path) / "logs"
-        logs_path.mkdir(exist_ok=True, parents=True)
-        file_log = get_file_pylogger(f"{logs_path}/{self.device}_log.log", "log_file")
+        self._initialize_logger()
+        if self.device_id == LOG_DEVICE_ID:
+            self.logger.start_run()
+
+    def _initialize_logger(self):
+        file_log_dirpath = f"{self.log_path}/logs"
+        Path(file_log_dirpath).mkdir(exist_ok=True, parents=True)
+        file_log_filepath = f"{file_log_dirpath}/{self.device}_log.log"
+        file_log = get_file_pylogger(file_log_filepath, "log_file")
         # insert handler to enable file logs in command line aswell
         log.handlers.insert(0, file_log.handlers[0])
+        log.info(f"..Saving {self.device} logs to {file_log_filepath}..")
         for handler in log.handlers:
             formatter = handler.formatter
             if formatter is not None and hasattr(formatter, "_set_device"):
                 handler.formatter._set_device(self.device, self.device_id)
         self.logger = self.create_logger(file_log)
-        if self.device_id == LOG_DEVICE_ID:
-            self.logger.start_run()
 
     @property
     def log_path(self) -> str:
         ckpt_path = self.setup.ckpt_path
         if ckpt_path is None or self.is_debug:
-            _log_path = str(RESULTS_PATH / "debug" / self.setup.run_name / NOW)
+            _log_path = str(RESULTS_PATH / self.setup.experiment_name / self.setup.run_name / NOW)
         else:
-            loaded_ckpt_run_path = Path(ckpt_path).parent.parent
-            loaded_run_path = loaded_ckpt_run_path.parent
+            loaded_run_path = Path(ckpt_path).parent.parent.parent
             _log_path = str(loaded_run_path / NOW)
         Path(_log_path).mkdir(exist_ok=True, parents=True)
         return _log_path
@@ -242,9 +256,9 @@ class BaseConfig(AbstractConfig):
             MetricsPlotterCallback(),
             MetricsSaverCallback(),
             MetricsLogger(),
+            DatasetExamplesCallback(splits=["train", "val"], n=20, random_idxs=True),
             ModelSummary(depth=5),
             SaveModelCheckpoint(name="best", metric="loss", last=True, mode="min", stage="val"),
-            DatasetExamplesCallback(splits=["train", "val"], n=20, random_idxs=True),
             ArtifactsLoggerCallback(),
         ]
         return callbacks

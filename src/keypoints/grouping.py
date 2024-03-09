@@ -256,10 +256,9 @@ class MPPEHeatmapParser(object):
         adjust: bool = True,
         refine: bool = True,
     ) -> tuple[np.ndarray, np.ndarray]:
-        kpts_hms, tags_hms = kpts_hms[0], tags_hms[0]
+        # kpts_hms, tags_hms = kpts_hms[0], tags_hms[0]
         tags_k, coords_k, scores_k = self.top_k(kpts_hms, tags_hms)
         grouped_joints = self.match_by_tag(tags_k, coords_k, scores_k)
-
         if len(grouped_joints) == 0:  # take only best pred
             coords = coords_k[:, 0]
             score = np.expand_dims(scores_k[:, 0], -1)
@@ -267,14 +266,13 @@ class MPPEHeatmapParser(object):
             grouped_joints = np.concatenate([coords, score, tag], axis=-1)
             grouped_joints = np.expand_dims(grouped_joints, 0)
             grouped_joints = np.nan_to_num(grouped_joints, nan=0)
-            grouped_joints[..., 2] = self.det_thr * 1.01  # make sure its > det_thr
+            grouped_joints[..., 2] = 0.01
 
         kpts_hms_npy = kpts_hms.cpu().numpy()
         tags_hms_npy = tags_hms.cpu().numpy()
 
         if adjust:
             grouped_joints = self.adjust(grouped_joints, kpts_hms_npy)
-
         person_scores = grouped_joints[..., 2].mean(1)
 
         if refine:

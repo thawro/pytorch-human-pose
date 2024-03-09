@@ -19,7 +19,11 @@ class LRScheduler:
 
     def __repr__(self) -> str:
         return str(
-            {"interval": self.interval, "lr_scheduler": self.lr_scheduler.__class__.__name__}
+            {
+                "interval": self.interval,
+                "lr_scheduler": self.lr_scheduler.__class__.__name__,
+                "last_epoch": self.lr_scheduler.last_epoch,
+            }
         )
 
     @property

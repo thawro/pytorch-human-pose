@@ -8,6 +8,8 @@ from torchvision.transforms import functional as F
 
 from src.base.transforms.base import ImageTransform
 
+COCO_FLIP_INDEX = [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15]
+
 
 class ComposeKeypointsTransform(object):
     def __init__(self, transforms: list[Callable]):
@@ -184,7 +186,6 @@ class KeypointsTransform(ImageTransform):
         std: list[float] = [0.229, 0.224, 0.225],
     ):
         super().__init__(out_size=out_size, mean=mean, std=std)
-        coco_flip_index = [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15]
         hm_sizes = [int(hm_resolution * out_size) for hm_resolution in hm_resolutions]
         self.train = ComposeKeypointsTransform(
             [
@@ -197,7 +198,7 @@ class KeypointsTransform(ImageTransform):
                     scale_type=scale_type,
                     max_translate=max_translate,
                 ),
-                RandomHorizontalFlip(coco_flip_index, hm_sizes, 0.5),
+                RandomHorizontalFlip(COCO_FLIP_INDEX, hm_sizes, 0.5),
                 ToTensor(),
                 Normalize(mean=mean, std=std),
             ]

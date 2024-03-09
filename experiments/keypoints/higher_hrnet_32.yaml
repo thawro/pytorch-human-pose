@@ -2,7 +2,7 @@ setup:
   seed: 42
   experiment_name: keypoints
   architecture: HigherHRNet
-  run_name: auto
+  run_name: null
   dataset: COCO
   is_train: true
   ckpt_path: null
@@ -14,7 +14,7 @@ trainer:
   max_epochs: 300
   limit_batches: -1
   use_DDP: true
-  sync_batchnorm: false
+  sync_batchnorm: true
   use_compile: false
 
 cudnn:
@@ -75,3 +75,9 @@ net:
   params:
     num_kpts: 17
     C: 32
+
+inference:
+  use_flip: False
+  det_thr: 0.05
+  tag_thr: 0.5
+  input_size: 512

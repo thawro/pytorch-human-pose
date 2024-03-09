@@ -1,4 +1,4 @@
-"""Train the model"""
+"""Train the keypoints estimation model"""
 
 from src.base.bin.train import train
 from src.keypoints.config import KeypointsConfig
@@ -8,7 +8,6 @@ from src.utils.files import load_yaml
 
 def main() -> None:
     cfg_path = YAML_EXP_PATH / "keypoints" / "higher_hrnet_32.yaml"
-    # cfg_path = YAML_EXP_PATH / "keypoints" / "higher_hrnet_32_mosaic.yaml"
 
     cfg = load_yaml(cfg_path)
 
@@ -16,11 +15,12 @@ def main() -> None:
     # pretrained_ckpt_path = None
 
     ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/keypoints/03-05_15:47__COCO_HigherHRNet/03-07_15:15/checkpoints/best.pt"
-    # ckpt_path = None
+    ckpt_path = None
+    ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/debug/03-09_22:47__COCO_HigherHRNet/03-09_22:47/checkpoints/last.pt"
 
     cfg["setup"]["ckpt_path"] = ckpt_path
     cfg["setup"]["pretrained_ckpt_path"] = pretrained_ckpt_path
-    cfg["trainer"]["limit_batches"] = -1
+    cfg["trainer"]["limit_batches"] = 5
     cfg["trainer"]["use_DDP"] = True
 
     cfg = KeypointsConfig.from_dict(cfg)

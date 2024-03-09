@@ -15,11 +15,11 @@ variances = (k_i * 2) ** 2
 def object_PCKh(
     pred_kpts: np.ndarray,
     target_kpts: np.ndarray,
-    target_visibilities: np.ndarray,
+    target_vis: np.ndarray,
     head_xyxy: _head_coords,
     alpha: float = 0.5,
 ) -> float:
-    if target_visibilities.sum() <= 0:
+    if target_vis.sum() <= 0:
         return -1
     xmin, ymin, xmax, ymax = head_xyxy[0]
     head_size = ((xmax - xmin) ** 2 + (ymax - ymin) ** 2) ** 0.5
@@ -29,7 +29,7 @@ def object_PCKh(
     norm_target_kpts = target_kpts / head_size
     sqared_diff = (norm_pred_kpts - norm_target_kpts) ** 2
     distances = sqared_diff.sum(-1) ** 0.5
-    kpts_vis = target_visibilities > 0
+    kpts_vis = target_vis > 0
     # pckh = (distances < alpha).sum().item()
     # pckh[~target_mask] = -1
     pckh = (distances < alpha) * 1
@@ -40,16 +40,16 @@ def object_PCKh(
 def object_OKS(
     pred_kpts: np.ndarray,
     target_kpts: np.ndarray,
-    target_visibilities: np.ndarray,
+    target_vis: np.ndarray,
     obj_polygons: _polygons,
 ) -> float:
     # pred_kpts shape: [num_kpts, 2]
     # target_kpts shape: [num_kpts, 2]
     # 2 for: x, y
-    if target_visibilities.sum() <= 0:
+    if target_vis.sum() <= 0:
         return -1
 
-    kpts_vis = target_visibilities > 0
+    kpts_vis = target_vis > 0
     area = sum(
         cv2.contourArea(np.array(poly).reshape(-1, 2).astype(np.int32)) for poly in obj_polygons
     )
@@ -71,7 +71,7 @@ class EvaluationMetric:
         self,
         pred_kpts: np.ndarray,
         target_kpts: np.ndarray,
-        target_visibilities: np.ndarray,
+        target_vis: np.ndarray,
         extra_coords: list,
     ):
         raise NotImplementedError()
@@ -80,7 +80,7 @@ class EvaluationMetric:
         self,
         pred_kpts: np.ndarray,
         target_kpts: np.ndarray,
-        target_visibilities: np.ndarray,
+        target_vis: np.ndarray,
         extra_coords: list,
     ) -> float:
         batch_size = len(pred_kpts)
@@ -89,7 +89,7 @@ class EvaluationMetric:
             metric_value = self.image_eval(
                 pred_kpts[i],
                 target_kpts[i],
-                target_visibilities[i],
+                target_vis[i],
                 extra_coords[i],
             )
             metric_values.append(metric_value)
@@ -107,14 +107,14 @@ class OKS(EvaluationMetric):
         self,
         pred_kpts: np.ndarray,
         target_kpts: np.ndarray,
-        target_visibilities: np.ndarray,
+        target_vis: np.ndarray,
         seg_polygons: list[_polygons],
     ) -> float:
-        num_obj = len(seg_polygons)
+        num_obj = len(target_kpts)
         oks_values = []
         for j in range(num_obj):
             dist = ((pred_kpts[j] - target_kpts[j]) ** 2).sum(-1) ** 0.5
-            oks = object_OKS(pred_kpts[j], target_kpts[j], target_visibilities[j], seg_polygons[j])
+            oks = object_OKS(pred_kpts[j], target_kpts[j], target_vis[j], seg_polygons[j])
             oks_values.append(oks)
 
         oks_values = np.array(oks_values).round(3)
@@ -128,10 +128,10 @@ class OKS(EvaluationMetric):
         self,
         pred_kpts: np.ndarray,
         target_kpts: np.ndarray,
-        target_visibilities: np.ndarray,
+        target_vis: np.ndarray,
         extra_coords: list,
     ):
-        oks = super().evaluate_results(pred_kpts, target_kpts, target_visibilities, extra_coords)
+        oks = super().evaluate_results(pred_kpts, target_kpts, target_vis, extra_coords)
         return {"OKS": oks}
 
 
@@ -143,7 +143,7 @@ class PCKh(EvaluationMetric):
         self,
         pred_kpts: np.ndarray,
         target_kpts: np.ndarray,
-        target_visibilities: np.ndarray,
+        target_vis: np.ndarray,
         head_coords: list[list[list[int]]],
     ) -> float:
         num_obj = len(head_coords)
@@ -152,7 +152,7 @@ class PCKh(EvaluationMetric):
             pckh = object_PCKh(
                 pred_kpts[j],
                 target_kpts[j],
-                target_visibilities[j],
+                target_vis[j],
                 head_coords[j],
                 self.alpha,
             )
@@ -167,8 +167,8 @@ class PCKh(EvaluationMetric):
         self,
         pred_kpts: np.ndarray,
         target_kpts: np.ndarray,
-        target_visibilities: np.ndarray,
+        target_vis: np.ndarray,
         extra_coords: list,
     ):
-        pckh = super().evaluate_results(pred_kpts, target_kpts, target_visibilities, extra_coords)
+        pckh = super().evaluate_results(pred_kpts, target_kpts, target_vis, extra_coords)
         return {f"PCKh@{self.alpha}": pckh}

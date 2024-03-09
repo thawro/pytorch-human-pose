@@ -19,11 +19,8 @@ from .storage import MetricsStorage
 
 # TODO:
 # plot gradients callback
-# resume training in old directory
-# add info about logged optimizer state and lr scheduler state (num steps/epochs) passed
+# plot AE visualization
 # fix compile + DDP
-# w loggerze: run_name=None -> auto run name
-# przemyslec kwestie wznawiania treningu i tworzenia nowych katalogow lokalnie/w logerach
 
 
 class Trainer:
@@ -40,11 +37,13 @@ class Trainer:
         use_DDP: bool = False,
         sync_batchnorm: bool = True,
         use_compile: bool = False,
+        run_sanity_check: bool = False,
     ):
         stages = ["train", "val", "eval_val"]
         self.use_DDP = use_DDP
         self.sync_batchnorm = sync_batchnorm
         self.use_compile = use_compile
+        self.run_sanity_check = run_sanity_check
         self.meters = {stage: Meters(use_DDP=use_DDP) for stage in stages}
         self.accelerator = accelerator
         self.device, self.device_id = get_device_and_id(self.accelerator, self.use_DDP)
@@ -241,7 +240,8 @@ class Trainer:
 
         self.callbacks.on_fit_start(self)
 
-        # self.sanity_check(val_dataloader)
+        if self.run_sanity_check:
+            self.sanity_check(val_dataloader)
 
         self._wait_for_all_workers()
         if ckpt_path is None:
@@ -282,12 +282,12 @@ class Trainer:
             raise e
         self.logger.finalize(status=Status.FINISHED)
 
-    def load_checkpoint(self, ckpt_path: str, lr: float | None = None):
+    def load_checkpoint(self, ckpt_path: str):
         log.info(f"..Loading checkpoint from '{ckpt_path}'..")
         ckpt_state = torch.load(ckpt_path, map_location=self.map_location)
         self.epochs_metrics.load_state_dict(ckpt_state["metrics"]["steps"])
         self.validation_metrics.load_state_dict(ckpt_state["metrics"]["validation"])
-        self.module.load_state_dict(ckpt_state["module"], lr=lr)
+        self.module.load_state_dict(ckpt_state["module"])
         self.datamodule.load_state_dict(ckpt_state["datamodule"])
         self.callbacks.load_state_dict(ckpt_state["callbacks"])
         step, epoch = ckpt_state["step"], ckpt_state["epoch"]

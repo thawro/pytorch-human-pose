@@ -1,13 +1,7 @@
-from typing import TYPE_CHECKING
-
 import cv2
 import numpy as np
-from PIL import Image
 
-from src.utils.image import get_color, make_grid
-
-if TYPE_CHECKING:
-    from .results import KeypointsResult
+from src.utils.image import get_color
 
 
 def plot_connections(

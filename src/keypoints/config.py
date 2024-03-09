@@ -4,7 +4,13 @@ from typing import Literal, Type
 from torch import nn
 
 from src.base.callbacks import BaseCallback
-from src.base.config import BaseConfig, DataloaderConfig, DatasetConfig, TransformConfig
+from src.base.config import (
+    BaseConfig,
+    DataloaderConfig,
+    DatasetConfig,
+    InferenceConfig,
+    TransformConfig,
+)
 from src.base.trainer import Trainer
 from src.logger.pylogger import log
 
@@ -46,9 +52,17 @@ class KeypointsDataloaderConfig(DataloaderConfig):
 
 
 @dataclass
+class KeypointsInferenceConfig(InferenceConfig):
+    det_thr: float
+    tag_thr: float
+    input_size: int
+
+
+@dataclass
 class KeypointsConfig(BaseConfig):
     dataloader: KeypointsDataloaderConfig
     transform: KeypointsTransformConfig
+    inference: KeypointsInferenceConfig
 
     @property
     def is_debug(self) -> bool:

@@ -133,8 +133,7 @@ class ArtifactsLoggerCallback(BaseCallback):
 
     def on_step_end(self, trainer: Trainer) -> None:
         """Log logs files"""
-        logs_dir = str(trainer.logger.loggers[0].logs_dir)
-        trainer.logger.log_artifacts(logs_dir, "logs")
+        trainer.logger.log_logs()
 
     def on_epoch_end(self, trainer: Trainer) -> None:
         """Log artifacts directories and/or files"""
@@ -148,8 +147,7 @@ class ArtifactsLoggerCallback(BaseCallback):
 
     def on_failure(self, trainer: Trainer, status: Status):
         log.warn("Finalizing loggers.")
-        logs_dir = str(trainer.logger.loggers[0].logs_dir)
-        trainer.logger.log_artifacts(logs_dir, "logs")
+        trainer.logger.log_logs()
         trainer.logger.finalize(status=status)
 
 

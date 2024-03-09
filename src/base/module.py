@@ -93,19 +93,16 @@ class BaseModule:
         for name, attr in attributes.items():
             setattr(self, name, attr)
 
-    def load_state_dict(self, state_dict: dict, lr: float | None = None):
+    def load_state_dict(self, state_dict: dict):
         self.model.load_state_dict(state_dict["model"])
         for name, optimizer in self.optimizers.items():
             optimizer.load_state_dict(state_dict["optimizers"][name])
-            if lr is not None:
-                optimizer.param_groups[0]["lr"] = lr
-            log.info(f'     Loaded "{name}" Optimizer state')
+            lr = optimizer.param_groups[0]["lr"]
+            log.info(f'     Loaded "{name}" Optimizer state (lr = {lr})')
         for name, lr_scheduler in self.lr_schedulers.items():
             lr_scheduler.load_state_dict(state_dict["lr_schedulers"][name])
-            # for i in range(18):
-            #     log.warn(f"Extra LR Scheduler step ({i})")
-            #     lr_scheduler.step()
-            log.info(f'     Loaded "{name}" LR Scheduler state')
+            last_epoch = lr_scheduler.lr_scheduler.last_epoch
+            log.info(f'     Loaded "{name}" LR Scheduler state (last_epoch = {last_epoch})')
         for name, scaler in self.scalers.items():
             scaler.load_state_dict(state_dict["scalers"][name])
             log.info(f'     Loaded "{name}" Scaler state')

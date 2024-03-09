@@ -48,7 +48,7 @@ class KeypointsModule(BaseModule):
                 stages_pred_kpts_heatmaps, pred_tags_heatmaps, heatmaps, masks, joints
             )
             loss = 0
-            for i in range(2):
+            for i in range(len(heatmap_losses)):
                 loss = loss + heatmap_losses[i]
             loss = loss + push_losses[0]
             loss = loss + pull_losses[0]
@@ -101,8 +101,8 @@ class KeypointsModule(BaseModule):
         for i in range(len(images)):
             result = KeypointsResult(
                 image=images[i],
-                kpts_heatmaps=[hms[i] for hms in stages_pred_kpts_heatmaps],
-                tags_heatmaps=pred_tags_heatmaps[i],
+                kpts_heatmaps=[hms[i].unsqueeze(0) for hms in stages_pred_kpts_heatmaps],
+                tags_heatmaps=pred_tags_heatmaps[i].unsqueeze(0),
                 limbs=self.limbs,
                 max_num_people=20,
                 det_thr=0.1,

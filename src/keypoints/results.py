@@ -6,6 +6,7 @@ import torch
 from torch import Tensor
 
 from src.base.transforms.utils import affine_transform, get_affine_transform
+from src.keypoints.datasets.coco import get_coco_joints
 from src.keypoints.grouping import MPPEHeatmapParser
 from src.keypoints.metrics import OKS
 from src.keypoints.transforms import KeypointsTransform
@@ -38,7 +39,31 @@ def match_preds_to_targets(
     return target_matches_idx
 
 
-class KeypointsResult:
+class BaseKeypointsResult:
+    @classmethod
+    def match_heatmaps_size(cls, heatmaps: list[Tensor]) -> list[Tensor]:
+        h, w = heatmaps[-1].shape[-2:]
+        heatmaps = [
+            torch.nn.functional.interpolate(hm, size=[h, w], mode="bilinear", align_corners=False)
+            for hm in heatmaps[:-1]
+        ] + [heatmaps[-1]]
+        return heatmaps
+
+    @classmethod
+    def resize_heatmaps_list(cls, heatmaps: list[Tensor], h: int, w: int) -> list[Tensor]:
+        return [
+            torch.nn.functional.interpolate(hm, size=[h, w], mode="bilinear", align_corners=False)
+            for hm in heatmaps
+        ]
+
+    @classmethod
+    def resize_heatmaps(cls, heatmaps: Tensor, h: int, w: int) -> Tensor:
+        return torch.nn.functional.interpolate(
+            heatmaps, size=[h, w], mode="bilinear", align_corners=False
+        )
+
+
+class KeypointsResult(BaseKeypointsResult):
     kpts_heatmaps: np.ndarray
     tags_heatmaps: np.ndarray
 
@@ -49,13 +74,13 @@ class KeypointsResult:
         tags_heatmaps: Tensor,
         limbs: list[tuple[int, int]],
         max_num_people: int = 30,
-        det_thr: float = 0.1,
-        tag_thr: float = 1.0,
+        det_thr: float = 0.05,
+        tag_thr: float = 0.5,
     ):
         self.image = KeypointsTransform.inverse_transform(image)
         self._kpts_heatmaps = kpts_heatmaps
         self._tags_heatmaps = tags_heatmaps
-        self.num_kpts = kpts_heatmaps[0].shape[0]
+        self.num_kpts = kpts_heatmaps[0].shape[1]
         self.limbs = limbs
         self.max_num_people = max_num_people
         self.det_thr = det_thr
@@ -64,37 +89,24 @@ class KeypointsResult:
 
     def set_preds(self):
         img_h, img_w = self.image.shape[:2]
-        num_stages = len(self.kpts_heatmaps)
 
-        kpts_heatmaps = [
-            torch.nn.functional.interpolate(
-                self._kpts_heatmaps[i].unsqueeze(0),
-                size=[img_h, img_w],
-                mode="bilinear",
-                align_corners=False,
-            )
-            for i in range(num_stages)
-        ]
+        kpts_heatmaps = self.match_heatmaps_size(self._kpts_heatmaps)
 
-        tags_heatmaps = torch.nn.functional.interpolate(
-            self._tags_heatmaps.unsqueeze(0),
-            size=[img_h, img_w],
-            mode="bilinear",
-            align_corners=False,
-        ).unsqueeze(-1)
+        kpts_heatmaps = torch.stack(kpts_heatmaps, dim=1)  # stack the stages dim
+        avg_kpts_heatmaps = kpts_heatmaps.mean(dim=1)
 
-        kpts_heatmaps = torch.stack(kpts_heatmaps, dim=-1)
+        resized_avg_kpts_heatmaps = self.resize_heatmaps(avg_kpts_heatmaps, img_h, img_w)
 
-        avg_kpts_heatmaps = kpts_heatmaps.mean(-1)
+        resized_tags_heatmaps = self.resize_heatmaps(self._tags_heatmaps, img_h, img_w)
+        resized_tags_heatmaps = resized_tags_heatmaps.unsqueeze(-1)  # add embedding dim as last dim
 
-        avg_kpts_heatmaps = torch.nn.functional.interpolate(
-            avg_kpts_heatmaps,
-            size=[img_h, img_w],
-            mode="bilinear",
-            align_corners=False,
-        )
+        # remove batch dim
+        resized_tags_heatmaps = resized_tags_heatmaps[0]
+        resized_avg_kpts_heatmaps = resized_avg_kpts_heatmaps[0]
+        kpts_heatmaps = kpts_heatmaps[0]
+
         grouped_joints, obj_scores = self.hm_parser.parse(
-            avg_kpts_heatmaps, tags_heatmaps, adjust=True, refine=True
+            resized_avg_kpts_heatmaps, resized_tags_heatmaps, adjust=True, refine=True
         )
 
         kpts_coords = grouped_joints[..., :2]
@@ -104,48 +116,41 @@ class KeypointsResult:
         self.kpts_scores = kpts_scores
         self.obj_scores = obj_scores
 
-        self.kpts_heatmaps = kpts_heatmaps.cpu().numpy()[0]
-        self.tags_heatmaps = tags_heatmaps.cpu().numpy()[0]
+        resized_kpts_heatmaps = self.resize_heatmaps(kpts_heatmaps, img_h, img_w)
+        # num_stages, num_kpts, h, w -> num_kpts, h, w, num_stages
+        self.kpts_heatmaps = resized_kpts_heatmaps.permute(1, 2, 3, 0).cpu().numpy()
+        self.tags_heatmaps = resized_tags_heatmaps.cpu().numpy()
 
     def plot(self) -> np.ndarray:
-        image_limbs = plot_connections(
+        connections_plot = plot_connections(
             self.image.copy(),
             self.kpts_coords,
             self.kpts_scores,
             self.limbs,
             thr=self.det_thr,
         )
-
-        final_plots = []
-        num_stages = 2
+        stages_hms_plots = []
+        num_stages = self.kpts_heatmaps.shape[-1]
+        tags_embedding_dim = self.tags_heatmaps.shape[-1]
         for i in range(num_stages):
-            kpts_heatmaps_plots = plot_heatmaps(
-                self.image,
-                self.kpts_heatmaps[..., i],
-                clip_0_1=True,
-                minmax=False,
+            stage_hms_plots = []
+            kpts_hms_plot = plot_heatmaps(
+                self.image, self.kpts_heatmaps[..., i], clip_0_1=True, minmax=False
             )
-            kpts_heatmaps_plots.insert(0, image_limbs)
-            kpts_grid = make_grid(kpts_heatmaps_plots, nrows=1, pad=5)
-            _plots = [kpts_grid]
-            if i < self.tags_heatmaps.shape[-1]:
+            kpts_hms_plot.insert(0, connections_plot)
+            kpts_hms_plot = make_grid(kpts_hms_plot, nrows=1, pad=5)
+            stage_hms_plots.append(kpts_hms_plot)
+            if i < tags_embedding_dim:
                 tags_heatmaps_plots = plot_heatmaps(
-                    self.image,
-                    self.tags_heatmaps[..., i],
-                    clip_0_1=False,
-                    minmax=True,
+                    self.image, self.tags_heatmaps[..., i], clip_0_1=False, minmax=True
                 )
-                tags_heatmaps_plots.insert(0, image_limbs)
+                tags_heatmaps_plots.insert(0, connections_plot)
                 tags_grid = make_grid(tags_heatmaps_plots, nrows=1, pad=5)
-                _plots.append(tags_grid)
-            final_plots.extend(_plots)
-
-        final_plot = np.concatenate(final_plots, axis=0)
-        final_plot = cv2.resize(final_plot, dsize=(0, 0), fx=0.4, fy=0.4)
-        return final_plot
-
-
-### Inference
+                stage_hms_plots.append(tags_grid)
+            stages_hms_plots.extend(stage_hms_plots)
+        stages_hms_plots = np.concatenate(stages_hms_plots, axis=0)
+        stages_hms_plots = cv2.resize(stages_hms_plots, dsize=(0, 0), fx=0.4, fy=0.4)
+        return stages_hms_plots
 
 
 def transform_coords(
@@ -165,10 +170,10 @@ def transform_coords(
 
 
 @dataclass
-class InferenceKeypointsResult:
-    annot: np.ndarray | None
-    input_image: np.ndarray
-    image: np.ndarray
+class InferenceKeypointsResult(BaseKeypointsResult):
+    raw_image: np.ndarray
+    annot: list[dict] | None
+    model_input_image: np.ndarray
     kpts_heatmaps: np.ndarray
     tags_heatmaps: np.ndarray
     kpts_coords: np.ndarray
@@ -177,33 +182,6 @@ class InferenceKeypointsResult:
     limbs: list[tuple[int, int]]
     det_thr: float
     tag_thr: float
-
-    @classmethod
-    def resize_stages_kpts_heatmaps(cls, kpts_heatmaps: list[Tensor]) -> list[Tensor]:
-        h, w = kpts_heatmaps[-1].shape[-2:]
-        kpts_heatmaps = [
-            torch.nn.functional.interpolate(hm, size=[h, w], mode="bilinear", align_corners=False)
-            for hm in kpts_heatmaps[:-1]
-        ] + [kpts_heatmaps[-1]]
-        return kpts_heatmaps
-
-    @classmethod
-    def average_kpts_heatmaps(cls, kpts_heatmaps: list[Tensor]) -> Tensor:
-        return torch.stack(kpts_heatmaps, dim=-1).mean(dim=-1)
-
-    @classmethod
-    def resize_kpts_heatmaps(cls, kpts_heatmaps: Tensor, h: int, w: int) -> Tensor:
-        return torch.nn.functional.interpolate(
-            kpts_heatmaps, size=[h, w], mode="bilinear", align_corners=False
-        )
-
-    @classmethod
-    def resize_tags_heatmaps(cls, tags_heatmaps: list[Tensor], h: int, w: int) -> Tensor:
-        tags_heatmaps = [
-            torch.nn.functional.interpolate(hms, size=[h, w], mode="bilinear", align_corners=False)
-            for hms in tags_heatmaps
-        ]
-        return torch.stack(tags_heatmaps, dim=4)
 
     @classmethod
     def get_final_kpts_coords(
@@ -222,33 +200,38 @@ class InferenceKeypointsResult:
     @classmethod
     def from_preds(
         cls,
-        input_image: Tensor,
-        image: np.ndarray,
-        scale: tuple[float, float],
-        center: tuple[int, int],
+        raw_image: np.ndarray,
+        annot: list[dict] | None,
+        model_input_image: Tensor,
         kpts_heatmaps: list[Tensor],
         tags_heatmaps: list[Tensor],
         limbs: list[tuple[int, int]],
-        max_num_people: int = 20,
-        det_thr: float = 0.1,
-        tag_thr: float = 1,
-        annot: list[dict] | None = None,
+        scale: tuple[float, float],
+        center: tuple[int, int],
+        det_thr: float = 0.05,
+        tag_thr: float = 0.5,
+        max_num_people: int = 30,
     ) -> "InferenceKeypointsResult":
-        input_image_npy = KeypointsTransform.inverse_transform(input_image)
-        img_h, img_w = input_image_npy.shape[:2]
+        model_input_image_npy = KeypointsTransform.inverse_transform(model_input_image)
+        img_h, img_w = model_input_image_npy.shape[:2]
         num_kpts = tags_heatmaps[0].shape[1]
         parser = MPPEHeatmapParser(
             num_kpts, max_num_people=max_num_people, det_thr=det_thr, tag_thr=tag_thr
         )
 
-        kpts_heatmaps = cls.resize_stages_kpts_heatmaps(kpts_heatmaps)
-        kpts_heatmaps = cls.average_kpts_heatmaps(kpts_heatmaps)
-        resized_kpts_heatmaps = cls.resize_kpts_heatmaps(kpts_heatmaps, img_h, img_w)
+        kpts_heatmaps = cls.match_heatmaps_size(kpts_heatmaps)
+        avg_kpts_heatmaps = torch.stack(kpts_heatmaps).mean(dim=0)
+        resized_avg_kpts_heatmaps = cls.resize_heatmaps(avg_kpts_heatmaps, img_h, img_w)
 
-        resized_tags_heatmaps = cls.resize_tags_heatmaps(tags_heatmaps, img_h, img_w)
+        resized_tags_heatmaps = cls.resize_heatmaps_list(tags_heatmaps, img_h, img_w)
+        resized_tags_heatmaps = torch.stack(resized_tags_heatmaps, dim=4)
+
+        # remove batch dim
+        resized_avg_kpts_heatmaps = resized_avg_kpts_heatmaps[0]
+        resized_tags_heatmaps = resized_tags_heatmaps[0]
 
         grouped_joints, obj_scores = parser.parse(
-            resized_kpts_heatmaps, resized_tags_heatmaps, adjust=True, refine=True
+            resized_avg_kpts_heatmaps, resized_tags_heatmaps, adjust=True, refine=True
         )
 
         kpts_coords = grouped_joints[..., :2]
@@ -256,50 +239,47 @@ class InferenceKeypointsResult:
 
         kpts_coords = cls.get_final_kpts_coords(kpts_coords, center, scale, (img_w, img_h))
 
-        kpts_heatmaps_npy = resized_kpts_heatmaps.cpu().numpy()[0]
+        kpts_heatmaps_npy = resized_avg_kpts_heatmaps.cpu().numpy()
         # only first tag embedding (for visualization purposes)
-        tags_heatmaps_npy = resized_tags_heatmaps.cpu().numpy()[0, ..., 0]
+        tags_heatmaps_npy = resized_tags_heatmaps.cpu().numpy()[..., 0]
 
         return cls(
-            annot,
-            input_image_npy,
-            image,
-            kpts_heatmaps_npy,
-            tags_heatmaps_npy,
-            kpts_coords,
-            kpts_scores,
-            obj_scores,
-            limbs,
-            det_thr,
-            tag_thr,
+            raw_image=raw_image,
+            annot=annot,
+            model_input_image=model_input_image_npy,
+            kpts_heatmaps=kpts_heatmaps_npy,
+            tags_heatmaps=tags_heatmaps_npy,
+            kpts_coords=kpts_coords,
+            kpts_scores=kpts_scores,
+            obj_scores=obj_scores,
+            limbs=limbs,
+            det_thr=det_thr,
+            tag_thr=tag_thr,
         )
 
     def calculate_OKS(self) -> float:
+        oks_value = -1
         assert (
             self.annot is not None
         ), "Matching preds to targets is possible only when annotation is set"
-        objects = self.annot["objects"]
-        target_kpts = []
-        target_visibilities = []
         seg_polygons = []
-        for i in range(len(objects)):
-            kpts = objects[i]["keypoints"]
+        joints = []
+        for obj in self.annot:
+            obj_joints = np.array(obj["keypoints"]).reshape([-1, 3])
+            is_any_kpts_visible = np.any(obj_joints[:, 2] > 0)
+            if is_any_kpts_visible:
+                joints.append(obj_joints)
+                seg_polygons.append(obj["segmentation"])
 
-            v = np.array([k["visibility"] for k in kpts])
-            if v.sum() > 0:
-                xy = np.array([[k["x"], k["y"]] for k in kpts])
-                target_visibilities.append(v)
-                target_kpts.append(xy)
-                seg_polygons.append(objects[i]["segmentation"])
-
-        if len(target_visibilities) > 0:
-            target_visibilities = np.stack(target_visibilities)
-            target_kpts = np.stack(target_kpts)
+        if len(joints) > 0:
+            joints = np.stack(joints)
+            target_kpts_coords = joints[..., :2]
+            target_kpts_vis = joints[..., 2]
             target_matches_idx = match_preds_to_targets(
                 self.kpts_coords,
                 self.obj_scores,
-                target_kpts,
-                target_visibilities,
+                target_kpts_coords,
+                target_kpts_vis,
             )
             if -1 not in target_matches_idx:
                 self.kpts_coords = self.kpts_coords[target_matches_idx]
@@ -308,8 +288,8 @@ class InferenceKeypointsResult:
             oks = OKS()
             oks_value = oks.image_eval(
                 pred_kpts=self.kpts_coords,
-                target_kpts=target_kpts,
-                target_visibilities=target_visibilities,
+                target_kpts=target_kpts_coords,
+                target_vis=target_kpts_vis,
                 seg_polygons=seg_polygons,
             )
         return oks_value
@@ -319,36 +299,22 @@ class InferenceKeypointsResult:
             oks_value = self.calculate_OKS()
         else:
             oks_value = -1
-        print(oks_value)
+        print(f"OKS: {oks_value:.2f}")
 
-        raw_image = plot_connections(
-            self.image.copy(),
-            self.kpts_coords,
-            self.kpts_scores,
-            self.limbs,
-            thr=self.det_thr / 2,
+        connections_plot = plot_connections(
+            self.raw_image.copy(), self.kpts_coords, self.kpts_scores, self.limbs, thr=self.det_thr
         )
 
-        final_plots = []
-
-        kpts_heatmaps_plots = plot_heatmaps(
-            self.input_image,
-            self.kpts_heatmaps,
-            clip_0_1=False,
-            minmax=True,
+        kpts_hms_plot = plot_heatmaps(
+            self.model_input_image, self.kpts_heatmaps, clip_0_1=False, minmax=True
         )
-        kpts_grid = make_grid(kpts_heatmaps_plots, nrows=2, pad=5)
+        kpts_hms_plot = make_grid(kpts_hms_plot, nrows=2, pad=5)
 
-        tags_heatmaps_plots = plot_heatmaps(
-            self.input_image,
-            self.tags_heatmaps,
-            clip_0_1=False,
-            minmax=True,
+        tags_hms_plots = plot_heatmaps(
+            self.model_input_image, self.tags_heatmaps, clip_0_1=False, minmax=True
         )
-        tags_grid = make_grid(tags_heatmaps_plots, nrows=2, pad=5)
-        final_plots.extend([kpts_grid, tags_grid])
+        tags_hms_plots = make_grid(tags_hms_plots, nrows=2, pad=5)
 
-        final_plot = np.concatenate(final_plots, axis=0)
-        f_ = 0.6
-        final_plot = cv2.resize(final_plot, dsize=(0, 0), fx=f_, fy=f_)
-        return final_plot, raw_image
+        hms_plot = np.concatenate([kpts_hms_plot, tags_hms_plots], axis=0)
+        hms_plot = cv2.resize(hms_plot, dsize=(0, 0), fx=0.6, fy=0.6)
+        return hms_plot, connections_plot

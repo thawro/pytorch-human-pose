@@ -8,8 +8,6 @@ import cv2
 import numpy as np
 import pycocotools
 import torch
-from geda.data_providers.coco import LABELS as coco_labels
-from geda.data_providers.coco import LIMBS as coco_limbs
 from PIL import Image
 from pycocotools.coco import COCO
 from torch import Tensor
@@ -20,9 +18,60 @@ from src.keypoints.transforms import ComposeKeypointsTransform, KeypointsTransfo
 from src.keypoints.utils import coco_rle_to_seg, mask_to_polygons, polygons_to_mask
 from src.keypoints.visualization import plot_connections, plot_heatmaps
 from src.logger.pylogger import log
-from src.utils.files import load_yaml, save_yaml
+from src.utils.files import save_yaml
 from src.utils.image import get_color, make_grid, put_txt, stack_horizontally
 from src.utils.utils import get_rank
+
+COCO_LABELS = [
+    "nose",
+    "left_eye",
+    "right_eye",
+    "left_ear",
+    "right_ear",
+    "left_shoulder",
+    "right_shoulder",
+    "left_elbow",
+    "right_elbow",
+    "left_wrist",
+    "right_wrist",
+    "left_hip",
+    "right_hip",
+    "left_knee",
+    "right_knee",
+    "left_ankle",
+    "right_ankle",
+]
+
+COCO_LIMBS = [
+    (9, 7),
+    (7, 5),
+    (5, 3),
+    (3, 1),
+    (1, 0),
+    (0, 2),
+    (1, 2),
+    (2, 4),
+    (4, 6),
+    (6, 8),
+    (8, 10),
+    (5, 6),
+    (5, 11),
+    (6, 12),
+    (11, 12),
+    (11, 13),
+    (13, 15),
+    (12, 14),
+    (14, 16),
+]
+
+
+def get_coco_joints(annots: list[dict]):
+    num_people = len(annots)
+    num_kpts = 17
+    joints = np.zeros((num_people, num_kpts, 3))
+    for i, obj in enumerate(annots):
+        joints[i] = np.array(obj["keypoints"]).reshape([-1, 3])
+    return joints
 
 
 class HeatmapGenerator:
@@ -129,15 +178,15 @@ def get_crowd_mask(annot: list, img_h: int, img_w: int) -> np.ndarray:
 
 
 class CocoKeypointsDataset(BaseImageDataset):
-    limbs = coco_limbs
-    labels = coco_labels
+    limbs = COCO_LIMBS
+    labels = COCO_LABELS
     name: str = "COCO"
 
     def __init__(
         self,
         root: str,
         split: str,
-        transform: ComposeKeypointsTransform,
+        transform: ComposeKeypointsTransform | None = None,
         out_size: int = 512,
         hm_resolutions: list[float] = [1 / 4, 1 / 2],
         num_kpts: int = 17,
@@ -223,8 +272,10 @@ class CocoKeypointsDataset(BaseImageDataset):
             save_yaml(annot, annot_filepath)
 
     def get_raw_data(self, idx: int) -> tuple[np.ndarray, list[dict], np.ndarray]:
-        image = np.array(Image.open(self.images_filepaths[idx]).convert("RGB"))
-        annot = load_yaml(self.annots_filepaths[idx])
+        # image = np.array(Image.open(self.images_filepaths[idx]).convert("RGB"))
+        # annot = load_yaml(self.annots_filepaths[idx])
+        image = self.load_image(idx)
+        annot = self.load_annot(idx)
         mask = np.load(self.masks_filepaths[idx])
         return image, annot, mask
 
@@ -300,13 +351,6 @@ class CocoKeypointsDataset(BaseImageDataset):
             mosaic_annot.extend(objects)
         return mosaic_img, mosaic_annot, mosaic_mask
 
-    def get_joints(self, annots: list[dict]):
-        num_people = len(annots)
-        joints = np.zeros((num_people, self.num_kpts, 3))
-        for i, obj in enumerate(annots):
-            joints[i] = np.array(obj["keypoints"]).reshape([-1, 3])
-        return joints
-
     def plot_examples(
         self, idxs: list[int], nrows: int = 1, stage_idxs: list[int] = [1, 0]
     ) -> np.ndarray:
@@ -314,7 +358,7 @@ class CocoKeypointsDataset(BaseImageDataset):
 
     def plot_raw(self, idx: int, max_size: int) -> np.ndarray:
         raw_image, raw_annot, raw_mask = self.get_raw_data(idx)
-        raw_joints = self.get_joints(raw_annot)
+        raw_joints = get_coco_joints(raw_annot)
         kpts = raw_joints[..., :2]
         visibility = raw_joints[..., 2]
         raw_image = plot_connections(raw_image.copy(), kpts, visibility, self.limbs, thr=0.5)
@@ -396,10 +440,11 @@ class CocoKeypointsDataset(BaseImageDataset):
             img, annot, mask = self.get_raw_data(idx)
 
         annots = [obj for obj in annot if obj["iscrowd"] == 0 or obj["num_keypoints"] > 0]
-        joints = self.get_joints(annots)
+        joints = get_coco_joints(annots)
         mask_list = [mask.copy() for _ in range(self.num_scales)]
         joints_list = [joints.copy() for _ in range(self.num_scales)]
-        img, mask_list, joints_list = self.transform(img, mask_list, joints_list)
+        if self.transform is not None:
+            img, mask_list, joints_list = self.transform(img, mask_list, joints_list)
         heatmaps = []
         for i in range(self.num_scales):
             joints_list[i] = self.joints_generators[i](joints_list[i])
