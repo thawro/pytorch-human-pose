@@ -12,11 +12,9 @@ def main() -> None:
     cfg = load_yaml(cfg_path)
 
     pretrained_ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/classification/02-15_10:12___imagenet_HRNet/02-19_09:14/checkpoints/best.pt"
-    # pretrained_ckpt_path = None
 
-    ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/keypoints/03-05_15:47__COCO_HigherHRNet/03-07_15:15/checkpoints/best.pt"
+    ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/keypoints/03-05_15:47__COCO_HigherHRNet/03-08_07:35/checkpoints/best.pt"
     ckpt_path = None
-    ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/debug/03-09_22:47__COCO_HigherHRNet/03-09_22:47/checkpoints/last.pt"
 
     cfg["setup"]["ckpt_path"] = ckpt_path
     cfg["setup"]["pretrained_ckpt_path"] = pretrained_ckpt_path

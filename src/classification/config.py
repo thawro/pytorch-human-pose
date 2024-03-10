@@ -3,7 +3,7 @@ from typing import Type
 
 from torch import nn
 
-from src.base.callbacks import BaseCallback, ExamplesPlotterCallback
+from src.base.callbacks import BaseCallback, ResultsPlotterCallback
 from src.base.config import BaseConfig
 from src.logger.pylogger import log
 
@@ -65,7 +65,7 @@ class ClassificationConfig(BaseConfig):
 
     def create_callbacks(self) -> list[BaseCallback]:
         base_callbacks = super().create_callbacks()
-        kpts_callbacks = [
-            ExamplesPlotterCallback("classification"),
+        cls_callbacks = [
+            ResultsPlotterCallback("top_probs"),
         ]
-        return base_callbacks + kpts_callbacks
+        return base_callbacks + cls_callbacks

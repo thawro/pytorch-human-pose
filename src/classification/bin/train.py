@@ -5,7 +5,6 @@ from src.utils.files import load_yaml
 
 # top-5 validation error of 6.5%
 # top-1 validation error of 22.7%
-# TODO: fix datasets code (use datasets folder, log num of samples etc.)
 
 
 def main():

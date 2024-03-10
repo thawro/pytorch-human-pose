@@ -3,7 +3,7 @@ from typing import Literal, Type
 
 from torch import nn
 
-from src.base.callbacks import BaseCallback, ExamplesPlotterCallback
+from src.base.callbacks import BaseCallback, ResultsPlotterCallback
 from src.base.config import (
     BaseConfig,
     DataloaderConfig,
@@ -123,6 +123,6 @@ class KeypointsConfig(BaseConfig):
     def create_callbacks(self) -> list[BaseCallback]:
         base_callbacks = super().create_callbacks()
         kpts_callbacks = [
-            ExamplesPlotterCallback("keypoints"),
+            ResultsPlotterCallback("heatmaps"),
         ]
         return base_callbacks + kpts_callbacks

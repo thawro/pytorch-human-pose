@@ -20,10 +20,10 @@ from .storage import MetricsStorage
 # TODO:
 # fix compile + DDP
 
-# wizualizacje do klasyfikacji (treningowa)
 # Puścić klasyfikacje (testowo)
 # Wizualizacja gradientów
 # Cpu/gpu monitoring
+# updatowanie configa przez argsy z cli
 
 
 class Trainer:

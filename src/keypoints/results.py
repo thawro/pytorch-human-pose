@@ -141,20 +141,19 @@ class KeypointsResult(BaseKeypointsResult):
             kpts_hms_plot = plot_heatmaps(
                 self.model_input_image, self.kpts_heatmaps[..., i], clip_0_1=True, minmax=False
             )
-            kpts_hms_plot.insert(0, connections_plot)
             kpts_hms_plot = make_grid(kpts_hms_plot, nrows=1, pad=5)
             stage_hms_plots.append(kpts_hms_plot)
             if i < tags_embedding_dim:
                 tags_heatmaps_plots = plot_heatmaps(
                     self.model_input_image, self.tags_heatmaps[..., i], clip_0_1=False, minmax=True
                 )
-                tags_heatmaps_plots.insert(0, connections_plot)
                 tags_grid = make_grid(tags_heatmaps_plots, nrows=1, pad=5)
                 stage_hms_plots.append(tags_grid)
             stages_hms_plots.extend(stage_hms_plots)
-        stages_hms_plots = np.concatenate(stages_hms_plots, axis=0)
-        stages_hms_plots = cv2.resize(stages_hms_plots, dsize=(0, 0), fx=0.4, fy=0.4)
-        return {"stages_heatmaps": stages_hms_plots}
+        stages_hms_plot = np.concatenate(stages_hms_plots, axis=0)
+        stages_hms_plot = cv2.resize(stages_hms_plot, dsize=(0, 0), fx=0.4, fy=0.4)
+        stages_hms_plot = stack_horizontally([connections_plot, stages_hms_plot])
+        return {"heatmaps": stages_hms_plot}
 
 
 def transform_coords(

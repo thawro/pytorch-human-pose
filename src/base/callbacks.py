@@ -216,14 +216,14 @@ class SaveModelCheckpoint(BaseCallback):
         )
 
 
-class ExamplesPlotterCallback(BaseCallback):
+class ResultsPlotterCallback(BaseCallback):
     """Plot prediction examples"""
 
-    def __init__(self, name: str | None = ""):
+    def __init__(self, name: str):
         self.name = name
 
     def plot_example_results(self, trainer: Trainer, results: list[BaseResult], filepath: str):
-        plot_results(results, filepath)
+        plot_results(results, plot_name=self.name, filepath=filepath)
 
     def plot(self, trainer: Trainer, prefix: str) -> None:
         dirpath = trainer.logger.loggers[0].eval_examples_dir

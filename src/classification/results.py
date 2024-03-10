@@ -24,7 +24,7 @@ class ClassificationResult(BaseResult):
         self.logits = logits.numpy()
 
     def plot(self) -> dict[str, np.ndarray]:
-        exp_logits = np.exp(self.logits)
+        exp_logits = np.exp(self.logits) + np.finfo(self.logits.dtype).eps
         probs = exp_logits / np.sum(exp_logits)
         top_preds_plot = plot_top_preds(
             image=self.model_input_image,
@@ -33,7 +33,7 @@ class ClassificationResult(BaseResult):
             k=5,
             target_label=self.target_label,
         )
-        return {"top_preds": top_preds_plot}
+        return {"top_probs": top_preds_plot}
 
 
 @dataclass

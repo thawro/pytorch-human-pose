@@ -67,13 +67,16 @@ class ClassificationModule(BaseModule):
         metrics = get_metrics(logits, targets)
         metrics["loss"] = loss = loss.detach().item()
 
+        logits = logits.detach().cpu()
+        images = images.detach().cpu()
+        targets = targets.detach().cpu()
         results = []
         for i in range(len(images)):
             result = ClassificationResult(
                 model_input_image=images[i],
-                logits=logits.detach().cpu(),
+                logits=logits[i],
                 target_label=self.idx2label[int(targets[i].item())],
                 idx2label=self.idx2label,
             )
             results.append(result)
-        return metrics, []
+        return metrics, results
