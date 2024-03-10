@@ -113,11 +113,9 @@ class KeypointsResult(BaseKeypointsResult):
             resized_avg_kpts_heatmaps, resized_tags_heatmaps, adjust=True, refine=True
         )
 
-        kpts_coords = grouped_joints[..., :2]
-        kpts_scores = grouped_joints[..., 2]
-
-        self.kpts_coords = kpts_coords
-        self.kpts_scores = kpts_scores
+        self.kpts_coords = grouped_joints[..., :2]
+        self.kpts_scores = grouped_joints[..., 2]
+        self.kpts_tags = grouped_joints[..., 3:]
         self.obj_scores = obj_scores
 
         resized_kpts_heatmaps = self.resize_heatmaps(kpts_heatmaps, img_h, img_w)
@@ -130,6 +128,7 @@ class KeypointsResult(BaseKeypointsResult):
             self.model_input_image.copy(),
             self.kpts_coords,
             self.kpts_scores,
+            self.kpts_tags,
             self.limbs,
             thr=self.det_thr,
         )
@@ -307,7 +306,12 @@ class InferenceKeypointsResult(BaseKeypointsResult):
         print(f"OKS: {oks_value:.2f}")
 
         connections_plot = plot_connections(
-            self.raw_image.copy(), self.kpts_coords, self.kpts_scores, self.limbs, thr=self.det_thr
+            self.raw_image.copy(),
+            self.kpts_coords,
+            self.kpts_scores,
+            self.kpts_tags,
+            self.limbs,
+            thr=self.det_thr,
         )
 
         kpts_hms_plot = plot_heatmaps(

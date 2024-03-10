@@ -12,7 +12,8 @@ def plot_connections(
     image: np.ndarray,
     all_kpts_coords: np.ndarray,
     all_kpts_scores: np.ndarray,
-    limbs: list[tuple[int, int]] | None,
+    all_kpts_tags: np.ndarray | None = None,
+    limbs: list[tuple[int, int]] | None = None,
     thr: float = 0.05,
 ):
     """
@@ -23,6 +24,15 @@ def plot_connections(
     h, w = image.shape[:2]
     radius = max(2, max(h, w) // 200 - 4)
     thickness = max(2, max(h, w) // 200 - 4)
+
+    if all_kpts_tags is not None:
+        # sort results by tags so visualizations are nice (same colors for persons)
+        obj_ref_tags = all_kpts_tags.mean(axis=1)
+        sort_idxs = np.argsort(obj_ref_tags[:, 0])
+        all_kpts_coords = all_kpts_coords[sort_idxs]
+        all_kpts_scores = all_kpts_scores[sort_idxs]
+        all_kpts_tags = all_kpts_tags[sort_idxs]
+
     for i in range(len(all_kpts_coords)):
         kpts_coords = all_kpts_coords[i]
         kpts_scores = all_kpts_scores[i]

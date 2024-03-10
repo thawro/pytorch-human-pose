@@ -7,6 +7,7 @@ import torch
 import torchvision.transforms as T
 from torch import Tensor, nn
 
+from src.base.datasets import InferenceVideoDataset
 from src.base.transforms.utils import resize_align_multi_scale
 from src.keypoints.config import KeypointsConfig
 from src.keypoints.datasets.coco import COCO_LIMBS, CocoKeypointsDataset
@@ -34,14 +35,16 @@ class InferenceKeypointsModel:
         det_thr: float = 0.05,
         tag_thr: float = 0.5,
         use_flip: bool = False,
-        device: str = "cuda:0",
         input_size: int = 512,
+        max_num_people: int = 30,
+        device: str = "cuda:0",
     ):
         super().__init__()
         self.net = net.to(device)
         self.device = device
         self.det_thr = det_thr
         self.tag_thr = tag_thr
+        self.max_num_people = max_num_people
         self.input_size = input_size
         self.use_flip = use_flip
 
@@ -83,26 +86,8 @@ class InferenceKeypointsModel:
             center=center,
             det_thr=self.det_thr,
             tag_thr=self.tag_thr,
-            max_num_people=30,
+            max_num_people=self.max_num_people,
         )
-
-
-def processing_fn(
-    model: InferenceKeypointsModel,
-    image: np.ndarray,
-    annot: list[dict] | None,
-):
-    result = model(image, annot)
-
-    print("=" * 100)
-    plots = result.plot()
-    hm_plot = cv2.cvtColor(cv2.resize(plots["heatmaps"], (0, 0), fx=0.5, fy=0.5), cv2.COLOR_RGB2BGR)
-    connections_plot = cv2.cvtColor(plots["connections"], cv2.COLOR_RGB2BGR)
-    ae_plot = cv2.cvtColor(plots["associative_embedding"], cv2.COLOR_RGB2BGR)
-
-    cv2.imshow("Heatmaps", hm_plot)
-    cv2.imshow("Associative Embeddings", ae_plot)
-    cv2.imshow("Joints", connections_plot)
 
 
 def load_model(cfg: KeypointsConfig, device_id: int = 0) -> InferenceKeypointsModel:
@@ -129,9 +114,52 @@ def prepare_inference_config(cfg_path: str, ckpt_path: str) -> KeypointsConfig:
     cfg["setup"]["is_train"] = False
     cfg["setup"]["ckpt_path"] = ckpt_path
     cfg = KeypointsConfig.from_dict(cfg)
+    # cfg.inference.input_size = 512
     log.info("Inference config prepared.")
     log.info(f"Inference settings:\n{cfg.inference}")
     return cfg
+
+
+def dataset_processing_fn(
+    model: InferenceKeypointsModel,
+    image: np.ndarray,
+    annot: list[dict] | None = None,
+) -> dict:
+    result = model(image, annot)
+    print("=" * 100)
+    plots = result.plot()
+    hm_plot = cv2.cvtColor(cv2.resize(plots["heatmaps"], (0, 0), fx=0.5, fy=0.5), cv2.COLOR_RGB2BGR)
+    connections_plot = cv2.cvtColor(plots["connections"], cv2.COLOR_RGB2BGR)
+    ae_plot = cv2.cvtColor(plots["associative_embedding"], cv2.COLOR_RGB2BGR)
+
+    cv2.imshow("Heatmaps", hm_plot)
+    cv2.imshow("Associative Embeddings", ae_plot)
+    cv2.imshow("Joints", connections_plot)
+    return {}
+
+
+def dataset_inference(cfg: KeypointsConfig):
+    model = load_model(cfg)
+    ds_cfg = cfg.dataloader.val_ds
+    ds = CocoKeypointsDataset(root=ds_cfg.root, split=ds_cfg.split)
+    callback = partial(dataset_processing_fn, model=model)
+    ds.perform_inference(callback, idx=0, load_annot=False)
+
+
+def video_processing_fn(model: InferenceKeypointsModel, image: np.ndarray) -> dict:
+    result = model(image, None)
+    plots = result.plot()
+    connections_plot = cv2.cvtColor(plots["connections"], cv2.COLOR_RGB2BGR)
+    connections_plot = cv2.resize(connections_plot, (0, 0), fx=0.3, fy=0.3)
+    cv2.imshow("Joints", connections_plot)
+    return {"out_frame": connections_plot}
+
+
+def video_inference(cfg: KeypointsConfig, filepath: str):
+    model = load_model(cfg)
+    ds = InferenceVideoDataset(filepath=filepath, out_filepath=None, start_frame=0, num_frames=100)
+    callback = partial(video_processing_fn, model=model)
+    ds.run(callback)
 
 
 def main() -> None:
@@ -141,12 +169,8 @@ def main() -> None:
     )
     cfg_path = str(YAML_EXP_PATH / "keypoints" / "higher_hrnet_32.yaml")
     cfg = prepare_inference_config(cfg_path, ckpt_path)
-
-    model = load_model(cfg)
-
-    ds_cfg = cfg.dataloader.val_ds
-    ds = CocoKeypointsDataset(root=ds_cfg.root, split=ds_cfg.split)
-    ds.perform_inference(partial(processing_fn, model=model), idx=0, load_annot=False)
+    # dataset_inference(cfg)
+    video_inference(cfg, "data/examples/small.mp4")
 
 
 if __name__ == "__main__":
