@@ -210,3 +210,13 @@ def get_model_summary(
         details += "{} : {} layers   ".format(layer, layer_instances[layer])
 
     return details
+
+
+def parse_checkpoint(ckpt: dict) -> dict:
+    redundant_prefixes = ["module.", "_orig_mod.", "net."]
+    for key in list(ckpt.keys()):
+        renamed_key = str(key)
+        for prefix in redundant_prefixes:
+            renamed_key = renamed_key.replace(prefix, "")
+        ckpt[renamed_key] = ckpt.pop(key)
+    return ckpt

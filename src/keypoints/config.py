@@ -3,7 +3,7 @@ from typing import Literal, Type
 
 from torch import nn
 
-from src.base.callbacks import BaseCallback
+from src.base.callbacks import BaseCallback, ExamplesPlotterCallback
 from src.base.config import (
     BaseConfig,
     DataloaderConfig,
@@ -15,7 +15,6 @@ from src.base.trainer import Trainer
 from src.logger.pylogger import log
 
 from .architectures import AEHourglassNet, HigherHRNet
-from .callbacks import KeypointsExamplesPlotterCallback
 from .datamodule import KeypointsDataModule
 from .datasets.coco import CocoKeypointsDataset, collate_fn
 from .loss import AEKeypointsLoss
@@ -124,6 +123,6 @@ class KeypointsConfig(BaseConfig):
     def create_callbacks(self) -> list[BaseCallback]:
         base_callbacks = super().create_callbacks()
         kpts_callbacks = [
-            KeypointsExamplesPlotterCallback("keypoints"),
+            ExamplesPlotterCallback("keypoints"),
         ]
         return base_callbacks + kpts_callbacks

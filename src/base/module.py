@@ -70,6 +70,9 @@ class BaseModule:
         self.optimizers, self.lr_schedulers = self.create_optimizers()
         self.scalers = {name: GradScaler() for name in self.optimizers}
 
+    def batch_to_device(self, batch: tuple) -> tuple:
+        raise NotImplementedError()
+
     def pass_attributes(
         self,
         device_id: int,
@@ -128,6 +131,7 @@ class BaseModule:
     def _training_step(self, batch: tuple[Tensor, Tensor], batch_idx: int) -> dict[str, float]:
         self.stage = "train"
         self.is_train = True
+        batch = self.batch_to_device(batch)
         metrics = self.training_step(batch, batch_idx)
         for name, lr_scheduler in self.lr_schedulers.items():
             if lr_scheduler.is_step_interval:
@@ -139,6 +143,7 @@ class BaseModule:
     ) -> tuple[dict[str, float], list[BaseResult]]:
         self.stage = stage
         self.is_train = False
+        batch = self.batch_to_device(batch)
         metrics, results = self.validation_step(batch, batch_idx)
         return metrics, results
 

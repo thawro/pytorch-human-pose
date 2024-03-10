@@ -1,7 +1,11 @@
 import cv2
+import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 
-from src.utils.image import get_color
+from src.utils.image import get_color, matplot_figure_to_array
+
+sns.set_style("whitegrid")
 
 
 def plot_connections(
@@ -62,3 +66,30 @@ def plot_heatmaps(
         img_hm = cv2.addWeighted(image, 0.25, hm, 0.75, 0)
         heatmaps_vis.append(img_hm)
     return heatmaps_vis
+
+
+def plot_grouped_ae_tags(kpts_tags: np.ndarray) -> np.ndarray:
+    num_obj, num_kpts, emb_dim = kpts_tags.shape
+
+    fig, axes = plt.subplots(1, emb_dim, figsize=(6 * emb_dim, 6))
+    if emb_dim == 1:
+        axes = [axes]
+    for e, ax in enumerate(axes):
+        x = []
+        y = []
+        c = []
+        for i in range(num_obj):
+            for j in range(num_kpts):
+                x.append(kpts_tags[i, j, e])
+                y.append(j)
+                c.append((get_color(i) / 255).tolist())
+        ax.scatter(x, y, c=c, s=120)
+
+    for i, ax in enumerate(axes):
+        ax.set_yticks([i for i in range(num_kpts)])
+        ax.set_xlabel("Embedding values", fontsize=12)
+        if i == 0:
+            ax.set_ylabel("Keypoint index", fontsize=12)
+        ax.set_title(f"Embedding dim = {i}", fontsize=14)
+    fig.suptitle("Associative Embeddings after grouping", fontsize=16)
+    return matplot_figure_to_array(fig)

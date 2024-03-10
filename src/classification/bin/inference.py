@@ -1,117 +1,115 @@
-import torch
-from torch import nn, Tensor
-import torchvision.transforms as T
-from src.utils.model import seed_everything
+from functools import partial
 
-from src.classification.config import ClassificationConfig
 import cv2
 import numpy as np
-from src.utils.config import RESULTS_PATH, DS_ROOT, YAML_EXP_PATH
-from functools import partial
-from src.classification.datasets import ImageNetClassificationDataset
+import torch
+import torchvision.transforms as T
+from torch import Tensor, nn
 
-from src.logging.pylogger import get_pylogger
-
-log = get_pylogger(__name__)
-
-
-transform = T.Compose(
-    [
-        T.ToTensor(),
-        T.Resize(int(224 / 0.875)),
-        T.CenterCrop(224),
-        T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ]
-)
+from src.classification.config import ClassificationConfig
+from src.classification.datasets import ImagenetClassificationDataset
+from src.classification.results import InferenceClassificationResult
+from src.logger.pylogger import log
+from src.utils.config import YAML_EXP_PATH
+from src.utils.files import load_yaml
+from src.utils.model import parse_checkpoint, seed_everything
 
 
-class InferenceClassificationModel(nn.Module):
+class InferenceClassificationModel:
+    transform = T.Compose(
+        [
+            T.ToTensor(),
+            T.Resize(int(224 / 0.875)),
+            T.CenterCrop(224),
+            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
+    )
+
     def __init__(
         self,
         net: nn.Module,
-        transform: T.Compose,
-        labels: list[str],
-        device: str = "cuda:1",
+        idx2label: dict[int, str],
+        device: str = "cuda:0",
     ):
-        super().__init__()
         self.net = net.to(device)
         self.device = device
-        self.labels = np.array(labels)
-        self.transform = transform
+        self.idx2label = idx2label
 
     def prepare_input(self, image: np.ndarray) -> Tensor:
-        image_resized = self.transform(image)
-        x = image_resized.unsqueeze(0).to(self.device)
+        x = self.transform(image)
+        x = x.unsqueeze(0).to(self.device)
         return x
 
-    def __call__(self, image: np.ndarray) -> np.ndarray:
-        x = self.prepare_input(image)
+    def __call__(
+        self, raw_image: np.ndarray, target_label: int | str | None = None
+    ) -> InferenceClassificationResult:
+        x = self.prepare_input(raw_image)
         with torch.no_grad():
-            logits = self.net(x).squeeze()
+            logits = self.net(x)
 
-        top_5 = torch.topk(logits, k=5).indices.cpu().numpy()
-
-        input_image = x[0].permute(1, 2, 0).cpu().numpy()
-        _mean = np.array([0.485, 0.456, 0.406]) * 255
-        _std = np.array([0.229, 0.224, 0.225]) * 255
-        input_image = (input_image * _std) + _mean
-        input_image = input_image.astype(np.uint8)
-
-        print(self.labels[top_5])
-        return input_image, top_5
+        return InferenceClassificationResult.from_preds(
+            raw_image=raw_image,
+            model_input_image=x[0],
+            logits=logits[0],
+            target_label=target_label,
+            idx2label=self.idx2label,
+        )
 
 
 def processing_fn(
-    model: InferenceClassificationModel, frame: np.ndarray, annot
-) -> dict:
-    print(annot)
-    with torch.no_grad():
-        input_image, logits = model(frame)
-
+    model: InferenceClassificationModel, image: np.ndarray, annot: int | str | None = None
+):
+    result = model(image, annot)
     print("=" * 100)
+    plots = result.plot()
+    top_preds_plot = plots["top_preds"]
     cv2.imshow(
-        "Output",
-        cv2.cvtColor(
-            cv2.resize(input_image, (0, 0), fx=0.5, fy=0.5), cv2.COLOR_RGB2BGR
-        ),
+        "Top predictions",
+        cv2.cvtColor(top_preds_plot, cv2.COLOR_RGB2BGR),
     )
-    print(logits)
-    return {}
+
+
+def prepare_inference_config(cfg_path: str, ckpt_path: str) -> ClassificationConfig:
+    cfg = load_yaml(cfg_path)
+    cfg["setup"]["is_train"] = False
+    cfg["setup"]["ckpt_path"] = ckpt_path
+    cfg = ClassificationConfig.from_dict(cfg)
+    log.info("Inference config prepared.")
+    log.info(f"Inference settings:\n{cfg.inference}")
+    return cfg
 
 
 def load_model(
-    cfg: ClassificationConfig, ckpt_path: str, labels: list[str]
+    cfg: ClassificationConfig,
+    ckpt_path: str,
+    idx2label: dict[int, str],
 ) -> InferenceClassificationModel:
-    cfg.setup.is_train = False
-    cfg.setup.ckpt_path = ckpt_path
     device_id = 0
     device = f"cuda:{device_id}"
 
     net = cfg.create_net()
-    model = InferenceClassificationModel(net, transform, labels=labels, device=device)
+    model = InferenceClassificationModel(net, idx2label=idx2label, device=device)
     ckpt = torch.load(ckpt_path, map_location=device)
     ckpt = ckpt["module"]["model"]
-    for key in list(ckpt.keys()):
-        ckpt[key.replace("module.1.", "").replace("module.", "")] = ckpt[key]
-        ckpt.pop(key)
-    model.load_state_dict(ckpt)
-    model.eval()
+    ckpt = parse_checkpoint(ckpt)
+    model.net.load_state_dict(ckpt)
+    model.net.eval()
     log.info(f"Loaded model from {ckpt_path}")
     return model
 
 
 def main() -> None:
     seed_everything(42)
-    ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/classification/02-09_23:08___ImageNet_HRNet/02-10_07:47/checkpoints/best.pt"
-
+    ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/classification/02-15_10:12___imagenet_HRNet/02-19_09:14/checkpoints/best.pt"
     cfg_path = str(YAML_EXP_PATH / "classification" / "hrnet_32.yaml")
-    cfg = ClassificationConfig.from_yaml(cfg_path)
-    datamodule = cfg.create_datamodule()
-    ds = datamodule.val_ds
+    cfg = prepare_inference_config(cfg_path, ckpt_path)
 
-    model = load_model(cfg, ckpt_path, labels=ds.labels)
+    ds_cfg = cfg.dataloader.val_ds
+    ds = ImagenetClassificationDataset(root=ds_cfg.root, split=ds_cfg.split)
 
-    ds.perform_inference(partial(processing_fn, model=model))
+    model = load_model(cfg, ckpt_path, idx2label=ds.idx2label)
+
+    ds.perform_inference(partial(processing_fn, model=model), load_annot=True)
 
 
 if __name__ == "__main__":

@@ -3,15 +3,16 @@ setup:
   experiment_name: classification
   architecture: ClassificationHRNet
   dataset: ImageNet
+  run_name: null
   is_train: True
   ckpt_path: null
   pretrained_ckpt_path: null
+  deterministic: False
 
 trainer:
   accelerator: gpu
   max_epochs: 100
   limit_batches: -1
-  log_every_n_steps: 0
   use_DDP: true
   sync_batchnorm: false
   use_compile: false
@@ -27,10 +28,10 @@ dataloader:
   pin_memory: true
   num_workers: 4
   train_ds:
-    root: ImageNet
+    root: data/ImageNet
     split: train
   val_ds:
-    root: ImageNet
+    root: data/ImageNet
     split: val
 
 transform:
@@ -43,7 +44,7 @@ module:
     optim:
       name: SGD
       params:
-        lr: 0.133 # 0.1 * ((2*96)/(4*36)) scale LR from paper by my batch_size (96) and GPU (2)
+        lr: 0.1 # 0.133? 0.1 * ((2*96)/(4*36)) scale LR from paper by my batch_size (96) and GPU (2)
         momentum: 0.9
         weight_decay: 0.0001
         nesterov: True
@@ -59,3 +60,7 @@ net:
   params:
     C: 32
     num_classes: 1000
+
+inference:
+  use_flip: False
+  input_size: 224

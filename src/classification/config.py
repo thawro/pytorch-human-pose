@@ -3,7 +3,7 @@ from typing import Type
 
 from torch import nn
 
-from src.base.callbacks import BaseCallback
+from src.base.callbacks import BaseCallback, ExamplesPlotterCallback
 from src.base.config import BaseConfig
 from src.logger.pylogger import log
 
@@ -29,7 +29,7 @@ class ClassificationConfig(BaseConfig):
         val_ds = ImagenetClassificationDataset(
             **self.dataloader.val_ds.to_dict(), transform=transform.inference
         )
-        self.labels = []
+        self.idx2label = train_ds.idx2label
 
         return ClassificationDataModule(
             train_ds=train_ds,
@@ -54,8 +54,18 @@ class ClassificationConfig(BaseConfig):
         log.info("..Creating ClassificationModule..")
         model = self._create_model()
         loss_fn = ClassificationLoss()
-        module = ClassificationModule(model=model, loss_fn=loss_fn, labels=self.labels)
+        module = ClassificationModule(
+            model=model,
+            loss_fn=loss_fn,
+            idx2label=self.idx2label,
+            optimizers=self.get_optimizers_params(),
+            lr_schedulers=self.get_lr_schedulers_params(),
+        )
         return module
 
     def create_callbacks(self) -> list[BaseCallback]:
-        return super().create_callbacks()
+        base_callbacks = super().create_callbacks()
+        kpts_callbacks = [
+            ExamplesPlotterCallback("classification"),
+        ]
+        return base_callbacks + kpts_callbacks

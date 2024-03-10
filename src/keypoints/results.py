@@ -5,13 +5,17 @@ import numpy as np
 import torch
 from torch import Tensor
 
+from src.base.results import BaseResult
 from src.base.transforms.utils import affine_transform, get_affine_transform
-from src.keypoints.datasets.coco import get_coco_joints
 from src.keypoints.grouping import MPPEHeatmapParser
 from src.keypoints.metrics import OKS
 from src.keypoints.transforms import KeypointsTransform
-from src.keypoints.visualization import plot_connections, plot_heatmaps
-from src.utils.image import make_grid
+from src.keypoints.visualization import (
+    plot_connections,
+    plot_grouped_ae_tags,
+    plot_heatmaps,
+)
+from src.utils.image import make_grid, match_size_to_src, stack_horizontally
 
 
 def match_preds_to_targets(
@@ -39,7 +43,7 @@ def match_preds_to_targets(
     return target_matches_idx
 
 
-class BaseKeypointsResult:
+class BaseKeypointsResult(BaseResult):
     @classmethod
     def match_heatmaps_size(cls, heatmaps: list[Tensor]) -> list[Tensor]:
         h, w = heatmaps[-1].shape[-2:]
@@ -69,7 +73,7 @@ class KeypointsResult(BaseKeypointsResult):
 
     def __init__(
         self,
-        image: Tensor,
+        model_input_image: Tensor,
         kpts_heatmaps: list[Tensor],
         tags_heatmaps: Tensor,
         limbs: list[tuple[int, int]],
@@ -77,7 +81,7 @@ class KeypointsResult(BaseKeypointsResult):
         det_thr: float = 0.05,
         tag_thr: float = 0.5,
     ):
-        self.image = KeypointsTransform.inverse_transform(image)
+        self.model_input_image = KeypointsTransform.inverse_transform(model_input_image)
         self._kpts_heatmaps = kpts_heatmaps
         self._tags_heatmaps = tags_heatmaps
         self.num_kpts = kpts_heatmaps[0].shape[1]
@@ -88,7 +92,7 @@ class KeypointsResult(BaseKeypointsResult):
         self.hm_parser = MPPEHeatmapParser(self.num_kpts, max_num_people, det_thr, tag_thr)
 
     def set_preds(self):
-        img_h, img_w = self.image.shape[:2]
+        img_h, img_w = self.model_input_image.shape[:2]
 
         kpts_heatmaps = self.match_heatmaps_size(self._kpts_heatmaps)
 
@@ -121,9 +125,9 @@ class KeypointsResult(BaseKeypointsResult):
         self.kpts_heatmaps = resized_kpts_heatmaps.permute(1, 2, 3, 0).cpu().numpy()
         self.tags_heatmaps = resized_tags_heatmaps.cpu().numpy()
 
-    def plot(self) -> np.ndarray:
+    def plot(self) -> dict[str, np.ndarray]:
         connections_plot = plot_connections(
-            self.image.copy(),
+            self.model_input_image.copy(),
             self.kpts_coords,
             self.kpts_scores,
             self.limbs,
@@ -135,14 +139,14 @@ class KeypointsResult(BaseKeypointsResult):
         for i in range(num_stages):
             stage_hms_plots = []
             kpts_hms_plot = plot_heatmaps(
-                self.image, self.kpts_heatmaps[..., i], clip_0_1=True, minmax=False
+                self.model_input_image, self.kpts_heatmaps[..., i], clip_0_1=True, minmax=False
             )
             kpts_hms_plot.insert(0, connections_plot)
             kpts_hms_plot = make_grid(kpts_hms_plot, nrows=1, pad=5)
             stage_hms_plots.append(kpts_hms_plot)
             if i < tags_embedding_dim:
                 tags_heatmaps_plots = plot_heatmaps(
-                    self.image, self.tags_heatmaps[..., i], clip_0_1=False, minmax=True
+                    self.model_input_image, self.tags_heatmaps[..., i], clip_0_1=False, minmax=True
                 )
                 tags_heatmaps_plots.insert(0, connections_plot)
                 tags_grid = make_grid(tags_heatmaps_plots, nrows=1, pad=5)
@@ -150,7 +154,7 @@ class KeypointsResult(BaseKeypointsResult):
             stages_hms_plots.extend(stage_hms_plots)
         stages_hms_plots = np.concatenate(stages_hms_plots, axis=0)
         stages_hms_plots = cv2.resize(stages_hms_plots, dsize=(0, 0), fx=0.4, fy=0.4)
-        return stages_hms_plots
+        return {"stages_heatmaps": stages_hms_plots}
 
 
 def transform_coords(
@@ -178,6 +182,7 @@ class InferenceKeypointsResult(BaseKeypointsResult):
     tags_heatmaps: np.ndarray
     kpts_coords: np.ndarray
     kpts_scores: np.ndarray
+    kpts_tags: np.ndarray
     obj_scores: np.ndarray
     limbs: list[tuple[int, int]]
     det_thr: float
@@ -236,6 +241,7 @@ class InferenceKeypointsResult(BaseKeypointsResult):
 
         kpts_coords = grouped_joints[..., :2]
         kpts_scores = grouped_joints[..., 2]
+        kpts_tags = grouped_joints[..., 3:]
 
         kpts_coords = cls.get_final_kpts_coords(kpts_coords, center, scale, (img_w, img_h))
 
@@ -251,6 +257,7 @@ class InferenceKeypointsResult(BaseKeypointsResult):
             tags_heatmaps=tags_heatmaps_npy,
             kpts_coords=kpts_coords,
             kpts_scores=kpts_scores,
+            kpts_tags=kpts_tags,
             obj_scores=obj_scores,
             limbs=limbs,
             det_thr=det_thr,
@@ -258,7 +265,6 @@ class InferenceKeypointsResult(BaseKeypointsResult):
         )
 
     def calculate_OKS(self) -> float:
-        oks_value = -1
         assert (
             self.annot is not None
         ), "Matching preds to targets is possible only when annotation is set"
@@ -294,7 +300,7 @@ class InferenceKeypointsResult(BaseKeypointsResult):
             )
         return oks_value
 
-    def plot(self) -> tuple[np.ndarray, np.ndarray]:
+    def plot(self) -> dict[str, np.ndarray]:
         if self.annot is not None:
             oks_value = self.calculate_OKS()
         else:
@@ -317,4 +323,14 @@ class InferenceKeypointsResult(BaseKeypointsResult):
 
         hms_plot = np.concatenate([kpts_hms_plot, tags_hms_plots], axis=0)
         hms_plot = cv2.resize(hms_plot, dsize=(0, 0), fx=0.6, fy=0.6)
-        return hms_plot, connections_plot
+
+        ae_tags_plot = plot_grouped_ae_tags(self.kpts_tags)
+        # ae_tags_plot = match_size_to_src(connections_plot, [ae_tags_plot], mode="height")[0]
+        _connections_plot = match_size_to_src(ae_tags_plot, [connections_plot], mode="height")[0]
+
+        ae_plot = stack_horizontally([_connections_plot, ae_tags_plot])
+        return {
+            "heatmaps": hms_plot,
+            "connections": connections_plot,
+            "associative_embedding": ae_plot,
+        }

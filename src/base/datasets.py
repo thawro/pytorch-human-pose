@@ -49,10 +49,11 @@ class InferenceDataset:
     def load_annot(self, idx: int) -> dict:
         raise NotImplementedError()
 
-    def perform_inference(self, callback: Callable[[np.ndarray], Any], idx: int = 0):
+    def perform_inference(self, callback: Callable, idx: int = 0, load_annot: bool = False):
         image = self.load_image(idx)
-        annot = self.load_annot(idx)
-        callback(frame=image, annot=annot)
+
+        annot = self.load_annot(idx) if load_annot else None
+        callback(image=image, annot=annot)
         k = cv2.waitKeyEx(0)
         # change according to your system
         left_key = 65361
@@ -67,7 +68,7 @@ class InferenceDataset:
         elif k == left_key:  # SPACE or right arrow pressed
             print("Left arrow hit, exploring previous sample")
             idx -= 1
-        self.perform_inference(callback, idx)
+        self.perform_inference(callback, idx, load_annot)
 
 
 class BaseImageDataset(Dataset, ExplorerDataset, InferenceDataset):
@@ -85,10 +86,10 @@ class BaseImageDataset(Dataset, ExplorerDataset, InferenceDataset):
         raise NotImplementedError()
 
     def __len__(self) -> int:
-        return len(self.annots_filepaths)
+        return len(self.images_filepaths)
 
     def load_image(self, idx: int) -> np.ndarray:
-        return np.asarray(Image.open(self.images_filepaths[idx]).convert("RGB"))
+        return np.array(Image.open(self.images_filepaths[idx]).convert("RGB"))
 
-    def load_annot(self, idx: int) -> dict:
-        return load_yaml(self.annots_filepaths[idx])
+    def load_annot(self, idx: int) -> Any:
+        raise NotImplementedError()

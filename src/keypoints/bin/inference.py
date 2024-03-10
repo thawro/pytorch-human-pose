@@ -4,7 +4,7 @@ from functools import partial
 import cv2
 import numpy as np
 import torch
-import torchvision
+import torchvision.transforms as T
 from torch import Tensor, nn
 
 from src.base.transforms.utils import resize_align_multi_scale
@@ -20,6 +20,13 @@ from src.utils.model import seed_everything
 
 class InferenceKeypointsModel:
     limbs = COCO_LIMBS
+
+    transform = T.Compose(
+        [
+            T.ToTensor(),
+            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
+    )
 
     def __init__(
         self,
@@ -41,18 +48,8 @@ class InferenceKeypointsModel:
     def prepare_input(
         self, image: np.ndarray
     ) -> tuple[Tensor, tuple[int, int], tuple[float, float]]:
-        transforms = torchvision.transforms.Compose(
-            [
-                torchvision.transforms.ToTensor(),
-                torchvision.transforms.Normalize(
-                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-                ),
-            ]
-        )
-
         image_resized, center, scale = resize_align_multi_scale(image, self.input_size, 1, 1)
-
-        image_resized = transforms(image_resized)
+        image_resized = self.transform(image_resized)
         x = image_resized.unsqueeze(0).to(self.device)
         return x, center, scale
 
@@ -92,19 +89,20 @@ class InferenceKeypointsModel:
 
 def processing_fn(
     model: InferenceKeypointsModel,
-    frame: np.ndarray,
+    image: np.ndarray,
     annot: list[dict] | None,
-) -> dict:
-    result = model(frame, annot)
+):
+    result = model(image, annot)
 
     print("=" * 100)
-    hms_plot, connections_plot = result.plot()
-    cv2.imshow(
-        "Heatmaps",
-        cv2.cvtColor(cv2.resize(hms_plot, (0, 0), fx=0.5, fy=0.5), cv2.COLOR_RGB2BGR),
-    )
-    cv2.imshow("Joints", cv2.cvtColor(connections_plot, cv2.COLOR_RGB2BGR))
-    return {}
+    plots = result.plot()
+    hm_plot = cv2.cvtColor(cv2.resize(plots["heatmaps"], (0, 0), fx=0.5, fy=0.5), cv2.COLOR_RGB2BGR)
+    connections_plot = cv2.cvtColor(plots["connections"], cv2.COLOR_RGB2BGR)
+    ae_plot = cv2.cvtColor(plots["associative_embedding"], cv2.COLOR_RGB2BGR)
+
+    cv2.imshow("Heatmaps", hm_plot)
+    cv2.imshow("Associative Embeddings", ae_plot)
+    cv2.imshow("Joints", connections_plot)
 
 
 def load_model(cfg: KeypointsConfig, device_id: int = 0) -> InferenceKeypointsModel:
@@ -148,7 +146,7 @@ def main() -> None:
 
     ds_cfg = cfg.dataloader.val_ds
     ds = CocoKeypointsDataset(root=ds_cfg.root, split=ds_cfg.split)
-    ds.perform_inference(partial(processing_fn, model=model))
+    ds.perform_inference(partial(processing_fn, model=model), idx=0, load_annot=False)
 
 
 if __name__ == "__main__":

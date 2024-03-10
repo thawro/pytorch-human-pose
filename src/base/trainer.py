@@ -18,9 +18,12 @@ from .module import BaseModule
 from .storage import MetricsStorage
 
 # TODO:
-# plot gradients callback
-# plot AE visualization
 # fix compile + DDP
+
+# wizualizacje do klasyfikacji (treningowa)
+# Puścić klasyfikacje (testowo)
+# Wizualizacja gradientów
+# Cpu/gpu monitoring
 
 
 class Trainer:

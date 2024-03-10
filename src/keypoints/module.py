@@ -33,12 +33,15 @@ class KeypointsModule(BaseModule):
         self.limbs = limbs
         log.info("..Using torch autocast to float16 in modules forward implementation..")
 
-    def training_step(self, batch: _batch, batch_idx: int) -> dict[str, float]:
+    def batch_to_device(self, batch: _batch) -> _batch:
         images, heatmaps, masks, joints = batch
-
         heatmaps = list(map(lambda x: x.cuda(non_blocking=True), heatmaps))
         masks = list(map(lambda x: x.cuda(non_blocking=True), masks))
         images = images.cuda()
+        return images, heatmaps, masks, joints
+
+    def training_step(self, batch: _batch, batch_idx: int) -> dict[str, float]:
+        images, heatmaps, masks, joints = batch
 
         scaler, optimizer = self.scalers["optim"], self.optimizers["optim"]
 
@@ -72,10 +75,6 @@ class KeypointsModule(BaseModule):
     ) -> tuple[dict[str, float], list[KeypointsResult]]:
         images, heatmaps, masks, joints = batch
 
-        heatmaps = list(map(lambda x: x.cuda(non_blocking=True), heatmaps))
-        masks = list(map(lambda x: x.cuda(non_blocking=True), masks))
-        images = images.cuda()
-
         with torch.autocast(device_type="cuda", dtype=torch.float16):
             stages_pred_kpts_heatmaps, pred_tags_heatmaps = self.model.net(images)
             heatmap_losses, push_losses, pull_losses = self.loss_fn.calculate_loss(
@@ -100,7 +99,7 @@ class KeypointsModule(BaseModule):
         results = []
         for i in range(len(images)):
             result = KeypointsResult(
-                image=images[i],
+                model_input_image=images[i],
                 kpts_heatmaps=[hms[i].unsqueeze(0) for hms in stages_pred_kpts_heatmaps],
                 tags_heatmaps=pred_tags_heatmaps[i].unsqueeze(0),
                 limbs=self.limbs,

@@ -1,8 +1,8 @@
 from typing import Literal
 
 import cv2
-import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.figure import Figure
 
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
@@ -59,9 +59,6 @@ def make_grid(
         grid_x = pad + col * (w + pad)
         grid[grid_y : grid_y + h, grid_x : grid_x + w] = image
     return grid
-
-
-# def resize_pad(image: np.ndarray, height: int, width: int) -> np.ndarray:
 
 
 def stack_horizontally(images: list[np.ndarray], pad: int = 5):
@@ -133,14 +130,14 @@ def put_txt(
         sub_img = image[_y : _y + txt_h, _x : _x + txt_w]
         white_rect = np.ones(sub_img.shape, dtype=np.uint8) * 255
         cv2.rectangle(white_rect, (0, 0), (txt_w, txt_h), bg_color, -1)
-        res = cv2.addWeighted(sub_img, 0.5, white_rect, 0.5, 1.0)
+        res = cv2.addWeighted(sub_img, 1 - alpha, white_rect, alpha, 1.0)
         image[_y : _y + txt_h, _x : _x + txt_w] = res
     else:
         cv2.rectangle(image, (_x, _y), (_x + txt_w, _y + txt_h), bg_color, -1)
 
     for label in labels:
         (width, height), _ = cv2.getTextSize(label, font, font_scale, thickness)
-        cv2.putText(image, label, (x, y + height), font, font_scale, txt_color)
+        cv2.putText(image, label, (x, y + height), font, font_scale, txt_color, thickness)
         y += height + vspace
     return image
 
@@ -151,7 +148,7 @@ def add_labels_to_frames(
     font=cv2.FONT_HERSHEY_SIMPLEX,
     font_scale=0.5,
     thickness=1,
-):
+) -> list[np.ndarray]:
     labeled_frames = []
     for i in range(len(frames)):
         label = labels[i]
@@ -169,6 +166,30 @@ def add_labels_to_frames(
         )
         labeled_frames.append(labeled_image)
     return labeled_frames
+
+
+def matplot_figure_to_array(fig: Figure) -> np.ndarray:
+    fig.canvas.draw()
+    data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    return data
+
+
+def match_size_to_src(
+    src_image: np.ndarray, dst_images: list[np.ndarray], mode: Literal["height", "width"]
+) -> list[np.ndarray]:
+    assert mode in ["height", "width"]
+    src_h, src_w = src_image.shape[:2]
+    dst_matched_images = []
+    for dst_image in dst_images:
+        dst_h, dst_w = dst_image.shape[:2]
+        if mode == "height":
+            ratio = src_h / dst_h
+        elif mode == "width":
+            ratio = src_w / dst_w
+        matched_image = cv2.resize(dst_image, (0, 0), fx=ratio, fy=ratio)
+        dst_matched_images.append(matched_image)
+    return dst_matched_images
 
 
 # cmap = plt.cm.get_cmap("tab10")

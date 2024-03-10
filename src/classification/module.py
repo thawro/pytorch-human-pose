@@ -27,33 +27,20 @@ class ClassificationModule(BaseModule):
     loss_fn: ClassificationLoss
     datamodule: ClassificationDataModule
 
-    def __init__(self, model: ClassificationModel, loss_fn: ClassificationLoss, labels: list[str]):
-        super().__init__(model, loss_fn)
-        self.labels = labels
-
-    def create_optimizers(
+    def __init__(
         self,
-    ) -> tuple[dict[str, optim.Optimizer], dict[str, LRScheduler]]:
-        optimizer = optim.SGD(
-            filter(lambda p: p.requires_grad, self.model.net.parameters()),
-            lr=0.1,
-            momentum=0.9,
-            weight_decay=0.0001,
-            nesterov=True,
-        )
+        model: ClassificationModel,
+        loss_fn: ClassificationLoss,
+        optimizers: dict,
+        lr_schedulers: dict,
+        idx2label: dict[int, str],
+    ):
+        super().__init__(model, loss_fn, optimizers, lr_schedulers)
+        self.idx2label = idx2label
 
-        optimizers = {"optim": optimizer}
-        schedulers = {
-            "optim": LRScheduler(
-                optim.lr_scheduler.MultiStepLR(
-                    optimizer,
-                    milestones=[30, 60, 90],
-                    gamma=0.1,
-                ),
-                interval="epoch",
-            )
-        }
-        return optimizers, schedulers
+    def batch_to_device(self, batch: tuple[Tensor, Tensor]) -> tuple[Tensor, Tensor]:
+        images, targets = batch
+        return images.to(self.device), targets.to(self.device)
 
     def training_step(self, batch: tuple[Tensor, Tensor], batch_idx: int) -> dict[str, float]:
         images, targets = batch
@@ -79,4 +66,14 @@ class ClassificationModule(BaseModule):
 
         metrics = get_metrics(logits, targets)
         metrics["loss"] = loss = loss.detach().item()
+
+        results = []
+        for i in range(len(images)):
+            result = ClassificationResult(
+                model_input_image=images[i],
+                logits=logits.detach().cpu(),
+                target_label=self.idx2label[int(targets[i].item())],
+                idx2label=self.idx2label,
+            )
+            results.append(result)
         return metrics, []

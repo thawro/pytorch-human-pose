@@ -22,7 +22,7 @@ from src.logger.pylogger import log
 from src.utils.config import LOG_DEVICE_ID
 from src.utils.files import save_txt_to_file, save_yaml
 
-from .results import BaseResult
+from .results import BaseResult, plot_results
 from .visualization import plot_metrics_matplotlib, plot_metrics_plotly
 
 _log_mode = Literal["step", "epoch", "validation"]
@@ -216,15 +216,14 @@ class SaveModelCheckpoint(BaseCallback):
         )
 
 
-class BaseExamplesPlotterCallback(BaseCallback):
+class ExamplesPlotterCallback(BaseCallback):
     """Plot prediction examples"""
 
     def __init__(self, name: str | None = ""):
         self.name = name
 
-    @abstractmethod
     def plot_example_results(self, trainer: Trainer, results: list[BaseResult], filepath: str):
-        raise NotImplementedError()
+        plot_results(results, filepath)
 
     def plot(self, trainer: Trainer, prefix: str) -> None:
         dirpath = trainer.logger.loggers[0].eval_examples_dir

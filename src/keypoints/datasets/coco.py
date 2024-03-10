@@ -18,7 +18,7 @@ from src.keypoints.transforms import ComposeKeypointsTransform, KeypointsTransfo
 from src.keypoints.utils import coco_rle_to_seg, mask_to_polygons, polygons_to_mask
 from src.keypoints.visualization import plot_connections, plot_heatmaps
 from src.logger.pylogger import log
-from src.utils.files import save_yaml
+from src.utils.files import load_yaml, save_yaml
 from src.utils.image import get_color, make_grid, put_txt, stack_horizontally
 from src.utils.utils import get_rank
 
@@ -242,16 +242,18 @@ class CocoKeypointsDataset(BaseImageDataset):
 
     def _save_annots_to_files(self):
         # save mask to npy file and annot to yaml file
-        log.info(f"..Saving {self.split} annotations (keypoints and crowd masks) to files..")
         rank = get_rank()
         if rank != 0:
             log.warn(
-                f"     Current process (rank = {rank}) is not the main process (rank = 0) -> Skipping"
+                f"     Current process (rank = {rank}) is not the main process (rank = 0) -> Skipping annots files saving"
             )
             return
         if os.path.exists(self.annots_dir):
-            log.info(f"     {self.split} annotations already saved to files -> Skipping")
+            log.info(
+                f"..{self.split} annotations already saved to files -> Skipping annots files saving.."
+            )
             return
+        log.info(f"..Saving {self.split} annotations (keypoints and crowd masks) to files..")
         Path(self.annots_dir).mkdir(exist_ok=True, parents=True)
         Path(self.masks_dir).mkdir(exist_ok=True, parents=True)
         coco = COCO(f"{self.root}/annotations/person_keypoints_{self.split}.json")
@@ -270,6 +272,9 @@ class CocoKeypointsDataset(BaseImageDataset):
             mask = get_crowd_mask(annot, img_info["height"], img_info["width"])
             np.save(mask_filepath, mask)
             save_yaml(annot, annot_filepath)
+
+    def load_annot(self, idx: int) -> dict | list[dict]:
+        return load_yaml(self.annots_filepaths[idx])
 
     def get_raw_data(self, idx: int) -> tuple[np.ndarray, list[dict], np.ndarray]:
         # image = np.array(Image.open(self.images_filepaths[idx]).convert("RGB"))

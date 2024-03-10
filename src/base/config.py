@@ -58,7 +58,7 @@ class AbstractConfig:
 
 @dataclass
 class TransformConfig(AbstractConfig):
-    out_size: int
+    out_size: int | tuple[int, int] | list[int]
     mean: list[float]
     std: list[float]
 

@@ -6,6 +6,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torchinfo import summary
 
 from src.logger.pylogger import log
+from src.utils.model import parse_checkpoint
 
 
 class BaseModel:
@@ -85,15 +86,6 @@ class BaseModel:
     def export_layers_description_to_txt(self, filepath: str) -> str:
         return str(self)
 
-    def parse_checkpoint(self, ckpt: dict) -> dict:
-        redundant_prefixes = ["module.", "_orig_mod.", "net."]
-        for key in list(ckpt.keys()):
-            renamed_key = str(key)
-            for prefix in redundant_prefixes:
-                renamed_key = renamed_key.replace(prefix, "")
-            ckpt[renamed_key] = ckpt.pop(key)
-        return ckpt
-
     def state_dict(self) -> dict:
         if isinstance(self.net, DDP):
             return self.net.module.state_dict()
@@ -118,7 +110,7 @@ class BaseModel:
         total_to = len(parameters_names) + len(buffers_names)  # number of params in current module
         total_loaded = 0
 
-        ckpt = self.parse_checkpoint(ckpt)
+        ckpt = parse_checkpoint(ckpt)
 
         state_dict = {}
         for name, m in ckpt.items():
