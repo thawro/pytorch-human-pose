@@ -366,7 +366,7 @@ class CocoKeypointsDataset(BaseImageDataset):
         raw_joints = get_coco_joints(raw_annot)
         kpts = raw_joints[..., :2]
         visibility = raw_joints[..., 2]
-        raw_image = plot_connections(raw_image.copy(), kpts, visibility, None, self.limbs, thr=0.5)
+        raw_image = plot_connections(raw_image.copy(), kpts, visibility, self.limbs, thr=0.5)
         overlay = raw_image.copy()
 
         for i, obj in enumerate(raw_annot):
@@ -415,9 +415,7 @@ class CocoKeypointsDataset(BaseImageDataset):
             kpts_coords = joints_list[stage_idx][..., :2]
             visibility = joints_list[stage_idx][..., 2]
             kpts_heatmaps = plot_heatmaps(image, heatmaps[stage_idx])
-            image = plot_connections(
-                image.copy(), kpts_coords, visibility, None, self.limbs, thr=0.5
-            )
+            image = plot_connections(image.copy(), kpts_coords, visibility, self.limbs, thr=0.5)
             crowd_mask = cv2.cvtColor((crowd_mask * 255).astype(np.uint8), cv2.COLOR_GRAY2RGB)
             if stage_idx == 1:
                 for i in range(len(kpts_heatmaps)):

@@ -1,3 +1,5 @@
+from typing import Literal
+
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
@@ -8,54 +10,72 @@ from src.utils.image import get_color, matplot_figure_to_array
 sns.set_style("whitegrid")
 
 
+def draw_elipsis(
+    image: np.ndarray, x1: int, y1: int, x2: int, y2: int, color: tuple[int, int, int]
+):
+    h, w = image.shape[:2]
+    center_x = (x1 + x2) // 2
+    center_y = (y1 + y2) // 2
+    delta_x = x2 - x1
+    delta_y = y2 - y1
+    elipsis_width = min(h, w) // 100
+    if abs(delta_x) > abs(delta_y):
+        a, b = abs(delta_x) // 2, elipsis_width
+        angle = np.arctan2(delta_y, delta_x) * 180 / np.pi
+    else:
+        a, b = elipsis_width, abs(delta_y) // 2
+        angle = np.arctan2(-delta_x, delta_y) * 180 / np.pi
+    cv2.ellipse(image, (center_x, center_y), (a, b), angle, 0, 360, color, -1)
+
+
 def plot_connections(
     image: np.ndarray,
-    all_kpts_coords: np.ndarray,
-    all_kpts_scores: np.ndarray,
-    all_kpts_tags: np.ndarray | None = None,
+    grouped_kpts_coords: np.ndarray,
+    grouped_kpts_scores: np.ndarray,
     limbs: list[tuple[int, int]] | None = None,
     thr: float = 0.05,
-):
+    color_mode: Literal["person", "limb"] = "person",
+    alpha: float = 0.6,
+) -> np.ndarray:
     """
-    all_kpts_coords is of shape [num_obj, num_kpts, 2]
-    all_kpts_scores is of shape [num_obj, num_kpts, 1]
-
+    grouped_kpts_coords is of shape [num_obj, num_kpts, 2]
+    grouped_kpts_scores is of shape [num_obj, num_kpts, 1]
     """
     h, w = image.shape[:2]
     radius = max(2, max(h, w) // 200 - 4)
     thickness = max(2, max(h, w) // 200 - 4)
+    num_obj = len(grouped_kpts_coords)
+    connections_image = image.copy()
+    for i in range(num_obj):
+        obj_kpts_coords = grouped_kpts_coords[i]
+        obj_kpts_scores = grouped_kpts_scores[i]
+        if color_mode == "person":
+            color = get_color(i).tolist()
 
-    if all_kpts_tags is not None:
-        # sort results by tags so visualizations are nice (same colors for persons)
-        obj_ref_tags = all_kpts_tags.mean(axis=1)
-        sort_idxs = np.argsort(obj_ref_tags[:, 0])
-        all_kpts_coords = all_kpts_coords[sort_idxs]
-        all_kpts_scores = all_kpts_scores[sort_idxs]
-        all_kpts_tags = all_kpts_tags[sort_idxs]
-
-    for i in range(len(all_kpts_coords)):
-        kpts_coords = all_kpts_coords[i]
-        kpts_scores = all_kpts_scores[i]
-
-        color = get_color(i).tolist()
-
+        # draw limbs connections
         if limbs is not None:
-            for id_1, id_2 in limbs:
-                if kpts_scores[id_1] < thr or kpts_scores[id_2] < thr:
+            for j, (idx_0, idx_1) in enumerate(limbs):
+                if obj_kpts_scores[idx_0] < thr or obj_kpts_scores[idx_1] < thr:
                     continue
-                x1, y1 = kpts_coords[id_1]
-                x2, y2 = kpts_coords[id_2]
+                x1, y1 = obj_kpts_coords[idx_0]
+                x2, y2 = obj_kpts_coords[idx_1]
                 x1, y1 = int(x1), int(y1)
                 x2, y2 = int(x2), int(y2)
-                cv2.line(image, (x1, y1), (x2, y2), color, thickness)
+                if color_mode == "limb":
+                    color = get_color(j).tolist()
+                draw_elipsis(connections_image, x1, y1, x2, y2, color)
+                # cv2.line(connections_image, (x1, y1), (x2, y2), color, thickness)
 
-        for (x, y), score in zip(kpts_coords, kpts_scores):
+        # draw keypoints
+        for j, ((x, y), score) in enumerate(zip(obj_kpts_coords, obj_kpts_scores)):
             if score < thr:
                 continue
+            if color_mode == "limb":
+                color = get_color(j).tolist()
             x, y = int(x), int(y)
-            cv2.circle(image, (x, y), radius, color, -1)
-            cv2.circle(image, (x, y), radius + 1, (0, 0, 0), 1)
-    return image
+            cv2.circle(connections_image, (x, y), radius, color, -1)
+            cv2.circle(connections_image, (x, y), radius + 1, (0, 0, 0), 1)
+    return cv2.addWeighted(image, 1 - alpha, connections_image, alpha, 0.0)
 
 
 def plot_heatmaps(

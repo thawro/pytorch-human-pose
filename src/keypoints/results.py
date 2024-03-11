@@ -128,7 +128,6 @@ class KeypointsResult(BaseKeypointsResult):
             self.model_input_image.copy(),
             self.kpts_coords,
             self.kpts_scores,
-            self.kpts_tags,
             self.limbs,
             thr=self.det_thr,
         )
@@ -309,7 +308,6 @@ class InferenceKeypointsResult(BaseKeypointsResult):
             self.raw_image.copy(),
             self.kpts_coords,
             self.kpts_scores,
-            self.kpts_tags,
             self.limbs,
             thr=self.det_thr,
         )

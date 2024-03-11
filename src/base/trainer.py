@@ -27,6 +27,7 @@ from .storage import MetricsStorage
 # metryki dla inferencji (latency, pamiec itp)
 # VideoDataset dla inferencji na video:
 #   space:pauza, left-arrow:klatka w lewo, right-arrow: klatka w prawo,
+# zapisywanie gifow z obrazkow treningowych
 
 
 class Trainer:

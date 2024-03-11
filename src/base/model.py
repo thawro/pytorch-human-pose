@@ -1,10 +1,18 @@
-from abc import abstractmethod
+from __future__ import annotations
 
+from abc import abstractmethod
+from typing import TYPE_CHECKING, Any, Literal
+
+import numpy as np
 import torch
 from torch import Tensor, nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torchinfo import summary
 
+if TYPE_CHECKING:
+    from src.base.config import BaseConfig
+
+from src.base.results import BaseResult
 from src.logger.pylogger import log
 from src.utils.model import parse_checkpoint
 
@@ -142,3 +150,32 @@ class BaseImageModel(BaseModel):
         width: int = 256,
     ) -> dict[str, Tensor]:
         return {"images": torch.randn(batch_size, num_channels, height, width, device=self.device)}
+
+
+class BaseInferenceModel:
+    def __init__(
+        self,
+        net: nn.Module,
+        input_size: int = 512,
+        device: str = "cuda:0",
+        ckpt_path: str | None = None,
+    ):
+        self.device = device
+        self.input_size = input_size
+        self.net = net.to(device)
+        self.net.eval()
+        if ckpt_path is not None:
+            self.load_checkpoint(ckpt_path)
+
+    def load_checkpoint(self, ckpt_path: str):
+        ckpt = torch.load(ckpt_path, map_location=self.device)
+        if "module" in ckpt.keys():
+            ckpt = ckpt["module"]["model"]
+        self.net.load_state_dict(ckpt)
+        log.info(f"Loaded checkpoint from {ckpt_path}")
+
+    def prepare_input(self, image: np.ndarray) -> Tensor | Any:
+        raise NotImplementedError()
+
+    def __call__(self, raw_image: np.ndarray, annot: list[dict] | None) -> BaseResult:
+        raise NotImplementedError()

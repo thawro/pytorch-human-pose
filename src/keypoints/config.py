@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal, Type
 
+import torch
 from torch import nn
 
 from src.base.callbacks import BaseCallback, ResultsPlotterCallback
@@ -18,7 +19,7 @@ from .architectures import AEHourglassNet, HigherHRNet
 from .datamodule import KeypointsDataModule
 from .datasets.coco import CocoKeypointsDataset, collate_fn
 from .loss import AEKeypointsLoss
-from .model import KeypointsModel
+from .model import InferenceKeypointsModel, KeypointsModel
 from .module import KeypointsModule
 from .trainer import KeypointsTrainer
 from .transforms import KeypointsTransform
@@ -126,3 +127,16 @@ class KeypointsConfig(BaseConfig):
             ResultsPlotterCallback("heatmaps"),
         ]
         return base_callbacks + kpts_callbacks
+
+    def create_inference_model(self, device: str = "cuda:0") -> InferenceKeypointsModel:
+        net = self.create_net()
+        model = InferenceKeypointsModel(
+            net,
+            device=device,
+            det_thr=self.inference.det_thr,
+            tag_thr=self.inference.tag_thr,
+            use_flip=self.inference.use_flip,
+            input_size=self.inference.input_size,
+            ckpt_path=self.setup.ckpt_path,
+        )
+        return model

@@ -25,6 +25,7 @@ from .callbacks import (
     SaveModelCheckpoint,
 )
 from .datamodule import DataModule
+from .model import BaseInferenceModel
 from .module import BaseModule
 from .trainer import Trainer
 
@@ -295,6 +296,10 @@ class BaseConfig(AbstractConfig):
             log.error(str(e))
             self.logger.finalize(Status.FAILED)
             raise e
+
+    @abstractmethod
+    def create_inference_model(self, device: str = "cuda:0") -> BaseInferenceModel:
+        raise NotImplementedError()
 
 
 if __name__ == "__main__":

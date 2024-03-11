@@ -130,7 +130,7 @@ def put_txt(
         sub_img = image[_y : _y + txt_h, _x : _x + txt_w]
         white_rect = np.ones(sub_img.shape, dtype=np.uint8) * 255
         cv2.rectangle(white_rect, (0, 0), (txt_w, txt_h), bg_color, -1)
-        res = cv2.addWeighted(sub_img, 1 - alpha, white_rect, alpha, 1.0)
+        res = cv2.addWeighted(sub_img, 1 - alpha, white_rect, alpha, 0.0)
         image[_y : _y + txt_h, _x : _x + txt_w] = res
     else:
         cv2.rectangle(image, (_x, _y), (_x + txt_w, _y + txt_h), bg_color, -1)
