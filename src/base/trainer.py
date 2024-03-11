@@ -56,7 +56,7 @@ class Trainer:
         self.logger = logger
         self.max_epochs = max_epochs
         self._limit_batches = limit_batches
-        self.current_step = 0
+        self.current_step = -1
         self.current_epoch = 0
         self.epochs_metrics = MetricsStorage(name="Epochs")  # every step metrics
         self.validation_metrics = MetricsStorage(name="LogStep")  # validation metrics
@@ -114,6 +114,9 @@ class Trainer:
             stage: str,
             trainer: "Trainer",
         ):
+            is_break = limit_batches == 0
+            if is_break:
+                return {}, is_break
             val_metrics, val_results = trainer.module._validation_step(
                 batch, batch_idx, stage=stage
             )
@@ -124,7 +127,6 @@ class Trainer:
             trainer.callbacks.on_step_end(self)
             batch_idx += 1
             limit_batches -= 1
-            is_break = limit_batches == -1
             kwargs = dict(
                 batch_idx=batch_idx,
                 random_idx=random_idx,
@@ -165,6 +167,9 @@ class Trainer:
             meters: Meters,
             trainer: "Trainer",
         ):
+            is_break = limit_batches == 0
+            if is_break:
+                return {}, is_break
             train_metrics = trainer.module._training_step(batch, batch_idx)
             meters.update(train_metrics, batch[0].shape[0])
             trainer.callbacks.on_step_end(self)
@@ -172,7 +177,6 @@ class Trainer:
             trainer.module.set_attributes(current_step=trainer.current_step)
             batch_idx += 1
             limit_batches -= 1
-            is_break = limit_batches == -1
             kwargs = dict(
                 batch_idx=batch_idx,
                 limit_batches=limit_batches,
