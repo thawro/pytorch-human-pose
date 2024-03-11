@@ -125,7 +125,7 @@ class KeypointsConfig(BaseConfig):
     def create_callbacks(self) -> list[BaseCallback]:
         callbacks = super().create_callbacks()
         examples_callback = ResultsPlotterCallback("heatmaps")
-        callbacks.insert(-1, examples_callback)
+        callbacks.insert(-1, examples_callback)  # make sure it is before ArtifactsLoggerCallback
         return callbacks
 
     def create_inference_model(self, device: str = "cuda:0") -> InferenceKeypointsModel:

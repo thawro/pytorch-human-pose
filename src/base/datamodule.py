@@ -67,17 +67,11 @@ class DataModule:
         statistics_repr = "\n".join(statistics_repr)
         log.info(f"DataModule statistics:\n{statistics_repr}")
 
-    def _dataloader(
-        self,
-        split: _split,
-    ):
+    def _dataloader(self, split: _split):
         shuffle = split == "train"
         dataset = self.datasets[split]
 
-        is_ddp_initialized = "LOCAL_RANK" in os.environ
-        if not is_ddp_initialized:
-            log.warn("DDP is not initialized. Using classic Sampler")
-        if self.use_DDP and is_ddp_initialized:
+        if self.use_DDP:
             log.info("..Using DistributedSampler..")
             rank = int(os.environ["LOCAL_RANK"])
             params = dict(

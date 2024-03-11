@@ -139,13 +139,12 @@ class ArtifactsLoggerCallback(BaseCallback):
         """Log artifacts directories and/or files"""
         eval_examples_dir = str(trainer.logger.loggers[0].eval_examples_dir)
         trainer.logger.log_artifacts(eval_examples_dir, "eval_examples")
-        log.info("eval_examples logged to remote.")
 
         log_dir = str(trainer.logger.loggers[0].log_path)
         metrics_filepaths = glob.glob(f"{log_dir}/epoch_metrics.*")
         for filepath in metrics_filepaths:
             trainer.logger.log_artifact(filepath, "epoch_metrics")
-        log.info("epoch_metrics logged to remote.")
+        log.info("Artifacts logged to remote ('eval_examples' and 'epoch_metrics').")
 
     def on_failure(self, trainer: Trainer, status: Status):
         log.warn("Finalizing loggers.")
@@ -255,13 +254,12 @@ class MetricsPlotterCallback(BaseCallback):
         storage = get_metrics_storage(trainer, mode)
         if len(storage.metrics) > 0:
             step_name = "epoch" if mode == "epoch" else "step"
-            filepath = f"{log_path}/{mode}_metrics.jpg"
-            plot_metrics_matplotlib(storage, step_name, filepath=filepath)
-            log.info(f"Metrics plots (matplotlib) saved at '{filepath}'")
+            mpl_filepath = f"{log_path}/{mode}_metrics.jpg"
+            plot_metrics_matplotlib(storage, step_name, filepath=mpl_filepath)
 
-            filepath = f"{log_path}/{mode}_metrics.html"
-            plot_metrics_plotly(storage, step_name, filepath=filepath)
-            log.info(f"Metrics plots (plotly) saved at '{filepath}'")
+            plotly_filepath = f"{log_path}/{mode}_metrics.html"
+            plot_metrics_plotly(storage, step_name, filepath=plotly_filepath)
+            log.info(f"Metrics plots saved at run '{plotly_filepath}'")
         else:
             log.warn(f"No metrics to plot logged yet (mode={mode})")
 
@@ -297,14 +295,16 @@ class MetricsLogger(BaseCallback):
     """Log per epoch metrics to terminal"""
 
     def on_epoch_end(self, trainer: Trainer) -> None:
-        log.info(f"Epoch {trainer.current_epoch} metrics:")
+        msgs = ""
         for stage, metrics in trainer.epochs_metrics.inverse_nest().items():
             last_epoch_metrics = {name: values[-1]["value"] for name, values in metrics.items()}
             msg = []
             for name, value in last_epoch_metrics.items():
                 msg.append(f"{stage}/{name}: {value:.3e}")
             msg = "  ".join(msg)
-            log.info(f"     {msg}")
+            msgs += f"     {msg}\n"
+        msgs = msgs[:-2]  # remove last line break
+        log.info(f"Epoch {trainer.current_epoch} metrics:\n{msgs}")
 
 
 class ModelSummary(BaseCallback):

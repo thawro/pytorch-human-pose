@@ -263,7 +263,7 @@ class BaseConfig(AbstractConfig):
             DatasetExamplesCallback(splits=["train", "val"], n=20, random_idxs=True),
             ModelSummary(depth=5),
             SaveModelCheckpoint(name="best", metric="loss", last=True, mode="min", stage="val"),
-            ArtifactsLoggerCallback(),
+            ArtifactsLoggerCallback(),  # make sure it is last
         ]
         return callbacks
 

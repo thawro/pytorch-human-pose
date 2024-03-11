@@ -23,7 +23,6 @@ from .storage import MetricsStorage
 # Puścić klasyfikacje (testowo)
 # Wizualizacja gradientów
 # Cpu/gpu monitoring
-# updatowanie configa przez argsy z cli
 # zapisywanie gifow z obrazkow treningowych
 # wrzucenie sieci na jakis dysk
 

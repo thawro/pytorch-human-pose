@@ -1,16 +1,11 @@
-from __future__ import annotations
-
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any
 
 import numpy as np
 import torch
 from torch import Tensor, nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torchinfo import summary
-
-if TYPE_CHECKING:
-    from src.base.config import BaseConfig
 
 from src.base.results import BaseResult
 from src.logger.pylogger import log

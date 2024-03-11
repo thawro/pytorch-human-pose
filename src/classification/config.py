@@ -66,7 +66,7 @@ class ClassificationConfig(BaseConfig):
     def create_callbacks(self) -> list[BaseCallback]:
         callbacks = super().create_callbacks()
         examples_callback = ResultsPlotterCallback("top_probs")
-        callbacks.insert(-1, examples_callback)
+        callbacks.insert(-1, examples_callback)  # make sure it is before ArtifactsLoggerCallback
         return callbacks
 
     def create_inference_model(
