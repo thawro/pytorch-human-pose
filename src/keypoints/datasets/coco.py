@@ -277,8 +277,6 @@ class CocoKeypointsDataset(BaseImageDataset):
         return load_yaml(self.annots_filepaths[idx])
 
     def get_raw_data(self, idx: int) -> tuple[np.ndarray, list[dict], np.ndarray]:
-        # image = np.array(Image.open(self.images_filepaths[idx]).convert("RGB"))
-        # annot = load_yaml(self.annots_filepaths[idx])
         image = self.load_image(idx)
         annot = self.load_annot(idx)
         mask = np.load(self.masks_filepaths[idx])
@@ -427,10 +425,6 @@ class CocoKeypointsDataset(BaseImageDataset):
 
         img, heatmaps, mask_list, joints_list = self[idx]
         img_npy = KeypointsTransform.inverse_transform(img)
-        # mean = np.array([0.485, 0.456, 0.406])
-        # std = np.array([0.229, 0.224, 0.225])
-        # img = (img.permute(1, 2, 0).numpy() * std) + mean
-        # img = (img * 255).astype(np.uint8)
         stages_grids = [plot_stage(stage_idx) for stage_idx in stage_idxs]
         model_input_grid = make_grid(stages_grids, nrows=len(stages_grids), match_size=True).astype(
             np.uint8

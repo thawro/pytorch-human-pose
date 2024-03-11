@@ -207,6 +207,12 @@ class Trainer:
         train_dataloader = datamodule.train_dataloader
         val_dataloader = datamodule.val_dataloader
 
+        log.info(
+            "Dataloaders utilisation:\n"
+            f"  Train: {self.get_limit_batches(train_dataloader)}/{len(train_dataloader)} batches\n"
+            f"  Val  : {self.get_limit_batches(val_dataloader)}/{len(val_dataloader)}  batches"
+        )
+
         module.pass_attributes(
             device_id=self.device_id,
             device=self.device,
