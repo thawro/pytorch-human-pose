@@ -151,7 +151,7 @@ class ModuleConfig(AbstractConfig):
 
 @dataclass
 class InferenceConfig(AbstractConfig):
-    use_flip: bool
+    input_size: int
 
 
 @dataclass

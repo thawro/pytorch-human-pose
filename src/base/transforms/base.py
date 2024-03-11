@@ -30,8 +30,12 @@ class ImageTransform:
         self.unnormalize = UnNormalize(mean=mean, std=std)
 
     @classmethod
-    def inverse_transform(cls, image: Tensor, mean: _norm = MEAN, std: _norm = STD) -> np.ndarray:
-        image_npy = image.permute(1, 2, 0).detach().cpu().numpy()
+    def inverse_transform(
+        cls, image: Tensor | np.ndarray, mean: _norm = MEAN, std: _norm = STD
+    ) -> np.ndarray:
+        if isinstance(image, Tensor):
+            image_npy = image.detach().cpu().numpy()
+        image_npy = image_npy.transpose(1, 2, 0)
         image_npy = (image_npy * list2array(std)) + list2array(mean)
         image_npy = (image_npy * 255).astype(np.uint8)
         return image_npy

@@ -62,5 +62,4 @@ net:
     num_classes: 1000
 
 inference:
-  use_flip: False
-  input_size: 224
+  input_size: 256

@@ -11,7 +11,7 @@ from .architectures import ClassificationHRNet
 from .datamodule import ClassificationDataModule
 from .datasets import ImagenetClassificationDataset
 from .loss import ClassificationLoss
-from .model import ClassificationModel
+from .model import ClassificationModel, InferenceClassificationModel
 from .module import ClassificationModule
 from .transforms import ClassificationTransform
 
@@ -69,3 +69,16 @@ class ClassificationConfig(BaseConfig):
             ResultsPlotterCallback("top_probs"),
         ]
         return base_callbacks + cls_callbacks
+
+    def create_inference_model(
+        self, idx2label: dict[int, str], device: str = "cuda:0"
+    ) -> InferenceClassificationModel:
+        net = self.create_net()
+        model = InferenceClassificationModel(
+            net,
+            device=device,
+            input_size=self.inference.input_size,
+            ckpt_path=self.setup.ckpt_path,
+            idx2label=idx2label,
+        )
+        return model

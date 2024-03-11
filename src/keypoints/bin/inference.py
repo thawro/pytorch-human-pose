@@ -13,7 +13,7 @@ from src.keypoints.visualization import plot_connections
 from src.logger.pylogger import log
 from src.utils.config import RESULTS_PATH, YAML_EXP_PATH
 from src.utils.files import load_yaml
-from src.utils.image import put_txt, resize_with_aspect_ratio
+from src.utils.image import resize_with_aspect_ratio
 from src.utils.model import seed_everything
 from src.utils.utils import elapsed_timer
 
@@ -29,28 +29,10 @@ def prepare_inference_config(cfg_path: str, ckpt_path: str) -> KeypointsConfig:
     return cfg
 
 
-def dataset_processing_fn(
-    model: InferenceKeypointsModel,
-    image: np.ndarray,
-    annot: list[dict] | None = None,
-) -> dict:
-    result = model(image, annot)
-    print("=" * 100)
-    plots = result.plot()
-    hm_plot = cv2.cvtColor(cv2.resize(plots["heatmaps"], (0, 0), fx=0.5, fy=0.5), cv2.COLOR_RGB2BGR)
-    connections_plot = cv2.cvtColor(plots["connections"], cv2.COLOR_RGB2BGR)
-    ae_plot = cv2.cvtColor(plots["associative_embedding"], cv2.COLOR_RGB2BGR)
-    cv2.imshow("Heatmaps", hm_plot)
-    cv2.imshow("Associative Embeddings", ae_plot)
-    cv2.imshow("Joints", connections_plot)
-    return {}
-
-
 def dataset_inference(model: InferenceKeypointsModel, cfg: KeypointsConfig):
     ds_cfg = cfg.dataloader.val_ds
     ds = CocoKeypointsDataset(root=ds_cfg.root, split=ds_cfg.split)
-    callback = partial(dataset_processing_fn, model=model)
-    ds.perform_inference(callback, idx=0, load_annot=True)
+    ds.perform_inference(model=model, idx=0, load_annot=False)
 
 
 def video_processing_fn(model: InferenceKeypointsModel, image: np.ndarray) -> VideoProcessingResult:
@@ -78,9 +60,7 @@ def video_processing_fn(model: InferenceKeypointsModel, image: np.ndarray) -> Vi
     )
 
     connections_plot = cv2.cvtColor(connections_plot, cv2.COLOR_RGB2BGR)
-    h, w = connections_plot.shape[:2]
     connections_plot = resize_with_aspect_ratio(connections_plot, height=640, width=None)
-    # connections_plot = cv2.resize(connections_plot, (0, 0), fx=0.3, fy=0.3)
     return VideoProcessingResult(speed_ms, model_input_shape, out_frame=connections_plot, idx=None)
 
 
@@ -106,8 +86,8 @@ def main() -> None:
     cfg_path = str(YAML_EXP_PATH / "keypoints" / "higher_hrnet_32.yaml")
     cfg = prepare_inference_config(cfg_path, ckpt_path)
     model = cfg.create_inference_model("cuda:0")
-    # dataset_inference(model, cfg)
-    video_inference(model, "data/examples/simple_2.mp4")
+    dataset_inference(model, cfg)
+    # video_inference(model, "data/examples/simple_2.mp4")
 
 
 if __name__ == "__main__":

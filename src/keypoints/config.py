@@ -53,6 +53,7 @@ class KeypointsDataloaderConfig(DataloaderConfig):
 
 @dataclass
 class KeypointsInferenceConfig(InferenceConfig):
+    use_flip: bool
     det_thr: float
     tag_thr: float
     input_size: int

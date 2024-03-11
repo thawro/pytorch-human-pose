@@ -173,6 +173,7 @@ class BaseInferenceModel:
         ckpt = torch.load(ckpt_path, map_location=self.device)
         if "module" in ckpt.keys():
             ckpt = ckpt["module"]["model"]
+        ckpt = parse_checkpoint(ckpt)
         self.net.load_state_dict(ckpt)
         log.info(f"Loaded checkpoint from {ckpt_path}")
 

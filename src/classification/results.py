@@ -6,6 +6,7 @@ from torch import Tensor
 
 from src.base.results import BaseResult
 from src.classification.visualization import plot_top_preds
+from src.utils.image import resize_with_aspect_ratio
 
 from .transforms import ClassificationTransform
 
@@ -71,30 +72,9 @@ class InferenceClassificationResult(BaseResult):
         exp_logits = np.exp(self.logits)
         probs = exp_logits / np.sum(exp_logits)
         raw_image = self.raw_image.copy()
-        h, w = raw_image.shape[:2]
-        min_size = 224
-        if h < min_size or w < min_size:
-            if h < w:
-                new_h = min_size
-                new_w = min_size * w / h
-            else:
-                new_w = min_size
-                new_h = min_size * h / w
-            new_w, new_h = int(new_w), int(new_h)
-            raw_image = cv2.resize(raw_image, (new_w, new_h))
-        max_size = 512
-        if h > max_size or w < max_size:
-            if h < w:
-                new_w = max_size
-                new_h = max_size * h / w
-            else:
-                new_h = max_size
-                new_w = max_size * w / h
-            new_w, new_h = int(new_w), int(new_h)
-            raw_image = cv2.resize(raw_image, (new_w, new_h))
-        resized_raw_image = cv2.resize(raw_image, (0, 0), fx=1.5, fy=1.5)
+        raw_image = resize_with_aspect_ratio(raw_image, height=512, width=None)
         top_preds_plot = plot_top_preds(
-            image=resized_raw_image,
+            image=raw_image,
             probs=probs,
             idx2label=self.idx2label,
             k=5,

@@ -197,6 +197,8 @@ def resize_with_aspect_ratio(
 ) -> np.ndarray:
     assert height is not None or width is not None, "Atleast one of height, width must be passed"
     h, w = image.shape[:2]
+    if h == height and w == width:
+        return image.copy()
     if height is not None and width is not None:
         new_h = height
         new_w = width

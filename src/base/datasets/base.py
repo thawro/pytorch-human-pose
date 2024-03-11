@@ -8,7 +8,8 @@ from PIL import Image
 from torch.utils.data import Dataset
 from typing_extensions import Protocol
 
-from src.utils.image import make_grid
+from src.base.model import BaseInferenceModel
+from src.utils.image import make_grid, resize_with_aspect_ratio
 
 
 class ExploreCallback(Protocol):
@@ -47,7 +48,21 @@ class ExplorerDataset:
 
 
 class PerformInferenceCallback(Protocol):
-    def __call__(self, image: np.ndarray, annot: Any) -> Any: ...
+    def __call__(self, model: BaseInferenceModel, image: np.ndarray, annot: Any) -> Any: ...
+
+
+def inference_callback(
+    model: BaseInferenceModel,
+    image: np.ndarray,
+    annot: list[dict] | None = None,
+):
+    result = model(image, annot)
+    print("=" * 100)
+    plots = result.plot()
+    for name, plot in plots.items():
+        plot = cv2.cvtColor(plot, cv2.COLOR_RGB2BGR)
+        plot = resize_with_aspect_ratio(plot, height=512, width=None)
+        cv2.imshow(name.replace("_", " ").title(), plot)
 
 
 class InferenceDataset:
@@ -58,12 +73,16 @@ class InferenceDataset:
         raise NotImplementedError()
 
     def perform_inference(
-        self, callback: PerformInferenceCallback, idx: int = 0, load_annot: bool = False
+        self,
+        model: BaseInferenceModel,
+        callback: PerformInferenceCallback = inference_callback,
+        idx: int = 0,
+        load_annot: bool = False,
     ):
         image = self.load_image(idx)
 
         annot = self.load_annot(idx) if load_annot else None
-        callback(image=image, annot=annot)
+        callback(model=model, image=image, annot=annot)
         k = cv2.waitKeyEx(0)
         # change according to your system
         left_key = 65361
@@ -78,7 +97,7 @@ class InferenceDataset:
         elif k == left_key:  # SPACE or right arrow pressed
             print("Left arrow hit, exploring previous sample")
             idx -= 1
-        self.perform_inference(callback, idx, load_annot)
+        self.perform_inference(model, callback, idx, load_annot)
 
 
 class BaseImageDataset(Dataset, ExplorerDataset, InferenceDataset):

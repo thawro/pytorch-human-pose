@@ -411,7 +411,7 @@ class CocoKeypointsDataset(BaseImageDataset):
             else:
                 font_scale = 0.25
                 labels = [f"Stage: {stage_idx} ({h} x {w})"]
-            image = cv2.resize(img, (h, w))
+            image = cv2.resize(img_npy, (w, h))
             kpts_coords = joints_list[stage_idx][..., :2]
             visibility = joints_list[stage_idx][..., 2]
             kpts_heatmaps = plot_heatmaps(image, heatmaps[stage_idx])
@@ -426,10 +426,11 @@ class CocoKeypointsDataset(BaseImageDataset):
             return grid
 
         img, heatmaps, mask_list, joints_list = self[idx]
-        mean = np.array([0.485, 0.456, 0.406])
-        std = np.array([0.229, 0.224, 0.225])
-        img = (img.permute(1, 2, 0).numpy() * std) + mean
-        img = (img * 255).astype(np.uint8)
+        img_npy = KeypointsTransform.inverse_transform(img)
+        # mean = np.array([0.485, 0.456, 0.406])
+        # std = np.array([0.229, 0.224, 0.225])
+        # img = (img.permute(1, 2, 0).numpy() * std) + mean
+        # img = (img * 255).astype(np.uint8)
         stages_grids = [plot_stage(stage_idx) for stage_idx in stage_idxs]
         model_input_grid = make_grid(stages_grids, nrows=len(stages_grids), match_size=True).astype(
             np.uint8
@@ -438,7 +439,14 @@ class CocoKeypointsDataset(BaseImageDataset):
         sample_vis = stack_horizontally([raw_image, model_input_grid])
         return sample_vis
 
-    def __getitem__(self, idx: int):
+    def __getitem__(
+        self, idx: int
+    ) -> tuple[
+        Tensor | np.ndarray,
+        list[Tensor | np.ndarray],
+        list[Tensor | np.ndarray],
+        list[Tensor | np.ndarray],
+    ]:
         if random.random() < self.mosaic_probability:
             img, annot, mask = self.get_raw_mosaiced_data(idx)
         else:

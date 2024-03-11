@@ -58,7 +58,7 @@ def plot_connections(
     objs_sizes = grouped_kpts_coords[..., 1].max(1) - grouped_kpts_coords[..., 1].min(1)
     objs_draw_sizes = (objs_sizes / 100).astype(np.int32)
     for i in range(num_obj):
-        obj_draw_size = objs_draw_sizes[i]
+        obj_draw_size = max(2, objs_draw_sizes[i])
         obj_kpts_coords = grouped_kpts_coords[i]
         obj_kpts_scores = grouped_kpts_scores[i]
         if color_mode == "person":
