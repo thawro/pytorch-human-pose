@@ -25,6 +25,7 @@ from .storage import MetricsStorage
 # Cpu/gpu monitoring
 # updatowanie configa przez argsy z cli
 # zapisywanie gifow z obrazkow treningowych
+# wrzucenie sieci na jakis dysk
 
 
 class Trainer:

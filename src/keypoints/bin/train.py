@@ -18,7 +18,7 @@ def main() -> None:
 
     cfg["setup"]["ckpt_path"] = ckpt_path
     cfg["setup"]["pretrained_ckpt_path"] = pretrained_ckpt_path
-    cfg["trainer"]["limit_batches"] = 5
+    cfg["trainer"]["limit_batches"] = -1
     cfg["trainer"]["use_DDP"] = True
 
     cfg = KeypointsConfig.from_dict(cfg)

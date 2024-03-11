@@ -11,23 +11,30 @@ sns.set_style("whitegrid")
 
 
 def draw_elipsis(
-    image: np.ndarray, x1: int, y1: int, x2: int, y2: int, color: tuple[int, int, int]
+    image: np.ndarray,
+    x1: int,
+    y1: int,
+    x2: int,
+    y2: int,
+    color: tuple[int, int, int],
+    width: int | None = None,
 ):
     h, w = image.shape[:2]
     center_x = (x1 + x2) // 2
     center_y = (y1 + y2) // 2
     delta_x = x2 - x1
     delta_y = y2 - y1
-    img_diag = (h**2 + w**2) ** 0.5
-    elipsis_width = int(img_diag // 300)
+    if width is None:
+        img_diag = (h**2 + w**2) ** 0.5
+        width = int(img_diag // 300)
 
     kpts_dist = int((delta_x**2 + delta_y**2) ** 0.5)
     if abs(delta_x) > abs(delta_y):
         a = kpts_dist // 2
-        b = elipsis_width
+        b = width
         angle = np.arctan2(delta_y, delta_x) * 180 / np.pi
     else:
-        a = elipsis_width
+        a = width
         b = kpts_dist // 2
         angle = np.arctan2(-delta_x, delta_y) * 180 / np.pi
     cv2.ellipse(image, (center_x, center_y), (a, b), angle, 0, 360, color, -1)
@@ -40,18 +47,18 @@ def plot_connections(
     limbs: list[tuple[int, int]] | None = None,
     thr: float = 0.05,
     color_mode: Literal["person", "limb"] = "person",
-    alpha: float = 0.6,
+    alpha: float = 0.8,
 ) -> np.ndarray:
     """
     grouped_kpts_coords is of shape [num_obj, num_kpts, 2]
     grouped_kpts_scores is of shape [num_obj, num_kpts, 1]
     """
-    h, w = image.shape[:2]
-    radius = max(2, max(h, w) // 200 - 4)
-    thickness = max(2, max(h, w) // 200 - 4)
     num_obj = len(grouped_kpts_coords)
     connections_image = image.copy()
+    objs_sizes = grouped_kpts_coords[..., 1].max(1) - grouped_kpts_coords[..., 1].min(1)
+    objs_draw_sizes = (objs_sizes / 100).astype(np.int32)
     for i in range(num_obj):
+        obj_draw_size = objs_draw_sizes[i]
         obj_kpts_coords = grouped_kpts_coords[i]
         obj_kpts_scores = grouped_kpts_scores[i]
         if color_mode == "person":
@@ -68,7 +75,7 @@ def plot_connections(
                 x2, y2 = int(x2), int(y2)
                 if color_mode == "limb":
                     color = get_color(j).tolist()
-                draw_elipsis(connections_image, x1, y1, x2, y2, color)
+                draw_elipsis(connections_image, x1, y1, x2, y2, color, width=obj_draw_size)
                 # cv2.line(connections_image, (x1, y1), (x2, y2), color, thickness)
 
         # draw keypoints
@@ -78,8 +85,8 @@ def plot_connections(
             if color_mode == "limb":
                 color = get_color(j).tolist()
             x, y = int(x), int(y)
-            cv2.circle(connections_image, (x, y), radius, color, -1)
-            cv2.circle(connections_image, (x, y), radius + 1, (0, 0, 0), 1)
+            cv2.circle(connections_image, (x, y), obj_draw_size, color, -1)
+            cv2.circle(connections_image, (x, y), obj_draw_size + 1, (0, 0, 0), 1)
     return cv2.addWeighted(image, 1 - alpha, connections_image, alpha, 0.0)
 
 

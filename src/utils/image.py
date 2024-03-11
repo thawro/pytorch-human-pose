@@ -192,6 +192,23 @@ def match_size_to_src(
     return dst_matched_images
 
 
+def resize_with_aspect_ratio(
+    image: np.ndarray, height: int | None, width: int | None
+) -> np.ndarray:
+    assert height is not None or width is not None, "Atleast one of height, width must be passed"
+    h, w = image.shape[:2]
+    if height is not None and width is not None:
+        new_h = height
+        new_w = width
+    elif height is not None and width is None:
+        new_h = height
+        new_w = int(new_h * w / h)
+    elif height is None and width is not None:
+        new_w = width
+        new_h = int(new_w * h / w)
+    return cv2.resize(image, (new_w, new_h))
+
+
 # cmap = plt.cm.get_cmap("tab10")
 # get_color = lambda i: (np.array(cmap(i)[:3][::-1]) * 255).astype(np.uint8)
 

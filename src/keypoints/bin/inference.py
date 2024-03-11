@@ -13,7 +13,7 @@ from src.keypoints.visualization import plot_connections
 from src.logger.pylogger import log
 from src.utils.config import RESULTS_PATH, YAML_EXP_PATH
 from src.utils.files import load_yaml
-from src.utils.image import put_txt
+from src.utils.image import put_txt, resize_with_aspect_ratio
 from src.utils.model import seed_everything
 from src.utils.utils import elapsed_timer
 
@@ -78,7 +78,9 @@ def video_processing_fn(model: InferenceKeypointsModel, image: np.ndarray) -> Vi
     )
 
     connections_plot = cv2.cvtColor(connections_plot, cv2.COLOR_RGB2BGR)
-    connections_plot = cv2.resize(connections_plot, (0, 0), fx=0.3, fy=0.3)
+    h, w = connections_plot.shape[:2]
+    connections_plot = resize_with_aspect_ratio(connections_plot, height=640, width=None)
+    # connections_plot = cv2.resize(connections_plot, (0, 0), fx=0.3, fy=0.3)
     return VideoProcessingResult(speed_ms, model_input_shape, out_frame=connections_plot, idx=None)
 
 
@@ -105,7 +107,7 @@ def main() -> None:
     cfg = prepare_inference_config(cfg_path, ckpt_path)
     model = cfg.create_inference_model("cuda:0")
     # dataset_inference(model, cfg)
-    video_inference(model, "data/examples/simple_3.mp4")
+    video_inference(model, "data/examples/simple_2.mp4")
 
 
 if __name__ == "__main__":
