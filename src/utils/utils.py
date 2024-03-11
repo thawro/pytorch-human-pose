@@ -2,7 +2,9 @@
 
 import os
 import random
+from contextlib import contextmanager
 from datetime import datetime
+from timeit import default_timer
 
 import torch
 import torch.distributed as dist
@@ -54,3 +56,12 @@ def get_device_and_id(accelerator: str, use_DDP: bool) -> tuple[str, int]:
         device = "cpu"
         device_id = 0
     return device, device_id
+
+
+@contextmanager
+def elapsed_timer():
+    start = default_timer()
+    elapser = lambda: default_timer() - start
+    yield lambda: elapser()
+    end = default_timer()
+    elapser = lambda: end - start

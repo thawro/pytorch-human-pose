@@ -1,9 +1,11 @@
 from functools import partial
+from pathlib import Path
 
 import cv2
 import numpy as np
 
 from src.base.datasets import InferenceVideoDataset
+from src.base.datasets.video import VideoProcessingResult
 from src.keypoints.config import KeypointsConfig
 from src.keypoints.datasets.coco import CocoKeypointsDataset
 from src.keypoints.model import InferenceKeypointsModel
@@ -11,7 +13,9 @@ from src.keypoints.visualization import plot_connections
 from src.logger.pylogger import log
 from src.utils.config import RESULTS_PATH, YAML_EXP_PATH
 from src.utils.files import load_yaml
+from src.utils.image import put_txt
 from src.utils.model import seed_everything
+from src.utils.utils import elapsed_timer
 
 
 def prepare_inference_config(cfg_path: str, ckpt_path: str) -> KeypointsConfig:
@@ -49,9 +53,13 @@ def dataset_inference(model: InferenceKeypointsModel, cfg: KeypointsConfig):
     ds.perform_inference(callback, idx=0, load_annot=True)
 
 
-def video_processing_fn(model: InferenceKeypointsModel, image: np.ndarray) -> dict:
-    result = model(image, None)
-
+def video_processing_fn(model: InferenceKeypointsModel, image: np.ndarray) -> VideoProcessingResult:
+    speed_ms = {}
+    with elapsed_timer() as latency_sec:
+        latency_sec()
+        result = model(image, None)
+        speed_ms["inference"] = int(latency_sec() * 1000)
+    model_input_shape = model.model_input_shape
     # sort results by tags so visualizations are nice (same colors for persons)
     obj_ref_tags = result.kpts_tags.mean(axis=1)
     sort_idxs = np.argsort(obj_ref_tags[:, 0])
@@ -71,12 +79,19 @@ def video_processing_fn(model: InferenceKeypointsModel, image: np.ndarray) -> di
 
     connections_plot = cv2.cvtColor(connections_plot, cv2.COLOR_RGB2BGR)
     connections_plot = cv2.resize(connections_plot, (0, 0), fx=0.3, fy=0.3)
-    cv2.imshow("Joints", connections_plot)
-    return {"out_frame": connections_plot}
+    return VideoProcessingResult(speed_ms, model_input_shape, out_frame=connections_plot, idx=None)
 
 
 def video_inference(model: InferenceKeypointsModel, filepath: str):
-    ds = InferenceVideoDataset(filepath=filepath, out_filepath=None, start_frame=0, num_frames=100)
+    path_parts = filepath.split("/")
+    in_filepath_dir = "/".join(path_parts[:-1])
+    filename, ext = path_parts[-1].split(".")
+    out_filepath_dir = f"{in_filepath_dir}/out"
+    Path(out_filepath_dir).mkdir(exist_ok=True, parents=True)
+    out_filepath = f"{out_filepath_dir}/{filename}.{ext}"
+    ds = InferenceVideoDataset(
+        filepath=filepath, out_filepath=out_filepath, start_frame=0, num_frames=-1
+    )
     callback = partial(video_processing_fn, model=model)
     ds.run(callback)
 
@@ -90,7 +105,7 @@ def main() -> None:
     cfg = prepare_inference_config(cfg_path, ckpt_path)
     model = cfg.create_inference_model("cuda:0")
     # dataset_inference(model, cfg)
-    video_inference(model, "data/examples/simple_2.mp4")
+    video_inference(model, "data/examples/simple_3.mp4")
 
 
 if __name__ == "__main__":

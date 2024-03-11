@@ -130,6 +130,7 @@ class KeypointsResult(BaseKeypointsResult):
             self.kpts_scores,
             self.limbs,
             thr=self.det_thr,
+            alpha=0.8,
         )
         stages_hms_plots = []
         num_stages = self.kpts_heatmaps.shape[-1]
@@ -273,28 +274,28 @@ class InferenceKeypointsResult(BaseKeypointsResult):
             if is_any_kpts_visible:
                 joints.append(obj_joints)
                 seg_polygons.append(obj["segmentation"])
-
-        if len(joints) > 0:
-            joints = np.stack(joints)
-            target_kpts_coords = joints[..., :2]
-            target_kpts_vis = joints[..., 2]
-            target_matches_idx = match_preds_to_targets(
-                self.kpts_coords,
-                self.obj_scores,
-                target_kpts_coords,
-                target_kpts_vis,
-            )
-            if -1 not in target_matches_idx:
-                self.kpts_coords = self.kpts_coords[target_matches_idx]
-                self.kpts_scores = self.kpts_scores[target_matches_idx]
-                self.obj_scores = self.obj_scores[target_matches_idx]
-            oks = OKS()
-            oks_value = oks.image_eval(
-                pred_kpts=self.kpts_coords,
-                target_kpts=target_kpts_coords,
-                target_vis=target_kpts_vis,
-                seg_polygons=seg_polygons,
-            )
+        if len(joints) == 0:
+            return -1
+        joints = np.stack(joints)
+        target_kpts_coords = joints[..., :2]
+        target_kpts_vis = joints[..., 2]
+        target_matches_idx = match_preds_to_targets(
+            self.kpts_coords,
+            self.obj_scores,
+            target_kpts_coords,
+            target_kpts_vis,
+        )
+        if -1 not in target_matches_idx:
+            self.kpts_coords = self.kpts_coords[target_matches_idx]
+            self.kpts_scores = self.kpts_scores[target_matches_idx]
+            self.obj_scores = self.obj_scores[target_matches_idx]
+        oks = OKS()
+        oks_value = oks.image_eval(
+            pred_kpts=self.kpts_coords,
+            target_kpts=target_kpts_coords,
+            target_vis=target_kpts_vis,
+            seg_polygons=seg_polygons,
+        )
         return oks_value
 
     def plot(self) -> dict[str, np.ndarray]:
@@ -310,6 +311,7 @@ class InferenceKeypointsResult(BaseKeypointsResult):
             self.kpts_scores,
             self.limbs,
             thr=self.det_thr,
+            alpha=0.8,
         )
 
         kpts_hms_plot = plot_heatmaps(

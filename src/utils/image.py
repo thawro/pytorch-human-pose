@@ -110,19 +110,19 @@ def put_txt(
         x = vspace
     elif loc == "tr":
         y = vspace
-        x = img_w - txt_w - vspace
+        x = img_w - txt_w + vspace
     elif loc == "bl":
-        y = img_h - txt_h - vspace
+        y = img_h - txt_h + vspace
         x = vspace
     elif loc == "br":
-        y = img_h - txt_h - vspace
-        x = img_w - txt_w - vspace
+        y = img_h - txt_h + vspace
+        x = img_w - txt_w + vspace
     elif loc == "tc":
         y = vspace
-        x = img_w // 2 - txt_w // 2 - vspace
+        x = img_w // 2 - txt_w // 2 + vspace // 2
     elif loc == "bc":
-        y = img_h - txt_h - vspace
-        x = img_w // 2 - txt_w // 2 - vspace
+        y = img_h - txt_h + vspace
+        x = img_w // 2 - txt_w // 2 + vspace // 2
 
     _x = x - vspace
     _y = y - vspace

@@ -18,12 +18,17 @@ def draw_elipsis(
     center_y = (y1 + y2) // 2
     delta_x = x2 - x1
     delta_y = y2 - y1
-    elipsis_width = min(h, w) // 100
+    img_diag = (h**2 + w**2) ** 0.5
+    elipsis_width = int(img_diag // 300)
+
+    kpts_dist = int((delta_x**2 + delta_y**2) ** 0.5)
     if abs(delta_x) > abs(delta_y):
-        a, b = abs(delta_x) // 2, elipsis_width
+        a = kpts_dist // 2
+        b = elipsis_width
         angle = np.arctan2(delta_y, delta_x) * 180 / np.pi
     else:
-        a, b = elipsis_width, abs(delta_y) // 2
+        a = elipsis_width
+        b = kpts_dist // 2
         angle = np.arctan2(-delta_x, delta_y) * 180 / np.pi
     cv2.ellipse(image, (center_x, center_y), (a, b), angle, 0, 360, color, -1)
 
@@ -122,4 +127,6 @@ def plot_grouped_ae_tags(kpts_tags: np.ndarray) -> np.ndarray:
             ax.set_ylabel("Keypoint index", fontsize=12)
         ax.set_title(f"Embedding dim = {i}", fontsize=14)
     fig.suptitle("Associative Embeddings after grouping", fontsize=16)
-    return matplot_figure_to_array(fig)
+    fig_data = matplot_figure_to_array(fig)
+    plt.close()
+    return fig_data

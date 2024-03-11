@@ -153,6 +153,8 @@ class BaseImageModel(BaseModel):
 
 
 class BaseInferenceModel:
+    model_input_shape: tuple[int, int]
+
     def __init__(
         self,
         net: nn.Module,

@@ -1,6 +1,7 @@
 """Dataset class for Video inference"""
 
 from dataclasses import dataclass, fields
+from typing import Any
 
 import cv2
 import numpy as np
@@ -8,6 +9,7 @@ from tqdm.auto import tqdm
 from typing_extensions import Protocol
 
 from src.logger.pylogger import log
+from src.utils.image import put_txt
 
 
 class KeyBinds:
@@ -17,19 +19,21 @@ class KeyBinds:
     RIGHT_ARROW = 83
     DOWN_ARROW = 82
     UP_ARROW = 84
+    TAB = 9
 
-    key2str = {
-        ESCAPE: "ESCAPE",
-        SPACE: "SPACE",
-        LEFT_ARROW: "LEFT_ARROW",
-        RIGHT_ARROW: "RIGHT_ARROW",
-        DOWN_ARROW: "DOWN_ARROW",
-        UP_ARROW: "UP_ARROW",
+    key2info = {
+        ESCAPE: "Escape - close video processing",
+        SPACE: "Space - pause",
+        LEFT_ARROW: "Left Arrow - move to previous frame",
+        RIGHT_ARROW: "Right Arrow - move to next frame",
+        TAB: "Tab - open/close navigation bar",
+        # DOWN_ARROW: "DOWN_ARROW",
+        # UP_ARROW: "UP_ARROW",
     }
 
     @classmethod
-    def to_string(cls, key: int) -> str:
-        return cls.key2str[key]
+    def to_info(cls, key: int) -> str:
+        return cls.key2info[key]
 
 
 @dataclass
@@ -64,8 +68,20 @@ def prepare_video(
     return cap, cap_props
 
 
+@dataclass
+class VideoProcessingResult:
+    speed_ms: dict[str, int]
+    model_input_shape: tuple[int, int]
+    out_frame: np.ndarray | None = None
+    idx: int | None = None
+
+    @property
+    def stats(self) -> dict[str, Any]:
+        return {"idx": self.idx, "speed": self.speed_ms}
+
+
 class VideoProcessingCallback(Protocol):
-    def __call__(self, image: np.ndarray) -> dict | None: ...
+    def __call__(self, image: np.ndarray) -> VideoProcessingResult: ...
 
 
 class InferenceVideoDataset:
@@ -81,20 +97,34 @@ class InferenceVideoDataset:
         cap, cap_props = prepare_video(cap, start_frame, num_frames)
         self.idx = start_frame
         self.start_frame = start_frame
-        self.num_frames = num_frames
+        if num_frames == -1:
+            num_frames = cap_props.num_frames
+        self.num_frames = min(num_frames, cap_props.num_frames)
         self.is_paused = False
+        self.is_tab = False
         self.arrow_hit = False
         self.cap = cap
         self.cap_props = cap_props
         self.results = {"filepath": filepath, **cap_props.to_dict(), "frames": []}
         self.out_filepath = out_filepath
-        if out_filepath is not None:
-            self.out_cap = cv2.VideoWriter(
-                out_filepath,
-                cv2.VideoWriter_fourcc(*"MJPG"),
-                cap_props.fps,
-                (cap_props.width, cap_props.height),
-            )
+        self.out_cap = None
+
+    def _set_out_cap(self, height: int, width: int):
+        if self.out_filepath is None or self.out_cap is not None:
+            return
+        ext = self.out_filepath.split(".")[-1]
+        # NOTE: if writing video doesn't work try installing: `sudo apt-get install ffmpeg x264 libx264-dev`
+        codecs = {
+            "mp4": "MP4V",  # try one of: h264, x264, mp4v (it is platform dependent)
+            "avi": "MJPG",
+        }
+        codec = codecs.get(ext, "MJPG")
+        self.out_cap = cv2.VideoWriter(
+            self.out_filepath,
+            cv2.VideoWriter_fourcc(*codec),
+            self.cap_props.fps,
+            (width, height),
+        )
 
     def on_start(self):
         log.info(f"Started processing {self.filepath} video file")
@@ -131,6 +161,8 @@ class InferenceVideoDataset:
                     raise e
                 elif key in [KeyBinds.SPACE]:
                     self.is_paused = not self.is_paused
+                elif key in [KeyBinds.TAB]:
+                    self.is_tab = not self.is_tab
                 elif key in [KeyBinds.LEFT_ARROW, KeyBinds.RIGHT_ARROW]:
                     base_move = 1  # there is always a bonus cap.read() in process method
                     n_frames = -1 if key == KeyBinds.LEFT_ARROW else 1
@@ -141,20 +173,37 @@ class InferenceVideoDataset:
                 break
         self.on_end()
 
+    def draw_labels(self, image: np.ndarray, result: VideoProcessingResult):
+        input_h, input_w = result.model_input_shape
+        idx_label = f"{self.idx} / {self.num_frames}"
+        shape_label = f"Model input shape: {input_h} x {input_w}"
+        speed_labels = ["Latency [ms]: "] + [
+            f"  {name}: {value}" for name, value in result.speed_ms.items()
+        ]
+        labels = [idx_label, shape_label, *speed_labels]
+        put_txt(image, labels, loc="tl", alpha=0.6, font_scale=0.5)
+
     def process(self, callback: VideoProcessingCallback):
-        if self.is_paused and self.arrow_hit or not self.is_paused or self.arrow_hit:
+        if (self.is_paused and self.arrow_hit) or not self.is_paused or self.arrow_hit:
             success, frame = self.cap.read()
             if not success:
                 raise StopIteration("Couldn't read next frame")
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             result = callback(image=frame)
-            if result is not None:
-                result["idx"] = self.idx
-                if "out_frame" in result.keys() and self.out_filepath is not None:
-                    out_frame = result.pop("out_frame")
-                    out_frame = cv2.cvtColor(out_frame, cv2.COLOR_RGB2BGR)
+            result.idx = self.idx
+            out_frame = result.out_frame
+            if out_frame is not None:
+                out_h, out_w = out_frame.shape[:2]
+                self._set_out_cap(out_h, out_w)
+                self.draw_labels(out_frame, result)
+
+                if self.out_filepath is not None and self.out_cap is not None:
                     self.out_cap.write(out_frame)
-            self.results["frames"].append(result)
+                if self.is_tab:
+                    put_txt(out_frame, list(KeyBinds.key2info.values()), loc="bl", alpha=0.6)
+                cv2.imshow("Out frame", out_frame)
+
+            self.results["frames"].append(result.stats)
             self.pbar.update(1)
             self.idx += 1
         else:

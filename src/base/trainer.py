@@ -24,9 +24,6 @@ from .storage import MetricsStorage
 # Wizualizacja gradientów
 # Cpu/gpu monitoring
 # updatowanie configa przez argsy z cli
-# metryki dla inferencji (latency, pamiec itp)
-# VideoDataset dla inferencji na video:
-#   space:pauza, left-arrow:klatka w lewo, right-arrow: klatka w prawo,
 # zapisywanie gifow z obrazkow treningowych
 
 

@@ -78,6 +78,8 @@ class InferenceKeypointsModel(BaseInferenceModel):
     def __call__(self, raw_image: np.ndarray, annot: list[dict] | None) -> InferenceKeypointsResult:
         with torch.no_grad():
             x, center, scale = self.prepare_input(raw_image)
+            h, w = x.shape[-2:]
+            self.model_input_shape = (h, w)
             kpts_heatmaps, tags_heatmaps = self.net(x)
 
             if self.use_flip:
