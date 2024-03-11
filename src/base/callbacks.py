@@ -139,11 +139,13 @@ class ArtifactsLoggerCallback(BaseCallback):
         """Log artifacts directories and/or files"""
         eval_examples_dir = str(trainer.logger.loggers[0].eval_examples_dir)
         trainer.logger.log_artifacts(eval_examples_dir, "eval_examples")
+        log.info("eval_examples logged to remote.")
 
         log_dir = str(trainer.logger.loggers[0].log_path)
         metrics_filepaths = glob.glob(f"{log_dir}/epoch_metrics.*")
         for filepath in metrics_filepaths:
             trainer.logger.log_artifact(filepath, "epoch_metrics")
+        log.info("epoch_metrics logged to remote.")
 
     def on_failure(self, trainer: Trainer, status: Status):
         log.warn("Finalizing loggers.")

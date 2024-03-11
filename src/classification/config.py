@@ -64,11 +64,10 @@ class ClassificationConfig(BaseConfig):
         return module
 
     def create_callbacks(self) -> list[BaseCallback]:
-        base_callbacks = super().create_callbacks()
-        cls_callbacks = [
-            ResultsPlotterCallback("top_probs"),
-        ]
-        return base_callbacks + cls_callbacks
+        callbacks = super().create_callbacks()
+        examples_callback = ResultsPlotterCallback("top_probs")
+        callbacks.insert(-1, examples_callback)
+        return callbacks
 
     def create_inference_model(
         self, idx2label: dict[int, str], device: str = "cuda:0"

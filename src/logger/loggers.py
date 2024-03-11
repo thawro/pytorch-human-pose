@@ -127,6 +127,7 @@ class BaseLogger:
         self.log_artifact(config_local_filepath, "")
         # log to remote history directory
         self.log_artifact(config_local_filepath, self.history_artifacts_dir)
+        log.info(f"{self.__class__.__name__}: config file logged to remote.")
 
     def log_logs(self):
         logs_local_dirpath = str(self.logs_dir)
@@ -282,18 +283,18 @@ class MLFlowLogger(BaseLogger):
             num_runs = len(runs)
             if num_runs == 0:
                 log.info(
-                    f"     There is no run with {self.run_name} name on mlflow server (for experiment '{self.experiment_name}')"
+                    f"     There is no run with '{self.run_name}' name on mlflow server (for experiment '{self.experiment_name}')"
                 )
-                log.info(f"     Creating new run with {self.run_name} name")
+                log.info(f"     Creating new run with '{self.run_name}' name")
                 run = client.create_run(experiment_id, run_name=self.run_name)
             if num_runs == 1:
-                log.info(f"     Found existing run with {self.run_name} name on mlflow server")
+                log.info(f"     Found existing run with '{self.run_name}' name on mlflow server")
                 run = runs[0]
                 run = client.get_run(run.info.run_id)
-                log.info(f"     Resuming Run {run.info.run_name} (ID = {run.info.run_id})")
+                log.info(f"     Resuming Run '{run.info.run_name}' (ID = {run.info.run_id})")
             elif num_runs > 1:
                 log.warn(
-                    f"     More than one run with {self.run_name} name found on mlflow server. Raising Exception"
+                    f"     More than one run with '{self.run_name}' name found on mlflow server. Raising Exception"
                 )
                 e = ValueError()
                 log.exception(e)
@@ -328,11 +329,6 @@ class MLFlowLogger(BaseLogger):
     @property
     def run_id(self) -> str:
         return self.run.info.run_id
-
-    # def log_config(self) -> None:
-    #     """Log config to yaml."""
-    #     super().log_config()
-    #     self.log_artifact(str(self.log_path / "config.yaml"), self.history_artifacts_dir)
 
     def log(self, key: str, value: float, step: int | None = None) -> None:
         super().log(key, value, step)

@@ -123,11 +123,10 @@ class KeypointsConfig(BaseConfig):
         return KeypointsTrainer
 
     def create_callbacks(self) -> list[BaseCallback]:
-        base_callbacks = super().create_callbacks()
-        kpts_callbacks = [
-            ResultsPlotterCallback("heatmaps"),
-        ]
-        return base_callbacks + kpts_callbacks
+        callbacks = super().create_callbacks()
+        examples_callback = ResultsPlotterCallback("heatmaps")
+        callbacks.insert(-1, examples_callback)
+        return callbacks
 
     def create_inference_model(self, device: str = "cuda:0") -> InferenceKeypointsModel:
         net = self.create_net()
