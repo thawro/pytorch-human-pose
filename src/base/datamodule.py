@@ -74,7 +74,10 @@ class DataModule:
         shuffle = split == "train"
         dataset = self.datasets[split]
 
-        if self.use_DDP:
+        is_ddp_initialized = "LOCAL_RANK" in os.environ
+        if not is_ddp_initialized:
+            log.warn("DDP is not initialized. Using classic Sampler")
+        if self.use_DDP and is_ddp_initialized:
             log.info("..Using DistributedSampler..")
             rank = int(os.environ["LOCAL_RANK"])
             params = dict(
@@ -92,15 +95,6 @@ class DataModule:
         dataloader = DataLoader(dataset, **self.dl_params, **params)
         self.total_batches[split] = len(dataloader)
         return dataloader
-
-    # def train_dataloader(self):
-    #     return self._dataloader("train")
-
-    # def val_dataloader(self):
-    #     return self._dataloader("val")
-
-    # def test_dataloader(self):
-    #     return self._dataloader("test")
 
     def state_dict(self) -> dict:
         return {

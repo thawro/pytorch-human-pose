@@ -1,8 +1,10 @@
+import collections.abc
 import logging
+import sys
 from abc import abstractmethod
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Literal, Type
+from typing import Any, Literal, Type
 
 from dacite import from_dict
 from torch import nn
@@ -53,8 +55,9 @@ class AbstractConfig:
         return dct
 
     @classmethod
-    def from_dict(cls, dct: dict):
-        return from_dict(data_class=cls, data=dct)
+    def from_dict(cls, cfg_dict: dict):
+        cfg_dict = update_config(cfg_dict, cls)
+        return from_dict(data_class=cls, data=cfg_dict)
 
 
 @dataclass
@@ -300,6 +303,62 @@ class BaseConfig(AbstractConfig):
     @abstractmethod
     def create_inference_model(self, device: str = "cuda:0") -> BaseInferenceModel:
         raise NotImplementedError()
+
+
+def parse_cli_value(value: str) -> int | float | str:
+    if "." in value:
+        try:
+            return float(value)
+        except ValueError:
+            return value
+    else:
+        try:
+            return int(value)
+        except ValueError:
+            return value
+
+
+def update_dict(dct: dict, update_dct: dict) -> dict:
+    for k, v in update_dct.items():
+        if isinstance(v, collections.abc.Mapping):
+            dct[k] = update_dict(dct.get(k, {}), v)
+        else:
+            new_value = parse_cli_value(v)
+            log.info(f"..{k} value updated to {new_value}")
+            dct[k] = new_value
+    return dct
+
+
+def parse_args_for_config(ConfigClass: Type[BaseConfig] = BaseConfig) -> dict:
+    def parse_dict(update_dct: dict) -> dict:
+        output_dict = {}
+        for key, value in update_dct.items():
+            parts = key.split(".")
+            current_dict = output_dict
+            for part in parts[:-1]:
+                if part not in current_dict:
+                    current_dict[part] = {}
+                current_dict = current_dict[part]
+            current_dict[parts[-1]] = value
+        return output_dict
+
+    args = sys.argv
+    valid_args = [arg[2:] for arg in args if arg[:2] == "--" and "=" in arg]
+    name_values = [arg.split("=") for arg in valid_args]
+    name2value = {name: value for name, value in name_values}
+    name2value = parse_dict(name2value)
+    cfg_fields = fields(ConfigClass)
+    cfg_fields_names = [field.name for field in cfg_fields]
+    name2value = {name: value for name, value in name2value.items() if name in cfg_fields_names}
+    return name2value
+
+
+def update_config(cfg_dict: dict, ConfigClass: Type[BaseConfig] = BaseConfig) -> dict:
+    update_dct = parse_args_for_config(ConfigClass)
+    if len(update_dct) > 0:
+        log.info(f"..Updating config dict using CLI args:\n{update_dct}")
+        cfg_dict = update_dict(cfg_dict, update_dct)
+    return cfg_dict
 
 
 if __name__ == "__main__":

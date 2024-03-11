@@ -16,18 +16,26 @@ def ddp_setup():
     rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
     device_id = int(os.environ["LOCAL_RANK"])
+    log.info("..Initializing `torch.distributed` process group..")
     init_process_group(backend="nccl", rank=rank, world_size=world_size)
     torch.cuda.set_device(device_id)
 
 
 def ddp_finalize():
-    log.info("..Destroying process group..")
+    log.info("..Destroying `torch.distributed` process group..")
     destroy_process_group()
 
 
 def train(cfg: BaseConfig):
+    use_DDP = cfg.trainer.use_DDP and "RANK" in os.environ
     if cfg.trainer.use_DDP:
-        ddp_setup()
+        if "RANK" in os.environ:
+            ddp_setup()
+        else:
+            log.warn(
+                "..The script wasn't run with torchrun. Setting `cfg.trainer.use_DDP` to `False`.."
+            )
+            cfg.trainer.use_DDP = False
     log.info(f"..Current device: {torch.cuda.current_device()}..")
     log.info(f"..Starting {cfg.device} process..")
     rank = get_rank()
@@ -60,5 +68,6 @@ def train(cfg: BaseConfig):
         log.exception(e)
         trainer.callbacks.on_failure(trainer, Status.FAILED)
         trainer.logger.finalize(Status.FAILED)
-        ddp_finalize()
+        if use_DDP:
+            ddp_finalize()
         raise e
