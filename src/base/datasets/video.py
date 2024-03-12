@@ -97,12 +97,26 @@ class InferenceVideoDataset:
             "avi": "MJPG",
         }
         codec = codecs.get(ext, "MJPG")
-        self.out_cap = cv2.VideoWriter(
-            self.out_filepath,
-            cv2.VideoWriter_fourcc(*codec),
-            self.cap_props.fps,
-            (width, height),
-        )
+        try:
+            self.out_cap = cv2.VideoWriter(
+                self.out_filepath,
+                cv2.VideoWriter_fourcc(*codec),
+                self.cap_props.fps,
+                (width, height),
+            )
+            log.info(
+                "Output VideoWritter initialized successfully. "
+                f"The output frames will be saved to {self.out_filepath}"
+            )
+        except Exception as e:
+            log.exception(e)
+            log.warning(
+                "There was an error during `out_cap` (`cv2.VideoWritter`) initialization. "
+                "The inference will continue without writing the out_frames to the output video file."
+            )
+            self.out_filepath = None
+            # uncomment that if you preffer to raise the Error instead
+            # raise e
 
     def on_start(self):
         log.info(f"Started processing {self.filepath} video file")
@@ -110,7 +124,7 @@ class InferenceVideoDataset:
     def on_end(self):
         self.cap.release()
         log.info(f"Released {self.filepath} VideoCapture")
-        if self.out_filepath is not None:
+        if self.out_filepath is not None and self.out_cap is not None:
             self.out_cap.release()
             log.info(f"Released {self.out_filepath} VideoWritter")
         cv2.destroyAllWindows()

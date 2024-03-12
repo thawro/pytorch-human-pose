@@ -62,4 +62,4 @@ net:
 
 inference:
   input_size: 256
-  ckpt_path: pretrained/classification.pt
+  ckpt_path: pretrained/hrnet_32.pt
