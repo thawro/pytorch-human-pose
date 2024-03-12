@@ -6,13 +6,25 @@ The model is trained in two steps:
 
 # Checkpoints
 
+The checkpoints are available at [Google Drive](https://drive.google.com/drive/folders/1srwrno9YYSBy1Wqf-uDok_TpID9Mm20d?usp=sharing):
+
+* **`hrnet_32.pt`** - backbone pretrained on the ImageNet
+* **`higher_hrnet_32.pt`** - pose estimation model trained on COCO
+
+After download place the checkpoints inside the **_pretrained_** directory.
 
 ---
 # Inference
 
-## COCO dataset
+## Classification (_HRNet_)
 
-## Video
+
+
+## Human Pose (_HigherHRNet_)
+
+### COCO data
+
+### Video
 
 
 
