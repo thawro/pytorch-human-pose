@@ -25,7 +25,8 @@ def get_rank() -> int:
 
 
 def is_main_process() -> bool:
-    return get_rank() == 0
+    rank = get_rank()
+    return rank == 0
 
 
 def random_float(min: float, max: float) -> float:

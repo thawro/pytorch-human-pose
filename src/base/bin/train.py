@@ -1,4 +1,5 @@
 import os
+from typing import Type
 
 import torch
 import torch.backends.cudnn as cudnn
@@ -26,16 +27,18 @@ def ddp_finalize():
     destroy_process_group()
 
 
-def train(cfg: BaseConfig):
-    use_DDP = cfg.trainer.use_DDP and "RANK" in os.environ
-    if cfg.trainer.use_DDP:
+def train(cfg_dict: dict, ConfigClass: Type[BaseConfig]):
+    use_DDP = cfg_dict["trainer"]["use_DDP"] and "RANK" in os.environ
+    if cfg_dict["trainer"]["use_DDP"]:
         if "RANK" in os.environ:
             ddp_setup()
         else:
             log.warn(
                 "..The script wasn't run with torchrun. Setting `cfg.trainer.use_DDP` to `False`.."
             )
-            cfg.trainer.use_DDP = False
+            cfg_dict["trainer"]["use_DDP"] = False
+
+    cfg = ConfigClass.from_dict(cfg_dict)  # this needs to be called after ddp_setup
     log.info(f"..Current device: {torch.cuda.current_device()}..")
     log.info(f"..Starting {cfg.device} process..")
     rank = get_rank()

@@ -24,11 +24,9 @@ class DataModule:
         pin_memory: bool = True,
         drop_last: bool = True,
         collate_fn=None,
-        seed: int = 42,
         use_DDP: bool = False,
     ):
         super().__init__()
-        self.seed = seed
         self.train_ds = train_ds
         self.val_ds = val_ds
         self.test_ds = test_ds

@@ -4,7 +4,7 @@ import sys
 from abc import abstractmethod
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Any, Literal, Type
+from typing import Literal, Type
 
 from dacite import from_dict
 from torch import nn
@@ -56,8 +56,14 @@ class AbstractConfig:
 
     @classmethod
     def from_dict(cls, cfg_dict: dict):
-        cfg_dict = update_config(cfg_dict, cls)
+        # cfg_dict = update_config(cfg_dict, cls)
         return from_dict(data_class=cls, data=cfg_dict)
+
+    @classmethod
+    def from_yaml_to_dict(cls, filepath: str | Path) -> dict:
+        cfg_dict = load_yaml(filepath)
+        cfg_dict = update_config(cfg_dict, cls)
+        return cfg_dict
 
 
 @dataclass
@@ -122,7 +128,7 @@ class SetupConfig(AbstractConfig):
 
     def __post_init__(self):
         self.timestamp = NOW
-        if self.run_name is None:
+        if self.run_name is None and self.is_train:
             self.run_name = self._auto_run_name()
 
 
@@ -155,6 +161,7 @@ class ModuleConfig(AbstractConfig):
 @dataclass
 class InferenceConfig(AbstractConfig):
     input_size: int
+    ckpt_path: str
 
 
 @dataclass
@@ -221,11 +228,6 @@ class BaseConfig(AbstractConfig):
             name: scheduler_cfg.to_dict()
             for name, scheduler_cfg in self.module.lr_schedulers.items()
         }
-
-    @classmethod
-    def from_yaml(cls, filepath: str | Path):
-        cfg = load_yaml(filepath)
-        return cls.from_dict(cfg)
 
     @property
     @abstractmethod
@@ -301,7 +303,7 @@ class BaseConfig(AbstractConfig):
             raise e
 
     @abstractmethod
-    def create_inference_model(self, device: str = "cuda:0") -> BaseInferenceModel:
+    def create_inference_model(self, device: str = "cuda:0", **kwargs) -> BaseInferenceModel:
         raise NotImplementedError()
 
 
@@ -359,10 +361,3 @@ def update_config(cfg_dict: dict, ConfigClass: Type[BaseConfig] = BaseConfig) ->
         log.info(f"..Updating config dict using CLI args:\n{update_dct}")
         cfg_dict = update_dict(cfg_dict, update_dct)
     return cfg_dict
-
-
-if __name__ == "__main__":
-    from src.utils.config import YAML_EXP_PATH
-
-    cfg = BaseConfig.from_yaml(str(YAML_EXP_PATH / "classification/hrnet_32.yaml"))
-    print(cfg)

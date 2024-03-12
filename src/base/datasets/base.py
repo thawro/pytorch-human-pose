@@ -12,6 +12,32 @@ from src.base.model import BaseInferenceModel
 from src.utils.image import make_grid, resize_with_aspect_ratio
 
 
+class KeyBinds:
+    # change according to your system
+
+    ESCAPE = 27
+    SPACE = 32
+    LEFT_ARROW = 81
+    RIGHT_ARROW = 83
+    DOWN_ARROW = 82
+    UP_ARROW = 84
+    TAB = 9
+
+    key2info = {
+        ESCAPE: "Escape - close",
+        SPACE: "Space - pause",
+        LEFT_ARROW: "Left Arrow - move to previous frame",
+        RIGHT_ARROW: "Right Arrow - move to next frame",
+        TAB: "Tab - open/close navigation bar",
+        # DOWN_ARROW: "DOWN_ARROW",
+        # UP_ARROW: "UP_ARROW",
+    }
+
+    @classmethod
+    def to_info(cls, key: int) -> str:
+        return cls.key2info[key]
+
+
 class ExploreCallback(Protocol):
     def __call__(self, idx: int) -> Any: ...
 
@@ -72,6 +98,9 @@ class InferenceDataset:
     def load_annot(self, idx: int) -> dict:
         raise NotImplementedError()
 
+    def __len__(self) -> int:
+        return 0
+
     def perform_inference(
         self,
         model: BaseInferenceModel,
@@ -79,23 +108,25 @@ class InferenceDataset:
         idx: int = 0,
         load_annot: bool = False,
     ):
+        num_samples = len(self)
+        if idx == -1:
+            idx = num_samples - 1
+        if idx == num_samples:
+            idx = 0
+        print(f"Inference for sample: {idx}/{num_samples-1}")
         image = self.load_image(idx)
 
         annot = self.load_annot(idx) if load_annot else None
         callback(model=model, image=image, annot=annot)
-        k = cv2.waitKeyEx(0)
-        # change according to your system
-        left_key = 65361
-        right_key = 65363
-        if k % 256 == 27:  # ESC pressed
+        key = cv2.waitKey(0)
+
+        if key in [KeyBinds.ESCAPE]:  # ESC pressed
             print("Escape hit, closing")
             cv2.destroyAllWindows()
             return
-        elif k % 256 == 32 or k == right_key:  # SPACE or right arrow pressed
-            print("Space or right arrow hit, exploring next sample")
+        elif key in [KeyBinds.SPACE, KeyBinds.RIGHT_ARROW]:
             idx += 1
-        elif k == left_key:  # SPACE or right arrow pressed
-            print("Left arrow hit, exploring previous sample")
+        elif key in [KeyBinds.LEFT_ARROW]:
             idx -= 1
         self.perform_inference(model, callback, idx, load_annot)
 

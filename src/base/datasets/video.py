@@ -11,29 +11,7 @@ from typing_extensions import Protocol
 from src.logger.pylogger import log
 from src.utils.image import put_txt
 
-
-class KeyBinds:
-    ESCAPE = 27
-    SPACE = 32
-    LEFT_ARROW = 81
-    RIGHT_ARROW = 83
-    DOWN_ARROW = 82
-    UP_ARROW = 84
-    TAB = 9
-
-    key2info = {
-        ESCAPE: "Escape - close video processing",
-        SPACE: "Space - pause",
-        LEFT_ARROW: "Left Arrow - move to previous frame",
-        RIGHT_ARROW: "Right Arrow - move to next frame",
-        TAB: "Tab - open/close navigation bar",
-        # DOWN_ARROW: "DOWN_ARROW",
-        # UP_ARROW: "UP_ARROW",
-    }
-
-    @classmethod
-    def to_info(cls, key: int) -> str:
-        return cls.key2info[key]
+from .base import KeyBinds
 
 
 @dataclass

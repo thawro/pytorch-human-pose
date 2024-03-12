@@ -23,7 +23,6 @@ cudnn:
   enabled: True
 
 dataloader:
-  seed: 42
   batch_size: 96
   pin_memory: true
   num_workers: 4
@@ -63,3 +62,4 @@ net:
 
 inference:
   input_size: 256
+  ckpt_path: pretrained/classification.pt

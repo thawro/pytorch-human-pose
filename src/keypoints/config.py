@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Literal, Type
 
-import torch
 from torch import nn
 
 from src.base.callbacks import BaseCallback, ResultsPlotterCallback

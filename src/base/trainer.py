@@ -207,7 +207,7 @@ class Trainer:
         val_dataloader = datamodule.val_dataloader
 
         log.info(
-            "Dataloaders utilisation:\n"
+            "Dataloaders utilisation (per GPU):\n"
             f"  Train: {self.get_limit_batches(train_dataloader)}/{len(train_dataloader)} batches\n"
             f"  Val  : {self.get_limit_batches(val_dataloader)}/{len(val_dataloader)}  batches"
         )

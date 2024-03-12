@@ -1,6 +1,7 @@
 """Loggers for training logging."""
 
 import logging
+import subprocess
 import uuid
 from collections import defaultdict
 from enum import Enum
@@ -13,7 +14,7 @@ import mlflow
 import mlflow.client
 import mlflow.entities
 from src.utils.config import LOG_DEVICE_ID, NOW
-from src.utils.utils import get_rank
+from src.utils.utils import get_rank, is_main_process
 
 from .pylogger import log
 
@@ -84,11 +85,9 @@ class BaseLogger:
         self._run_id = None
 
     def _log_config_info(self):
-        rank = get_rank()
-        if rank != 0:
-            return
-        config_repr = "\n".join([f"     '{name}': {cfg}" for name, cfg in self.config.items()])
-        log.info(f"Experiment config:\n{config_repr}")
+        if is_main_process():
+            config_repr = "\n".join([f"     '{name}': {cfg}" for name, cfg in self.config.items()])
+            log.info(f"Experiment config:\n{config_repr}")
 
     @property
     def run_id(self) -> str:
@@ -247,7 +246,10 @@ class MLFlowLogger(BaseLogger):
         resume: bool = True,
         description: str = "",
         log_system_metrics: bool = True,
+        auto_run_server: bool = False,
     ):
+        self.auto_run_server = auto_run_server
+        self._check_server()
         super().__init__(log_path=log_path, config=config)
         if tracking_uri is None:
             HOST = "localhost"  # 127.0.0.1
@@ -260,6 +262,23 @@ class MLFlowLogger(BaseLogger):
         self.description = description
         self._run_id = run_id
         self.log_system_metrics = log_system_metrics
+
+    def _check_server(self):
+        if not is_main_process():
+            return
+        if self.auto_run_server:
+            log.warning(
+                "..Starting MLFlow server using 'mlflow/run_mlflow.sh' script (`auto_run_server` is set to `True`).."
+            )
+            subprocess.run("make mlflow_server &", shell=True)
+        else:
+            log.critical(
+                "MLFlowLogger `auto_run_server` is set to `False`. "
+                "You must ensure that mlflow server is started before using this logger"
+                "(using e.g. 'mlflow/run_mlflow.sh' script). "
+                "Sadly there is no option to check if the mlflow server was started. "
+                "If the server wasn't started you need to exit the program by clicking CTRL-C."
+            )
 
     def start_run(self):
         super().start_run()

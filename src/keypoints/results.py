@@ -299,11 +299,12 @@ class InferenceKeypointsResult(BaseKeypointsResult):
         return oks_value
 
     def plot(self) -> dict[str, np.ndarray]:
+        # it is possible to calculate the OKS if annotation is passed
         if self.annot is not None:
             oks_value = self.calculate_OKS()
+            print(f"OKS: {oks_value:.2f}")
         else:
             oks_value = -1
-        print(f"OKS: {oks_value:.2f}")
 
         connections_plot = plot_connections(
             self.raw_image.copy(),

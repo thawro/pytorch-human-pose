@@ -23,7 +23,6 @@ cudnn:
   enabled: True
 
 dataloader:
-  seed: 42
   batch_size: 36
   pin_memory: true
   num_workers: 4
@@ -81,3 +80,4 @@ inference:
   det_thr: 0.05
   tag_thr: 0.5
   input_size: 512
+  ckpt_path: pretrained/keypoints.pt
