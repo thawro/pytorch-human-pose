@@ -1,3 +1,4 @@
+from contextlib import redirect_stdout
 from pathlib import Path
 
 import numpy as np
@@ -5,15 +6,13 @@ from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 from tqdm.auto import tqdm
 
-from src.keypoints.bin.inference import (
-    InferenceKeypointsModel,
-    load_model,
-    prepare_inference_config,
-)
+from src.base.bin.eval import prepare_eval_config
+from src.keypoints.config import KeypointsConfig
 from src.keypoints.datasets.coco import CocoKeypointsDataset
-from src.utils.config import DS_ROOT, YAML_EXP_PATH
-from src.utils.files import save_json
-from src.utils.model import seed_everything
+from src.keypoints.model import InferenceKeypointsModel
+from src.logger.pylogger import log, log_breaking_point
+from src.utils.config import DS_ROOT, NOW
+from src.utils.files import read_text_file, save_json, save_yaml
 
 
 def evaluate_dataset(model: InferenceKeypointsModel, dataset: CocoKeypointsDataset):
@@ -50,9 +49,8 @@ def evaluate_dataset(model: InferenceKeypointsModel, dataset: CocoKeypointsDatas
     return results
 
 
-def eval_coco(annots_path: str, results_path: str):
+def eval_coco(annots_path: str, results_path: str) -> str:
     # iouType: one of ["segm", "bbox", "keypoints"]
-
     cocoGt = COCO(annots_path)
 
     cocoDt = cocoGt.loadRes(results_path)
@@ -64,37 +62,55 @@ def eval_coco(annots_path: str, results_path: str):
     cocoEval.evaluate()
     cocoEval.accumulate()
     cocoEval.summarize()
+    return cocoEval.stats
 
 
 def main() -> None:
-    seed_everything(42)
-    cfg_path = str(YAML_EXP_PATH / "keypoints" / "higher_hrnet_32.yaml")
+    log_breaking_point("Starting Evaluation", n_top=1, n_bottom=1, top_char="*", bottom_char="*")
+    eval_split = "val2017"
 
-    run_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/keypoints/03-05_15:47__COCO_HigherHRNet/03-08_07:35"
+    gt_annot_path = str(DS_ROOT / f"COCO/annotations/person_keypoints_{eval_split}.json")
+
+    run_path = "results/keypoints/03-05_15:47__COCO_HigherHRNet/03-08_07:35"
+    cfg_path = f"{run_path}/config.yaml"
     ckpt_path = f"{run_path}/checkpoints/best.pt"
 
-    coco_eval_results_dir = f"{run_path}/coco_eval_results"
+    eval_results_dir = f"{run_path}/evaluation_results/{NOW}"
+    Path(eval_results_dir).mkdir(exist_ok=True, parents=True)
+    log.info(f"Evaluation results will be saved in {eval_results_dir} directory")
 
-    cfg = prepare_inference_config(cfg_path, ckpt_path)
+    results_filepath = f"{eval_results_dir}/{eval_split}_results.json"
+    eval_config_filepath = f"{eval_results_dir}/config.yaml"
+    coco_str_eval_filepath = f"{eval_results_dir}/coco_output.txt"
 
-    ds_cfg = cfg.dataloader.val_ds
+    cfg: KeypointsConfig = prepare_eval_config(cfg_path, ckpt_path, KeypointsConfig)
+    model = cfg.create_inference_model(device="cuda:0")
+
+    if "val" in eval_split:
+        ds_cfg = cfg.dataloader.val_ds
+    elif "train" in eval_split:
+        ds_cfg = cfg.dataloader.train_ds
+    else:
+        raise ValueError("Only val2017 and train2017 splits are available for evaluation")
+
     ds = CocoKeypointsDataset(root=ds_cfg.root, split=ds_cfg.split)
 
-    model = load_model(cfg)
     results = evaluate_dataset(model, ds)
 
-    filename = (
-        f"{ds_cfg.split}_results"
-        f"_tagThr({cfg.inference.tag_thr})"
-        f"_detThr({cfg.inference.det_thr})"
-        f"_useFlip({cfg.inference.use_flip})"
-        f"_inputSize({cfg.inference.input_size})"
-    )
-    results_path = f"{coco_eval_results_dir}/{filename}.json"
-    save_json(results, results_path)
+    save_json(results, results_filepath)
+    save_yaml(cfg.to_dict(), eval_config_filepath)
 
-    gt_annot_path = str(DS_ROOT / "COCO/raw/annotations/person_keypoints_val2017.json")
-    eval_coco(gt_annot_path, results_path)
+    log.info(f"Saved results in '{results_filepath}'")
+    log.info(f"Saved config in '{eval_config_filepath}'")
+
+    with open(coco_str_eval_filepath, "w") as f:
+        with redirect_stdout(f):
+            eval_coco(gt_annot_path, results_filepath)
+
+    log.info(f"Saved coco output in '{coco_str_eval_filepath}'")
+    coco_output = read_text_file(coco_str_eval_filepath)
+    coco_output = "\n".join(coco_output)
+    log.info(f"COCO output:\n{coco_output}")
 
 
 if __name__ == "__main__":

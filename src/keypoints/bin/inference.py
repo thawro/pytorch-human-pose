@@ -11,6 +11,7 @@ from src.keypoints.config import KeypointsConfig
 from src.keypoints.datasets.coco import CocoKeypointsDataset
 from src.keypoints.model import InferenceKeypointsModel
 from src.keypoints.visualization import plot_connections
+from src.logger.pylogger import log_breaking_point
 from src.utils.config import YAML_EXP_PATH
 from src.utils.image import resize_with_aspect_ratio
 from src.utils.utils import elapsed_timer
@@ -66,6 +67,8 @@ def video_inference(model: InferenceKeypointsModel, filepath: str):
 
 
 def main() -> None:
+    log_breaking_point("Starting inference", n_top=1, n_bottom=1, top_char="*", bottom_char="*")
+
     cfg_path = str(YAML_EXP_PATH / "keypoints" / "higher_hrnet_32.yaml")
     cfg: KeypointsConfig = prepare_inference_config(cfg_path, KeypointsConfig)
     model = cfg.create_inference_model(device="cuda:0")

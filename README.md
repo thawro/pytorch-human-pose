@@ -16,7 +16,7 @@ After download place the checkpoints inside the **_pretrained_** directory.
 ---
 # Inference
 
-## Classification (_HRNet_)
+## Classification (_ClassificationHRNet_)
 
 
 
@@ -49,3 +49,7 @@ After download place the checkpoints inside the **_pretrained_** directory.
 ## Evaluation
 
 **val2017**
+| First Header | Second Header |
+| ------------ | ------------- |
+| Content Cell | Content Cell  |
+| Content Cell | Content Cell  |
