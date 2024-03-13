@@ -44,6 +44,7 @@ plotly = "^5.19.0"
 psutil = "^5.9.8"
 pynvml = "^11.5.0"
 seaborn = "^0.13.2"
+gpustat = "^1.1.1"
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^2.17.4"
