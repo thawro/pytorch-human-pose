@@ -10,11 +10,12 @@ from dacite import from_dict
 from torch import nn
 
 from src.logger.loggers import Loggers, MLFlowLogger, Status
+from src.logger.monitoring import NvidiaSmiMonitor
 from src.logger.pylogger import get_file_pylogger, log
 from src.utils import NOW, RESULTS_PATH
 from src.utils.config import LOG_DEVICE_ID
 from src.utils.files import load_yaml
-from src.utils.utils import get_device_and_id
+from src.utils.utils import get_device_and_id, is_main_process
 
 from .callbacks import (
     ArtifactsLoggerCallback,
@@ -178,6 +179,10 @@ class BaseConfig(AbstractConfig):
     def __post_init__(self):
         if self.is_debug:
             self.setup.experiment_name = "debug"
+            if is_main_process():
+                log.critical(
+                    "..Running in debug mode (`limit_batches` is > 0). Updating config: `setup.experiment.name = 'debug'` .."
+                )
         self.device, self.device_id = get_device_and_id(
             self.trainer.accelerator, self.trainer.use_DDP
         )
@@ -200,6 +205,10 @@ class BaseConfig(AbstractConfig):
             if formatter is not None and hasattr(formatter, "_set_device"):
                 handler.formatter._set_device(self.device, self.device_id)
         self.logger = self.create_logger(file_log)
+        if is_main_process():
+            nvidia_log_filepath = f"{file_log_dirpath}/nvidia-smi.log"
+            nvidia_monitor = NvidiaSmiMonitor(nvidia_log_filepath, sampling_interval=5)
+            nvidia_monitor.start()
 
     @property
     def log_path(self) -> str:
@@ -238,7 +247,7 @@ class BaseConfig(AbstractConfig):
         arch = self.setup.architecture
         params_repr = "\n".join([f"     {k}: {v}" for k, v in self.net.params.items()])
         arch_repr = f"{arch}\n{params_repr}"
-        log.info(f"..Creating {arch} Neural Network..\n{arch_repr}")
+        log.info(f"..Initializing {arch} Neural Network..\n{arch_repr}")
 
         assert (
             arch in self.architectures
@@ -257,7 +266,7 @@ class BaseConfig(AbstractConfig):
         raise NotImplementedError()
 
     def create_callbacks(self) -> list[BaseCallback]:
-        log.info("..Creating Callbacks..")
+        log.info("..Initializing Callbacks..")
         callbacks = [
             MetricsPlotterCallback(),
             MetricsSaverCallback(),
@@ -270,7 +279,7 @@ class BaseConfig(AbstractConfig):
         return callbacks
 
     def create_logger(self, file_log: logging.Logger) -> Loggers:
-        log.info("..Creating Logger..")
+        log.info("..Initializing Logger..")
         loggers = [
             MLFlowLogger(
                 self.log_path,
@@ -288,7 +297,7 @@ class BaseConfig(AbstractConfig):
         return Trainer
 
     def create_trainer(self) -> Trainer:
-        log.info("..Creating Trainer..")
+        log.info("..Initializing Trainer..")
         try:
             callbacks = self.create_callbacks()
             trainer = self.TrainerClass(
@@ -314,6 +323,10 @@ def parse_cli_value(value: str) -> int | float | str:
         except ValueError:
             return value
     else:
+        if value in ["true", "True"]:
+            return True
+        elif value in ["false", "False"]:
+            return False
         try:
             return int(value)
         except ValueError:
@@ -326,7 +339,7 @@ def update_dict(dct: dict, update_dct: dict) -> dict:
             dct[k] = update_dict(dct.get(k, {}), v)
         else:
             new_value = parse_cli_value(v)
-            log.info(f"..{k} value updated to {new_value}")
+            log.info(f"     {k} value updated to {new_value}")
             dct[k] = new_value
     return dct
 
