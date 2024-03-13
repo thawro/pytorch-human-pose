@@ -6,7 +6,7 @@ setup:
   run_name: null
   is_train: true
   ckpt_path: null
-  pretrained_ckpt_path: null
+  pretrained_ckpt_path: pretrained/hrnet_32.pt
   deterministic: False
 
 trainer:
@@ -27,7 +27,7 @@ dataloader:
   pin_memory: true
   num_workers: 4
   train_ds:
-    root: data/COCO/raw
+    root: data/COCO
     split: train2017
     out_size: 512
     hm_resolutions: [0.25, 0.5]
@@ -36,7 +36,7 @@ dataloader:
     sigma: 2.0
     mosaic_probability: 0
   val_ds:
-    root: data/COCO/raw
+    root: data/COCO
     split: val2017
     out_size: 512
     hm_resolutions: [0.25, 0.5]
