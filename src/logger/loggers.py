@@ -14,7 +14,7 @@ import mlflow
 import mlflow.client
 import mlflow.entities
 from src.utils.config import LOG_DEVICE_ID, NOW
-from src.utils.utils import get_rank, is_main_process
+from src.utils.utils import is_main_process
 
 from .pylogger import log
 
@@ -270,7 +270,8 @@ class MLFlowLogger(BaseLogger):
             log.warning(
                 "..Starting MLFlow server using 'mlflow/run_mlflow.sh' script (`auto_run_server` is set to `True`).."
             )
-            subprocess.run("make mlflow_server &", shell=True)
+            msg = subprocess.run("make mlflow_server &", shell=True)
+            log.info(str(msg))
         else:
             log.critical(
                 "MLFlowLogger `auto_run_server` is set to `False`. "
