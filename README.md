@@ -181,19 +181,16 @@ Each sample with two input_sizes variants
 
 1. Two people
 
-input_size=256
-https://github.com/thawro/pytorch-human-pose/assets/50373360/27c07d1a-af1a-46bc-93ab-5d9063f1ccba
+https://github.com/thawro/pytorch-human-pose/assets/50373360/c6c477e5-df4c-48c3-84e9-0c050cb26880
 
-input_size=512
-https://github.com/thawro/pytorch-human-pose/assets/50373360/374c5dc2-53cf-4552-8454-1aa44d3810fc
+https://github.com/thawro/pytorch-human-pose/assets/50373360/6dc84f08-5c1a-4526-9fad-d055d20b1e53
+
 
 2. Three people 
 
-input_size=256
-https://github.com/thawro/pytorch-human-pose/assets/50373360/b873c086-6010-49d2-b056-9c9f4bbef4e1
+https://github.com/thawro/pytorch-human-pose/assets/50373360/9a9be24e-2143-4246-85d0-434fec4db301
 
-input_size=512
-https://github.com/thawro/pytorch-human-pose/assets/50373360/447497d3-1a16-4eed-af17-9a52215552d6
+https://github.com/thawro/pytorch-human-pose/assets/50373360/184c2071-417e-4380-bf81-99397704843e
 
 
 # Training from scratch
