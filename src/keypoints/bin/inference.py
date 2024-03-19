@@ -58,7 +58,7 @@ def video_inference(model: InferenceKeypointsModel, filepath: str):
     filename, ext = path_parts[-1].split(".")
     out_filepath_dir = f"{in_filepath_dir}/out"
     Path(out_filepath_dir).mkdir(exist_ok=True, parents=True)
-    out_filepath = f"{out_filepath_dir}/{filename}.{ext}"
+    out_filepath = f"{out_filepath_dir}/{filename}_Size({model.input_size}).{ext}"
     ds = InferenceVideoDataset(
         filepath=filepath, out_filepath=out_filepath, start_frame=0, num_frames=-1
     )
@@ -73,7 +73,7 @@ def main() -> None:
     cfg: KeypointsConfig = prepare_inference_config(cfg_path, KeypointsConfig)
     model = cfg.create_inference_model(device="cuda:0")
     # dataset_inference(model, cfg)
-    video_inference(model, "data/examples/simple_2.mp4")
+    video_inference(model, "data/examples/small.mp4")
 
 
 if __name__ == "__main__":
