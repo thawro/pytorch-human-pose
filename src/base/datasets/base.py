@@ -160,7 +160,8 @@ class BaseImageDataset(Dataset, ExplorerDataset, InferenceDataset):
 class DirectoryDataset(Dataset, InferenceDataset):
     def __init__(self, dirpath: str):
         self.dirpath = dirpath
-        self.images_filepaths = natsort.natsorted(glob.glob(f"{dirpath}/*"))
+        filepaths = glob.glob(f"{dirpath}/*.jpg") + glob.glob(f"{dirpath}/*.JPEG")
+        self.images_filepaths = natsort.natsorted(filepaths)
 
     def _set_paths(self):
         # set images_filepaths and annots_filepaths

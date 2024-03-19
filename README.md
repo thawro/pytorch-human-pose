@@ -103,12 +103,19 @@ After download, place the checkpoints inside the **_pretrained_** directory.
 > **_NOTE:_** Checkpoints must be present in _pretrained_ directory to perform the inference.
 
 ## Classification (_ClassificationHRNet_)
-Inference using the _ClassificationHRNet_ trained on ImageNet dataset (1000 classes)
+Inference using the _ClassificationHRNet_ model trained on ImageNet dataset (1000 classes). The parameters configurable via CLI:
+* `--inference.input_size` - smaller edge of the image will be matched to this number (default: 256)
+* `--inference.ckpt_path` - checkpoint path (default: *pretrained/hrnet_32.pt*)
 
 ### ImageNet data
-Run inference on ImageNet val split
+Run inference on ImageNet val split with default input_size (256)
 ```bash
-python src/classification/bin/inference.py --mode "val"                                        
+python src/classification/bin/inference.py --mode "val"
+```
+
+with changed input size
+```bash
+python src/classification/bin/inference.py --mode "val" --inference.input_size=512
 ```
 
 ### Custom data
@@ -117,11 +124,33 @@ python src/classification/bin/inference.py --mode "custom" --dirpath "data/examp
 ```
 
 ## Human Pose (_HigherHRNet_)
+Inference using the _HigherHRNet_ model trained on COCO keypoints dataset (17 keypoints). The parameters configurable via CLI:
+* `--inference.input_size` - smaller edge of the image will be matched to this number (default: 256)
+* `--inference.ckpt_path` - checkpoint path (default: *pretrained/higher_hrnet_32.pt*)
+* `--inference.det_thr` - detection threshold used in grouping (default: 0.05)
+* `--inference.tag_thr` - associative embedding tags threshold used in grouping (default: 0.5)
+* `--inference.use_flip` - whether to use horizontal flip and average the results (default: False)
+
 
 ### COCO data
+Run inference on COCO val split with default inference parameters
+```bash
+python src/keypoints/bin/inference.py --mode "val"
+```
+with changed input_size, use_flip and det_thr
+```bash
+python src/keypoints/bin/inference.py --mode "val" --inference.input_size=256 --inference.use_flip=True --inference.det_thr=0.1
+```
+
+### Custom data
+```bash
+python src/keypoints/bin/inference.py --mode "custom" --path "data/examples/keypoints/"
+```
 
 ### Video
-
+```bash
+python src/keypoints/bin/inference.py --mode "custom" --path "data/examples/keypoints/simple_3.mp4"
+```
 
 # Training from scratch
 

@@ -29,7 +29,7 @@ def parse_args() -> argparse.Namespace:
         help="Path to directory with images for inference. Used only when 'mode' is set to 'custom'",
         default=None,
     )
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
     log.info(f"Parsed args: \n{args}")
     return args
 
