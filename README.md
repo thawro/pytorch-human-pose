@@ -123,6 +123,14 @@ python src/classification/bin/inference.py --mode "val" --inference.input_size=5
 python src/classification/bin/inference.py --mode "custom" --dirpath "data/examples/classification"
 ```
 
+### Example outputs (top-5 probs):
+
+![coyote](https://github.com/thawro/pytorch-human-pose/assets/50373360/b2c98474-b4b8-43cd-9c59-92e6f7231199)
+![fox](https://github.com/thawro/pytorch-human-pose/assets/50373360/d7339a42-ee80-4f28-ab55-a79adc5f3715)
+![shark](https://github.com/thawro/pytorch-human-pose/assets/50373360/dc292445-7da5-4224-bf2c-82053443ca0c)
+![whale](https://github.com/thawro/pytorch-human-pose/assets/50373360/a15f6a15-73e7-499c-a42e-31d7a50a21d9)
+
+
 ## Human Pose (_HigherHRNet_)
 Inference using the _HigherHRNet_ model trained on COCO keypoints dataset (17 keypoints). The parameters configurable via CLI:
 * `--inference.input_size` - smaller edge of the image will be matched to this number (default: 256)
@@ -137,6 +145,7 @@ Run inference on COCO val split with default inference parameters
 ```bash
 python src/keypoints/bin/inference.py --mode "val"
 ```
+
 with changed input_size, use_flip and det_thr
 ```bash
 python src/keypoints/bin/inference.py --mode "val" --inference.input_size=256 --inference.use_flip=True --inference.det_thr=0.1
@@ -151,6 +160,41 @@ python src/keypoints/bin/inference.py --mode "custom" --path "data/examples/keyp
 ```bash
 python src/keypoints/bin/inference.py --mode "custom" --path "data/examples/keypoints/simple_3.mp4"
 ```
+
+### Example outputs (images)
+
+Each sample is composed of Connections plot, Associative Embeddings visualization (after grouping) and Heatmaps plot 
+1. Baseball
+![AE_baseball](https://github.com/thawro/pytorch-human-pose/assets/50373360/6b18c18d-6d4b-4964-83c2-a546ee2baf5d)
+![HM_baseball](https://github.com/thawro/pytorch-human-pose/assets/50373360/b446ae1f-0655-41f4-b968-8f29dc7e75b9)
+
+2. Jump
+![AE_jump](https://github.com/thawro/pytorch-human-pose/assets/50373360/434222d6-b3c4-464f-9e6b-bebd692fce41)
+![HM_jump](https://github.com/thawro/pytorch-human-pose/assets/50373360/964fb30b-4c1f-43b6-b3ff-20c7be17cea8)
+
+3. Park
+![AE_park](https://github.com/thawro/pytorch-human-pose/assets/50373360/2009d88d-ccb4-4cb6-ae9c-b139d62cc76a)
+![HM_park](https://github.com/thawro/pytorch-human-pose/assets/50373360/06c42437-1336-43db-9ea2-dac38c411827)
+
+### Example outputs (videos)
+Each sample with two input_sizes variants
+
+1. Two people
+
+input_size=256
+https://github.com/thawro/pytorch-human-pose/assets/50373360/27c07d1a-af1a-46bc-93ab-5d9063f1ccba
+
+input_size=512
+https://github.com/thawro/pytorch-human-pose/assets/50373360/374c5dc2-53cf-4552-8454-1aa44d3810fc
+
+2. Three people 
+
+input_size=256
+https://github.com/thawro/pytorch-human-pose/assets/50373360/b873c086-6010-49d2-b056-9c9f4bbef4e1
+
+input_size=512
+https://github.com/thawro/pytorch-human-pose/assets/50373360/447497d3-1a16-4eed-af17-9a52215552d6
+
 
 # Training from scratch
 
