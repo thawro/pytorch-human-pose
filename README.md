@@ -103,8 +103,18 @@ After download, place the checkpoints inside the **_pretrained_** directory.
 > **_NOTE:_** Checkpoints must be present in _pretrained_ directory to perform the inference.
 
 ## Classification (_ClassificationHRNet_)
+Inference using the _ClassificationHRNet_ trained on ImageNet dataset (1000 classes)
 
 ### ImageNet data
+Run inference on ImageNet val split
+```bash
+python src/classification/bin/inference.py --mode "val"                                        
+```
+
+### Custom data
+```bash
+python src/classification/bin/inference.py --mode "custom" --dirpath "data/examples/classification"
+```
 
 ## Human Pose (_HigherHRNet_)
 

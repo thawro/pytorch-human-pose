@@ -1,2 +1,2 @@
-from .base import BaseImageDataset, ExplorerDataset, InferenceDataset
+from .base import BaseImageDataset, DirectoryDataset, ExplorerDataset, InferenceDataset
 from .video import InferenceVideoDataset

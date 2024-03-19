@@ -1,8 +1,10 @@
 """Base Dataset classes"""
 
+import glob
 from typing import Any, Callable
 
 import cv2
+import natsort
 import numpy as np
 from PIL import Image
 from torch.utils.data import Dataset
@@ -153,3 +155,22 @@ class BaseImageDataset(Dataset, ExplorerDataset, InferenceDataset):
 
     def load_annot(self, idx: int) -> Any:
         raise NotImplementedError()
+
+
+class DirectoryDataset(Dataset, InferenceDataset):
+    def __init__(self, dirpath: str):
+        self.dirpath = dirpath
+        self.images_filepaths = natsort.natsorted(glob.glob(f"{dirpath}/*"))
+
+    def _set_paths(self):
+        # set images_filepaths and annots_filepaths
+        raise NotImplementedError()
+
+    def __len__(self) -> int:
+        return len(self.images_filepaths)
+
+    def load_image(self, idx: int) -> np.ndarray:
+        return np.array(Image.open(self.images_filepaths[idx]).convert("RGB"))
+
+    def load_annot(self, idx: int) -> Any:
+        return None
