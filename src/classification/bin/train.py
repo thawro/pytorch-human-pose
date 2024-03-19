@@ -8,14 +8,7 @@ from src.utils.config import YAML_EXP_PATH
 
 def main():
     cfg_path = YAML_EXP_PATH / "classification" / "hrnet_32.yaml"
-
     cfg = ClassificationConfig.from_yaml_to_dict(cfg_path)
-
-    ckpt_path = "/home/thawro/Desktop/projects/pytorch-human-pose/results/classification/02-15_10:12___imagenet_HRNet/02-19_09:14/checkpoints/last.pt"
-    ckpt_path = None
-
-    cfg["setup"]["ckpt_path"] = ckpt_path
-
     train(cfg, ClassificationConfig)
 
 

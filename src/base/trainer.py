@@ -228,8 +228,9 @@ class Trainer:
 
         if self.use_compile and not self.use_DDP:
             module.model.compile()
-        module.model.to_CUDA(self.device_id)
-        module.loss_fn.cuda(self.device_id)
+        if self.accelerator == "gpu":
+            module.model.to_CUDA(self.device_id)
+            module.loss_fn.cuda(self.device_id)
 
         module.model.init_weights()
         if pretrained_ckpt_path is None:

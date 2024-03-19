@@ -320,8 +320,10 @@ class BaseConfig(AbstractConfig):
         raise NotImplementedError()
 
 
-def parse_cli_value(value: str) -> int | float | str:
-    if "." in value:
+def parse_cli_value(value: str) -> int | float | str | None:
+    if value in ["None", "none", "null"]:
+        return None
+    elif "." in value:
         try:
             return float(value)
         except ValueError:

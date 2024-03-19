@@ -101,6 +101,7 @@ After download, place the checkpoints inside the **_pretrained_** directory.
 # Inference
 
 > **_NOTE:_** Checkpoints must be present in _pretrained_ directory to perform the inference.
+> **_NOTE:_** [Environment](#environment) must be installed to perform the inference
 
 ## Classification (_ClassificationHRNet_)
 Inference using the _ClassificationHRNet_ model trained on ImageNet dataset (1000 classes). The parameters configurable via CLI:
@@ -194,22 +195,71 @@ https://github.com/thawro/pytorch-human-pose/assets/50373360/184c2071-417e-4380-
 
 
 # Training from scratch
+> **_NOTE:_** [Environment](#environment) must be installed to perform the training
+> **_IMPORTANT:_** MLFlow logging is enabled by default, so before every training one must run `make mlflow_server` to start the server
+
+Most important training configurable CLI parameters (others can be checked in config python files):
+* `setup.ckpt_path` - Path to checkpoint file saved during training (for training resume)
+* `setup.pretrained_ckpt_path` - Path to checkpoint file with pretrained network weights
+* `trainer.accelerator` - Device for training (`cpu` or `gpu`) 
+* `trainer.limit_batches` - How many batches are used for training. Parameter used to run a debug experiment. When limit_batches > 0, then experiment is considered as debug
+* `trainer.use_DDP` - Whether to run Distributed Data Parallel (DDP) training on multiple GPUs
+* `trainer.sync_batchnorm` - Whether to use SyncBatchnorm class for DDP training
 
 ## Backbone
+> **_NOTE:_** [ImageNet](#imagenet) data must be prepared to train the backbone model
 
 ### Pretraining _ClassificationHRNet_ on ImageNet
 
-### Evaluation of _ClassificationHRNet_ on Imagenet
+#### Using single GPU
+```bash
+python src/classification/bin/train.py --setup.ckpt_path=None --trainer.use_DDP=False
+```
+`--setup.ckpt_path=None` to ensure that new experiment is created
+`--trainer.use_DDP=False` to ensure that single GPU is used
 
+#### Using multiple GPUs - use [`torchrun`](https://pytorch.org/docs/stable/elastic/run.html)
+```bash
+torchrun --standalone --nproc_per_node=2 src/classification/bin/train.py --setup.ckpt_path=None --trainer.use_DDP=True
+```
+
+
+### Evaluation of _ClassificationHRNet_ on Imagenet
+TODO
 
 ## Human Pose
+> **_NOTE:_** [COCO](#coco) data must be prepared to train the human pose model
+
 
 ### Training _HigherHRNet_ on COCO
+#### Using single GPU
+```bash
+python src/keypoints/bin/train.py --setup.ckpt_path=None --trainer.use_DDP=False --setup.pretrained_ckpt_path="pretrained/hrnet_32.pt"
+```
+`--setup.ckpt_path=None` to ensure that new experiment is created
+`--trainer.use_DDP=False` to ensure that single GPU is used
+`--setup.pretrained_ckpt_path` to load pretrained backbone model from `hrnet_32.pt` file
 
-### Evaluation of _HigherHRNet_ on COCO
+#### Using multiple GPUs - use [`torchrun`](https://pytorch.org/docs/stable/elastic/run.html)
+```bash
+torchrun --standalone --nproc_per_node=2 src/keypoints/bin/train.py --setup.ckpt_path=None --trainer.use_DDP=True --setup.pretrained_ckpt_path="pretrained/hrnet_32.pt"                
+```
 
-**val2017**
-| First Header | Second Header |
-| ------------ | ------------- |
-| Content Cell | Content Cell  |
-| Content Cell | Content Cell  |
+
+### Evaluation of _HigherHRNet_ on COCO (val2017)
+Inference parameters:
+* `--inference.input_size=512`
+* `--inference.use_flip=True`
+
+| Metric name                                | Area    | Max Dets | Metric value |
+| ------------------------------------------ | ------- | -------- | ------------ |
+| **Average Precision  (AP) @IoU=0.50:0.95** | **all** | **20**   | **0.673**    |
+| Average Precision  (AP) @IoU=0.50          | all     | 20       | 0.870        |
+| Average Precision  (AP) @IoU=0.75          | all     | 20       | 0.733        |
+| Average Precision  (AP) @IoU=0.50:0.95     | medium  | 20       | 0.615        |
+| Average Precision  (AP) @IoU=0.50:0.95     | large   | 20       | 0.761        |
+| Average Recall     (AR) @IoU=0.50:0.95     | all     | 20       | 0.722        |
+| Average Recall     (AR) @IoU=0.50          | all     | 20       | 0.896        |
+| Average Recall     (AR) @IoU=0.75          | all     | 20       | 0.770        |
+| Average Recall     (AR) @IoU=0.50:0.95     | medium  | 20       | 0.652        |
+| Average Recall     (AR) @IoU=0.50:0.95     | large   | 20       | 0.819        |
