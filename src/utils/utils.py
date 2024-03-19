@@ -33,10 +33,10 @@ def random_float(min: float, max: float) -> float:
     return random.random() * (max - min) + min
 
 
-def get_current_date_and_time() -> str:
+def get_current_date_and_time(format: str = "%m-%d_%H:%M") -> str:
     now = datetime.now()
     # dt_string = now.strftime("%Y-%m-%d_%H:%M")
-    dt_string = now.strftime("%m-%d_%H:%M")
+    dt_string = now.strftime(format)
     return dt_string
 
 

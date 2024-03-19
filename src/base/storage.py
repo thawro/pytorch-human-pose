@@ -90,3 +90,14 @@ class MetricsStorage:
     def load_state_dict(self, state_dict: dict):
         self.metrics = state_dict["metrics"]
         log.info(f'     Loaded "{self.name}" metrics state')
+
+
+class SystemMonitoringStorage:
+    def __init__(self) -> None:
+        self.metrics = defaultdict(list)
+        self.timestamps = []
+
+    def update(self, metrics: dict[str, float], timestamp: str):
+        for k, v in metrics.items():
+            self.metrics[k].append(v)
+        self.timestamps.append(timestamp)

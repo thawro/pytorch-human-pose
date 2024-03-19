@@ -4,7 +4,17 @@ The model is trained in two steps:
 1. Backbone pretraining on ImageNet dataset (_ClassificationHRNet_)
 2. Training on COCO (_HigherHRNet_)
 
-# Checkpoints
+# Environment
+
+
+
+# Prerequisites
+
+## Data preparation
+
+## Virtual environment installation
+
+## Checkpoints with trained models
 
 The checkpoints are available at [Google Drive](https://drive.google.com/drive/folders/1srwrno9YYSBy1Wqf-uDok_TpID9Mm20d?usp=sharing):
 
@@ -13,12 +23,15 @@ The checkpoints are available at [Google Drive](https://drive.google.com/drive/f
 
 After download place the checkpoints inside the **_pretrained_** directory.
 
----
+
+
 # Inference
+
+> Checkpoints must be present to perform the inference
 
 ## Classification (_ClassificationHRNet_)
 
-
+### ImageNet data
 
 ## Human Pose (_HigherHRNet_)
 
@@ -27,26 +40,20 @@ After download place the checkpoints inside the **_pretrained_** directory.
 ### Video
 
 
+# Training from scratch
 
----
+## Backbone
 
-# Pretraining
+### Pretraining _ClassificationHRNet_ on ImageNet
 
-## Dataset (ImageNet)
-
-## Training
-
-## Evaluation
+### Evaluation of _ClassificationHRNet_ on Imagenet
 
 
----
-# Training on COCO
+## Human Pose
 
-## Dataset (COCO)
+### Training _HigherHRNet_ on COCO
 
-## Training
-
-## Evaluation
+### Evaluation of _HigherHRNet_ on COCO
 
 **val2017**
 | First Header | Second Header |

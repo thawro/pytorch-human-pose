@@ -3,6 +3,7 @@
 from typing import Any, Protocol
 
 from src.logger.pylogger import log
+from src.utils.utils import get_current_date_and_time
 
 from .base import BaseSystemMonitor
 from .monitors.cpu import CPUMonitor
@@ -14,7 +15,7 @@ from .monitors.network import NetworkMonitor
 class MetricsCallbackProtocol(Protocol):
     """Do something with metrics, e.g. log it using custom logger"""
 
-    def __call__(self, metrics: dict[str, float]) -> Any: ...
+    def __call__(self, metrics: dict[str, float], timestamp: str) -> Any: ...
 
 
 class SystemMetricsMonitor(BaseSystemMonitor):
@@ -29,8 +30,8 @@ class SystemMetricsMonitor(BaseSystemMonitor):
         import time
         from src.logger.monitoring.system import SystemMetricsMonitor
 
-        def print_metrics_callback(metrics: dict[str, float]):
-            print(metrics)
+        def print_metrics_callback(metrics: dict[str, float], timestamp: str):
+            print(timestamp, metrics)
 
         monitor = SystemMetricsMonitor(
             sampling_interval=1,
@@ -74,7 +75,7 @@ class SystemMetricsMonitor(BaseSystemMonitor):
         try:
             self.publish_metrics(metrics)
         except Exception as e:
-            log.warning(f"Failed to log system metrics: {e}")
+            log.exception(f"Failed to log system metrics: {e}")
             return
 
     def collect_metrics(self):
@@ -94,7 +95,8 @@ class SystemMetricsMonitor(BaseSystemMonitor):
 
     def publish_metrics(self, metrics: dict[str, float]):
         """Do something with collected metrics and clear them."""
+        timestamp = get_current_date_and_time(format="%y-%m-%d %H:%M:%S")
         if self.metrics_callback is not None:
-            self.metrics_callback(metrics)
+            self.metrics_callback(metrics, timestamp)
         for monitor in self.monitors:
             monitor.clear_metrics()

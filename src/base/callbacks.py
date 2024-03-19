@@ -9,21 +9,21 @@ if TYPE_CHECKING:
     from src.base.storage import MetricsStorage
 
     from .trainer import Trainer
+
 import glob
-import math
-import time
 from abc import abstractmethod
 from pathlib import Path
 
 import torch
 
 from src.logger.loggers import Status
+from src.logger.monitoring.system import SystemMetricsMonitor
 from src.logger.pylogger import log
 from src.utils.config import LOG_DEVICE_ID
 from src.utils.files import save_txt_to_file, save_yaml
 
 from .results import BaseResult, plot_results
-from .visualization import plot_metrics_matplotlib, plot_metrics_plotly
+from .visualization import plot_metrics_matplotlib, plot_metrics_plotly, plot_system_monitoring
 
 _log_mode = Literal["step", "epoch", "validation"]
 
@@ -259,7 +259,7 @@ class MetricsPlotterCallback(BaseCallback):
 
             plotly_filepath = f"{log_path}/{mode}_metrics.html"
             plot_metrics_plotly(storage, step_name, filepath=plotly_filepath)
-            log.info(f"Metrics plots saved at run '{plotly_filepath}'")
+            log.info(f"Metrics plots saved at '{plotly_filepath}'")
         else:
             log.warn(f"No metrics to plot logged yet (mode={mode})")
 
@@ -268,6 +268,33 @@ class MetricsPlotterCallback(BaseCallback):
 
     def on_validation_end(self, trainer: Trainer) -> None:
         self.plot(trainer, mode="validation")
+
+
+class SystemMetricsMonitoringCallback(BaseCallback):
+    """Plot per epoch metrics"""
+
+    def __init__(self, sampling_interval: int = 10, samples_before_logging: int = 1) -> None:
+        self.sampling_interval = sampling_interval
+        self.samples_before_logging = samples_before_logging
+
+    def plot(self, trainer: Trainer) -> None:
+        log_path = trainer.logger.loggers[0].log_path
+        filepath = f"{log_path}/logs/system_metrics.html"
+
+        storage = trainer.system_monitoring
+        if len(storage.metrics) > 0:
+            plot_system_monitoring(storage, filepath)
+
+    def on_fit_start(self, trainer: Trainer):
+        system_monitor = SystemMetricsMonitor(
+            sampling_interval=self.sampling_interval,
+            samples_before_logging=self.samples_before_logging,
+            metrics_callback=trainer.system_monitoring.update,
+        )
+        system_monitor.start()
+
+    def on_step_end(self, trainer: Trainer) -> None:
+        self.plot(trainer)
 
 
 class MetricsSaverCallback(BaseCallback):
@@ -351,33 +378,3 @@ class DatasetExamplesCallback(BaseCallback):
             grid = dataset.plot_examples(idxs, nrows=1)
             Image.fromarray(grid).save(filepath)
             log.info(f"      ..{split} dataset examples saved at '{filepath}'..")
-
-
-# TODO: replace with epochs
-class SaveLastAsOnnx(BaseCallback):
-    def __init__(self, every_n_minutes: int = 30):
-        self.every_n_minutes = every_n_minutes
-        self.start_time = time.time()
-        self.num_saved = 0
-
-    def on_fit_start(self, trainer: Trainer):
-        model = trainer.module.model
-        model_onnx_dir = trainer.logger.loggers[0].model_onnx_dir
-        dirpath = str(model_onnx_dir)
-        log.info("Saving model to onnx")
-        filepath = f"{dirpath}/model.onnx"
-        model.export_to_onnx(filepath)
-
-    def on_validation_end(self, trainer: Trainer):
-        model = trainer.module.model
-        model_onnx_dir = trainer.logger.loggers[0].model_onnx_dir
-        dirpath = str(model_onnx_dir)
-        filepath = f"{dirpath}/model.onnx"
-        curr_time = time.time()
-        diff_s = curr_time - self.start_time
-        diff_min = math.ceil(diff_s / 60)
-        if diff_min / self.every_n_minutes > 1 or self.num_saved == 0:
-            self.start_time = curr_time
-            log.info(f"{diff_min} minutes have passed. Saving model components to ONNX.")
-            model.export_to_onnx(filepath)
-            self.num_saved += 1

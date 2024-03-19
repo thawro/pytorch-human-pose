@@ -15,16 +15,18 @@ from .callbacks import BaseCallback, Callbacks
 from .datamodule import DataModule
 from .meters import Meters
 from .module import BaseModule
-from .storage import MetricsStorage
+from .storage import MetricsStorage, SystemMonitoringStorage
 
 # TODO:
 # fix compile + DDP
 
-# Puścić klasyfikacje (testowo)
-# Wizualizacja gradientów
-# Cpu/gpu monitoring
-# zapisywanie gifow z obrazkow treningowych
-# wrzucenie sieci na jakis dysk
+# Gradients visualization (with plotly), ideas:
+# https://gist.github.com/Flova/8bed128b41a74142a661883af9e51490
+# https://github.com/wandb/wandb/blob/main/wandb/wandb_torch.py#L121
+# https://github.com/wandb/wandb/blob/main/wandb/sdk/data_types/histogram.py
+
+# test classification pipeline
+# gifs saving from training evaluation samples (must ensure that sample_idxs are same)
 
 
 class Trainer:
@@ -59,6 +61,7 @@ class Trainer:
         self.current_epoch = 0
         self.epochs_metrics = MetricsStorage(name="Epochs")  # every step metrics
         self.validation_metrics = MetricsStorage(name="LogStep")  # validation metrics
+        self.system_monitoring = SystemMonitoringStorage()
         self.results = []
 
     @property
@@ -263,7 +266,7 @@ class Trainer:
         else:
             msg = f"<<<  The training is resumed at: epoch={self.current_epoch}, step={self.current_step}  >>>"
         log_breaking_point(
-            msg, n_top=2, n_bottom=2, top_char="*", bottom_char="*", num_chars=150, worker=0
+            msg, n_top=2, n_bottom=2, top_char="*", bottom_char="*", num_chars=100, worker=0
         )
         start_epoch = int(self.current_epoch)
         try:

@@ -26,6 +26,7 @@ from .callbacks import (
     MetricsSaverCallback,
     ModelSummary,
     SaveModelCheckpoint,
+    SystemMetricsMonitoringCallback,
 )
 from .datamodule import DataModule
 from .model import BaseInferenceModel
@@ -274,8 +275,11 @@ class BaseConfig(AbstractConfig):
             DatasetExamplesCallback(splits=["train", "val"], n=20, random_idxs=True),
             ModelSummary(depth=5),
             SaveModelCheckpoint(name="best", metric="loss", last=True, mode="min", stage="val"),
+            SystemMetricsMonitoringCallback(),
             ArtifactsLoggerCallback(),  # make sure it is last
         ]
+        for callback in callbacks:
+            log.info(f"     Initialized {callback.__class__.__name__}")
         return callbacks
 
     def create_logger(self, file_log: logging.Logger) -> Loggers:
