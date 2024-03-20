@@ -196,6 +196,7 @@ https://github.com/thawro/pytorch-human-pose/assets/50373360/184c2071-417e-4380-
 
 # Training from scratch
 > **_NOTE:_** [Environment](#environment) must be installed to perform the training
+
 > **_IMPORTANT:_** MLFlow logging is enabled by default, so before every training one must run `make mlflow_server` to start the server
 
 Most important training configurable CLI parameters (others can be checked in config python files):
@@ -247,7 +248,21 @@ torchrun --standalone --nproc_per_node=2 src/keypoints/bin/train.py --setup.ckpt
 
 
 ### Evaluation of _HigherHRNet_ on COCO (val2017)
-Inference parameters:
+
+> **_NOTE:_** Before running evaluation script you must ensure that correct `run_path` is defined inside the script. `run_path` must point to the directory where training checkpoint (`.pt` file) and config (`.yaml`) files are present.
+
+```bash
+python src/keypoints/bin/eval.py
+```
+
+After running this script there will be a `evaluation_results` directory created ( inside the `run_path` directory) with the evaluation output files:
+* `coco_output.txt` - file with txt output from pycocotools (the table)
+* `config.yaml` - config of the evaluated run
+* `val2017_results.json` - json file with results (predicted keypoints coordinates)
+
+---
+
+Evaluation results obtained for inference parameters:
 * `--inference.input_size=512`
 * `--inference.use_flip=True`
 
@@ -263,3 +278,7 @@ Inference parameters:
 | Average Recall     (AR) @IoU=0.75          | all     | 20       | 0.770        |
 | Average Recall     (AR) @IoU=0.50:0.95     | medium  | 20       | 0.652        |
 | Average Recall     (AR) @IoU=0.50:0.95     | large   | 20       | 0.819        |
+
+
+# Training code notes
+TODO
