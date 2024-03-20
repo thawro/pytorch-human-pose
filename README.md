@@ -42,7 +42,7 @@ make dirs
    2. Sign in to kaggle
    3. Scroll down and click "**Download All**" button
 2. Move downloaded `imagenet-object-localization-challenge.zip` file to `<project_root>/data` directory
-3. Run ImageNet preparation script (from the `<project_root>` directory)
+3. Run ImageNet preparation script from the `<project_root>` directory (it may take a while)
 ```bash
 make imagenet
 ```
@@ -65,7 +65,7 @@ After these steps there should be a directory `data/ImageNet` with the following
         └── n15075141
 
 ### COCO
-1. Run COCO preparation script (from the <project_root> directory)
+1. Run COCO preparation script from the `<project_root>` directory (it may take a while)
 ```bash
 make coco
 ```
