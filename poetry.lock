@@ -2593,19 +2593,6 @@ files = [
 doc = ["reno", "sphinx", "tornado (>=4.5)"]
 
 [[package]]
-name = "thop"
-version = "0.1.1.post2209072238"
-description = "A tool to count the FLOPs of PyTorch model."
-optional = false
-python-versions = "*"
-files = [
-    {file = "thop-0.1.1.post2209072238-py3-none-any.whl", hash = "sha256:01473c225231927d2ad718351f78ebf7cffe6af3bed464c4f1ba1ef0f7cdda27"},
-]
-
-[package.dependencies]
-torch = "*"
-
-[[package]]
 name = "threadpoolctl"
 version = "3.4.0"
 description = "threadpoolctl"
@@ -2968,4 +2955,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<3.13"
-content-hash = "be3c8be367aa66c32f9e244559c4f38697441e1f6c141fdc61613e3af1de7fc4"
+content-hash = "c88265c0b53c4f0fb3fda76b2bf428e5a6a5c8cd20a51c5d488fa886d9b10213"

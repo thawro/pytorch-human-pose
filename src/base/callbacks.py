@@ -350,11 +350,6 @@ class ModelSummary(BaseCallback):
         filepath = f"{model_dir}/model_summary.txt"
         save_txt_to_file(model_summary, filepath)
 
-        total_ops, total_params = model.total_ops_params()
-        log.info(
-            f"Total number of operations and params:\n  ops = {total_ops}\n  params = {total_params}"
-        )
-
 
 class DatasetExamplesCallback(BaseCallback):
     def __init__(
