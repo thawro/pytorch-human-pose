@@ -5,7 +5,7 @@ cd data
 num_files=`unzip -l imagenet-object-localization-challenge.zip | grep .JPEG | wc -l`
 
 echo Unzipping imagenet-object-localization-challenge.zip file: ${num_files} .JPEG files
-unzip -o imagenet-object-localization-challenge.zip | tqdm --desc extracted --unit files --unit_scale --total $num_files > /dev/null
+unzip -o imagenet-object-localization-challenge.zip | tqdm --desc "Extracting files:" --unit files --unit_scale --total $num_files > /dev/null
 echo "Unzipped imagenet-object-localization-challenge.zip file"
 
 rm imagenet-object-localization-challenge.zip

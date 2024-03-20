@@ -34,6 +34,8 @@ make dirs
 
 ## Data preparation
 
+> **_NOTE:_** The data preparation scripts use `tqdm` to show progress bars for file unzipping, so make sure to install the [Environment](#environment) first.
+
 ### ImageNet
 
 1. Download dataset from [kagle](https://www.kaggle.com/competitions/imagenet-object-localization-challenge/data)
@@ -103,6 +105,7 @@ After download, place the checkpoints inside the **_pretrained_** directory.
 # Inference
 
 > **_NOTE:_** Checkpoints must be present in _pretrained_ directory to perform the inference.
+
 > **_NOTE:_** [Environment](#environment) must be installed to perform the inference
 
 ## Classification (_ClassificationHRNet_)
