@@ -6,58 +6,9 @@ from collections import namedtuple
 
 import numpy as np
 import torch
-from torch import Tensor, nn
-from torchinfo import summary
+from torch import nn
 
 from src.logger.pylogger import log
-
-
-def export_to_onnx(
-    net: nn.Module,
-    dummy_input: Tensor,
-    filepath: str,
-    input_names: list[str],
-    output_names: list[str],
-) -> None:
-    torch.onnx.export(
-        net,
-        dummy_input,
-        filepath,
-        verbose=False,
-        input_names=input_names,
-        output_names=output_names,
-        export_params=True,
-    )
-
-
-def export_to_txt(net: nn.Module, filepath: str) -> str:
-    modules_txt = str(net)
-    with open(filepath, "w") as text_file:
-        text_file.write(modules_txt)
-    return modules_txt
-
-
-def export_summary_to_txt(
-    net: nn.Module, dummy_input: Tensor, filepath: str, device: torch.device
-) -> str:
-    model_summary = str(
-        summary(
-            net,
-            input_data=dummy_input,
-            depth=10,
-            col_names=[
-                "input_size",
-                "output_size",
-                "num_params",
-                "kernel_size",
-            ],
-            verbose=0,
-            device=device,
-        )
-    )
-    with open(filepath, "w") as text_file:
-        text_file.write(model_summary)
-    return model_summary
 
 
 def seed_everything(seed: int):

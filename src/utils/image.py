@@ -12,29 +12,6 @@ WHITE = (255, 255, 255)
 YELLOW = (255, 255, 0)
 
 
-def stack_frames_horizontally(frames: list[np.ndarray], vspace: int = 10, hspace: int = 10):
-    img_w = sum([img.shape[1] for img in frames]) + (len(frames) + 1) * vspace
-    img_h = max([img.shape[0] for img in frames]) + 2 * hspace
-    img = np.zeros((img_h, img_w, 3), dtype=np.uint8)
-
-    ymin = hspace
-    xmin = vspace
-
-    for frame in frames:
-        if len(frame.shape) == 2:
-            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
-
-        h, w = frame.shape[:2]
-
-        if h < img_h - 2 * hspace:
-            ymin = img_h // 2 - h // 2
-        else:
-            ymin = hspace
-        img[ymin : ymin + h, xmin : xmin + w, :] = frame
-        xmin = xmin + w + vspace
-    return img
-
-
 def make_grid(
     images: list[np.ndarray], nrows: int = 1, pad: int = 5, match_size: bool = False
 ) -> np.ndarray:
@@ -142,32 +119,6 @@ def put_txt(
     return image
 
 
-def add_labels_to_frames(
-    frames: list[np.ndarray],
-    labels: list[str],
-    font=cv2.FONT_HERSHEY_SIMPLEX,
-    font_scale=0.5,
-    thickness=1,
-) -> list[np.ndarray]:
-    labeled_frames = []
-    for i in range(len(frames)):
-        label = labels[i]
-        image = frames[i]
-        if isinstance(label, str):
-            label = [label]
-
-        labeled_image = put_txt(
-            image.copy(),
-            label,
-            vspace=5,
-            font=font,
-            font_scale=font_scale,
-            thickness=thickness,
-        )
-        labeled_frames.append(labeled_image)
-    return labeled_frames
-
-
 def matplot_figure_to_array(fig: Figure) -> np.ndarray:
     fig.canvas.draw()
     data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
@@ -236,5 +187,9 @@ colors = [
     (255, 165, 0),  # Orange
     (218, 112, 214),  # Orchid
 ]
+# repeat the colors in case of more preds
 colors = colors + colors + colors + colors + colors
-get_color = lambda i: np.array(colors[i]).astype(np.uint8)
+
+
+def get_color(i: int) -> np.ndarray:
+    return np.array(colors[i]).astype(np.uint8)
