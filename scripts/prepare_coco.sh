@@ -10,19 +10,19 @@ echo "...Processing zip files (download zip -> unzip -> remove zip)..."
 
 echo "...Processing train2017 images..."
 wget images.cocodataset.org/zips/train2017.zip
-num_train_files=`unzip -l train2017.zip | grep .JPEG | wc -l`
+num_train_files=`unzip -l train2017.zip | wc -l`
 unzip -o train2017.zip -d images | tqdm --desc "Extracting train files:" --unit files --unit_scale --total $num_train_files > /dev/null
 rm train2017.zip
 
 echo "...Processing val2017 images..."
 wget images.cocodataset.org/zips/val2017.zip
-num_val_files=`unzip -l val2017.zip | grep .JPEG | wc -l`
+num_val_files=`unzip -l val2017.zip | wc -l`
 unzip -o val2017.zip -d images | tqdm --desc "Extracting val files:" --unit files --unit_scale --total $num_val_files > /dev/null
 rm val2017.zip
 
 echo "...Processing test2017 images..."
 wget images.cocodataset.org/zips/test2017.zip
-num_test_files=`unzip -l test2017.zip | grep .JPEG | wc -l`
+num_test_files=`unzip -l test2017.zip | wc -l`
 unzip -o test2017.zip -d images | tqdm --desc "Extracting test files:" --unit files --unit_scale --total $num_test_files > /dev/null
 rm test2017.zip
 

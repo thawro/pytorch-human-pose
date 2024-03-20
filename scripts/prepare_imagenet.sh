@@ -2,7 +2,7 @@ echo "...Preparing ImageNet dataset..."
 
 cd data
 
-num_files=`unzip -l imagenet-object-localization-challenge.zip | grep .JPEG | wc -l`
+num_files=`unzip -l imagenet-object-localization-challenge.zip | wc -l`
 
 echo Unzipping imagenet-object-localization-challenge.zip file: ${num_files} .JPEG files
 unzip -o imagenet-object-localization-challenge.zip | tqdm --desc "Extracting files:" --unit files --unit_scale --total $num_files > /dev/null
