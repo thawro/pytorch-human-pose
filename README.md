@@ -21,12 +21,13 @@ cd pytorch-human-pose
 
 4. Install the virtual environment and activate venv
 ```bash
-poetry install
-poetry shell
+make env
 ``` 
+
+5. Create directories for training/inference purposes
 or use one of the scripts:
 ```bash
-bash scripts/prepare_environment.sh
+make dirs
 ```
 
 
@@ -37,14 +38,16 @@ bash scripts/prepare_environment.sh
 ### ImageNet
 
 1. Download dataset from [kagle](https://www.kaggle.com/competitions/imagenet-object-localization-challenge/data)
-2. Extract the downloaded zip file to `<project_root>/data` directory
-3. Remove zip file
-4. Run ImageNet preparation script (from the `<project_root>` directory)
+   1. Go to [link](https://www.kaggle.com/competitions/imagenet-object-localization-challenge/data)
+   2. Sign in to kaggle
+   3. Scroll down and click "**Download All**" button
+2. Move downloaded `imagenet-object-localization-challenge.zip` file to `<project_root>/data` directory
+3. Run ImageNet preparation script (from the `<project_root>` directory)
 ```bash
-bash scripts/prepare_imagenet.sh
+make imagenet
 ```
 
-The script will create the `ImageNet` directory and move the files from `ILSVRC/Data/CLS-LOC` directory to `ImageNet` directory. Then it will move the val image files to separate directories (named by wodnet labels) using [this](https://raw.githubusercontent.com/soumith/imagenetloader.torch/master/valprep.sh) script and it will download json mapping for ImageNet labels (from [this](https://storage.googleapis.com/download.tensorflow.org/data/imagenet_class_index.json) source)
+The script will unzip the downloaded `imagenet-object-localization-challenge.zip` file, remove it, create the `ImageNet` directory and move unzipped files from `ILSVRC/Data/CLS-LOC` directory to `ImageNet` directory. Then it will move the val image files to separate directories (named by wodnet labels) using [this](https://raw.githubusercontent.com/soumith/imagenetloader.torch/master/valprep.sh) script and it will download the json mapping for ImageNet labels (from [this](https://storage.googleapis.com/download.tensorflow.org/data/imagenet_class_index.json) source)
 
 After these steps there should be a directory `data/ImageNet` with the following directory structure:
 
@@ -64,7 +67,7 @@ After these steps there should be a directory `data/ImageNet` with the following
 ### COCO
 1. Run COCO preparation script (from the <project_root> directory)
 ```bash
-bash scripts/prepare_coco.sh
+make coco
 ```
 
 The script will create `data/COCO` directory, download files from the COCO [website](https://cocodataset.org/#download) (_2017 Train images [118K/18GB]_, _2017 Val images [5K/1GB]_, _2017 Test images [41K/6GB]_, _2017 Train/Val annotations [241MB]_) to the `data/COCO` directory, unzip the files, move the files to `images` and `annotations` subdirectories and remove the redundant zip files.

@@ -1,20 +1,30 @@
+echo "...Preparing COCO dataset..."
+
 cd data
 mkdir COCO
 cd COCO
 
-wget images.cocodataset.org/zips/train2017.zip
-wget images.cocodataset.org/zips/val2017.zip
-wget images.cocodataset.org/zips/test2017.zip
-wget images.cocodataset.org/annotations/annotations_trainval2017.zip
-
 mkdir images annotations
 
+# train2017 images
+wget images.cocodataset.org/zips/train2017.zip
 unzip train2017.zip -d images
-unzip val2017.zip -d images
-unzip test2017.zip -d images
-unzip annotations_trainval2017.zip
+rm train2017.zip
 
-rm train2017.zip val2017.zip test2017.zip annotations_trainval2017.zip
+# val2017 images
+wget images.cocodataset.org/zips/val2017.zip
+unzip val2017.zip -d images
+rm val2017.zip
+
+# test2017 images
+wget images.cocodataset.org/zips/test2017.zip
+unzip test2017.zip -d images
+rm test2017.zip
+
+# trainval2017 annotations
+wget images.cocodataset.org/annotations/annotations_trainval2017.zip
+unzip annotations_trainval2017.zip
+rm annotations_trainval2017.zip
 
 echo "Directory structure: \n`tree -L 2`"
 echo "number of train samples: `find images/train2017 -name "*.jpg" | wc -l`"
