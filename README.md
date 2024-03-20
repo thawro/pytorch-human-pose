@@ -25,7 +25,6 @@ make env
 ``` 
 
 5. Create directories for training/inference purposes
-or use one of the scripts:
 ```bash
 make dirs
 ```

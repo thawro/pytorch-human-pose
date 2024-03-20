@@ -6,22 +6,27 @@ cd COCO
 
 mkdir images annotations
 
-# train2017 images
+echo "...Processing zip files (download zip -> unzip -> remove zip)..."
+
+echo "...Processing train2017 images..."
 wget images.cocodataset.org/zips/train2017.zip
-unzip train2017.zip -d images
+num_train_files=`unzip -l train2017.zip | grep .JPEG | wc -l`
+unzip -o train2017.zip -d images | tqdm --desc extracted --unit files --unit_scale --total $num_train_files > /dev/null
 rm train2017.zip
 
-# val2017 images
+echo "...Processing val2017 images..."
 wget images.cocodataset.org/zips/val2017.zip
-unzip val2017.zip -d images
+num_val_files=`unzip -l val2017.zip | grep .JPEG | wc -l`
+unzip -o val2017.zip -d images | tqdm --desc extracted --unit files --unit_scale --total $num_val_files > /dev/null
 rm val2017.zip
 
-# test2017 images
+echo "...Processing test2017 images..."
 wget images.cocodataset.org/zips/test2017.zip
-unzip test2017.zip -d images
+num_test_files=`unzip -l test2017.zip | grep .JPEG | wc -l`
+unzip -o test2017.zip -d images | tqdm --desc extracted --unit files --unit_scale --total $num_test_files > /dev/null
 rm test2017.zip
 
-# trainval2017 annotations
+echo "...Processing trainval2017 annotations..."
 wget images.cocodataset.org/annotations/annotations_trainval2017.zip
 unzip annotations_trainval2017.zip
 rm annotations_trainval2017.zip
