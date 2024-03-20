@@ -3,6 +3,7 @@ from typing import Any
 
 import numpy as np
 import torch
+from thop import profile
 from torch import Tensor, nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torchinfo import summary
@@ -81,6 +82,15 @@ class BaseModel:
             depth=depth,
             col_names=col_names,
         ).__str__()
+
+    def total_ops_params(self) -> tuple[int, int]:
+        total_ops, total_params = profile(
+            self.net.module if isinstance(self.net, DDP) else self.net,
+            inputs=(self.example_input(),),
+            ret_layer_info=False,
+            verbose=False,
+        )
+        return int(total_ops), int(total_params)
 
     def freeze(self) -> None:
         for param in self.net.parameters():

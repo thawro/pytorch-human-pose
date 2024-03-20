@@ -341,15 +341,19 @@ class ModelSummary(BaseCallback):
     def on_fit_start(self, trainer: Trainer):
         log.info(f"Optimizers\n{trainer.module.optimizers}")
         log.info(f"LR Schedulers\n{trainer.module.lr_schedulers}")
-        log.info("Model layers summary")
+
         model = trainer.module.model
         model_summary = model.summary(self.depth)
-        log.info(model_summary)
+        log.info(f"Model layers summary\n{model_summary}")
         model_dir = trainer.logger.loggers[0].model_dir
-
         Path(model_dir).mkdir(exist_ok=True, parents=True)
         filepath = f"{model_dir}/model_summary.txt"
         save_txt_to_file(model_summary, filepath)
+
+        total_ops, total_params = model.total_ops_params()
+        log.info(
+            f"Total number of operations and params:\n  ops = {total_ops}\n  params = {total_params}"
+        )
 
 
 class DatasetExamplesCallback(BaseCallback):
