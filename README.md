@@ -199,6 +199,7 @@ https://github.com/thawro/pytorch-human-pose/assets/50373360/184c2071-417e-4380-
 > **_IMPORTANT:_** MLFlow logging is enabled by default, so before every training one must run `make mlflow_server` to start the server
 
 Most important training configurable CLI parameters (others can be checked in config python files):
+
 * `setup.ckpt_path` - Path to checkpoint file saved during training (for training resume)
 * `setup.pretrained_ckpt_path` - Path to checkpoint file with pretrained network weights
 * `trainer.accelerator` - Device for training (`cpu` or `gpu`) 
@@ -212,11 +213,11 @@ Most important training configurable CLI parameters (others can be checked in co
 ### Pretraining _ClassificationHRNet_ on ImageNet
 
 #### Using single GPU
+
 ```bash
 python src/classification/bin/train.py --setup.ckpt_path=None --trainer.use_DDP=False
 ```
-`--setup.ckpt_path=None` to ensure that new experiment is created
-`--trainer.use_DDP=False` to ensure that single GPU is used
+`--setup.ckpt_path=None` to ensure that new experiment is created, `--trainer.use_DDP=False` to ensure that single GPU is used
 
 #### Using multiple GPUs - use [`torchrun`](https://pytorch.org/docs/stable/elastic/run.html)
 ```bash
@@ -233,12 +234,11 @@ TODO
 
 ### Training _HigherHRNet_ on COCO
 #### Using single GPU
+
 ```bash
 python src/keypoints/bin/train.py --setup.ckpt_path=None --trainer.use_DDP=False --setup.pretrained_ckpt_path="pretrained/hrnet_32.pt"
 ```
-`--setup.ckpt_path=None` to ensure that new experiment is created
-`--trainer.use_DDP=False` to ensure that single GPU is used
-`--setup.pretrained_ckpt_path` to load pretrained backbone model from `hrnet_32.pt` file
+`--setup.ckpt_path=None` to ensure that new experiment is created, `--trainer.use_DDP=False` to ensure that single GPU is used, `--setup.pretrained_ckpt_path` to load pretrained backbone model from `hrnet_32.pt` file
 
 #### Using multiple GPUs - use [`torchrun`](https://pytorch.org/docs/stable/elastic/run.html)
 ```bash
