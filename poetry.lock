@@ -1025,70 +1025,6 @@ files = [
 ]
 
 [[package]]
-name = "kornia"
-version = "0.7.2"
-description = "Open Source Differentiable Computer Vision Library for PyTorch"
-optional = false
-python-versions = ">=3.8"
-files = [
-    {file = "kornia-0.7.2-py2.py3-none-any.whl", hash = "sha256:411e09ccdc4efde351f90a81f35a6eb9fad3bcf58ac037cbec4d41a8364dd039"},
-    {file = "kornia-0.7.2.tar.gz", hash = "sha256:f834ccd51188d071ed286a6727471c94344ea2a718903cc6f0e56a92f9c66ac5"},
-]
-
-[package.dependencies]
-kornia-rs = ">=0.1.0"
-packaging = "*"
-torch = ">=1.9.1"
-
-[package.extras]
-dev = ["coverage", "mypy", "numpy", "onnx", "pre-commit (>=2)", "pydocstyle", "pytest (==8.1.1)", "pytest-timeout", "requests"]
-docs = ["PyYAML (>=5.1)", "furo", "kornia-moons", "matplotlib", "opencv-python", "sphinx", "sphinx-autodoc-defaultargs", "sphinx-autodoc-typehints", "sphinx-copybutton (>=0.3)", "sphinx-design", "sphinx-notfound-page", "sphinxcontrib-bibtex", "sphinxcontrib-gtagjs", "sphinxcontrib-youtube"]
-x = ["accelerate", "onnxruntime-gpu (>=1.16)"]
-
-[[package]]
-name = "kornia-rs"
-version = "0.1.2"
-description = "Low level implementations for computer vision in Rust"
-optional = false
-python-versions = ">=3.8"
-files = [
-    {file = "kornia_rs-0.1.2-cp310-cp310-macosx_10_12_x86_64.whl", hash = "sha256:83f1d2b4e2201a2d0cb635cd9e2cadb63272f61593c2b6b3efa1985d67001ae1"},
-    {file = "kornia_rs-0.1.2-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:256747d123613ec0c7d7876b89c89f1d19d07e40aae01fbef136552cd18ced78"},
-    {file = "kornia_rs-0.1.2-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:15bfc18b27e976c5c23b7ff0c1de04342595db2f149e83b1f75b7d6066668667"},
-    {file = "kornia_rs-0.1.2-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:eb627590ccfabcfb0fdc39cf186d4abf5eee017c74a9bdf1903ca0bc6b4192f0"},
-    {file = "kornia_rs-0.1.2-cp310-none-win_amd64.whl", hash = "sha256:0b0b4a0a44c2eb1050af1e64cd887ee654f1b4b101c3cad718413515d7b152a0"},
-    {file = "kornia_rs-0.1.2-cp311-cp311-macosx_10_12_x86_64.whl", hash = "sha256:7bb6265532a3012a6818c4b4ec1e617cb47f259e1a9aae9a6c7a8987deaefc8e"},
-    {file = "kornia_rs-0.1.2-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:9a0ebaa37642a37f228f435b3382656981fc2e5c8f7187f74361d5e2d595bf55"},
-    {file = "kornia_rs-0.1.2-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:5c323ccb05518d965fd96b079aea05298ceb3631fdea4fcf3de8f16a6bb3aa34"},
-    {file = "kornia_rs-0.1.2-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f5edafa835abcdfa6cf8b94684eaef8c5df8ea13949bfe9048ddd0a901b2d200"},
-    {file = "kornia_rs-0.1.2-cp311-none-win_amd64.whl", hash = "sha256:4de0688535c3cb0ab4a93df5511a6dc7b7bd24eb3a5c842665e4e60d25997511"},
-    {file = "kornia_rs-0.1.2-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:c96ba400223b3bc863f494ada1b65bfd30783f8665d54899c7c673abaee842be"},
-    {file = "kornia_rs-0.1.2-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:7cb2f36b5b4048146fd5d73c5bd536a99dd7ab1a7b276c8b432038fd262d5908"},
-    {file = "kornia_rs-0.1.2-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:586aff2e2ce596936c64ab9b02d654e11166f0912282b95c02a15ab63a985cb7"},
-    {file = "kornia_rs-0.1.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f2ddac3f7c71ef6750da3b90393c52cd873047a56af96e0cde8cf6de377aa3c0"},
-    {file = "kornia_rs-0.1.2-cp312-none-win_amd64.whl", hash = "sha256:8a8f0135bb002edf72214dbd249ed7ccdcd9eb8c303332fdb2b190f37c2087ba"},
-    {file = "kornia_rs-0.1.2-cp37-cp37m-macosx_10_12_x86_64.whl", hash = "sha256:ac85497c891ff9293d56fa01cc64e48cafed0524edc3c34ad0c51856eb0b589c"},
-    {file = "kornia_rs-0.1.2-cp37-cp37m-macosx_11_0_arm64.whl", hash = "sha256:1d5a16960134bd0f0cfd973207d432a76ee8b938bf13eef200e42eaa47bcd09f"},
-    {file = "kornia_rs-0.1.2-cp37-cp37m-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:e4e904c62b594aac8705c42385ad2a6a8bab1ceed5ee29d0f9edd2729883d7bf"},
-    {file = "kornia_rs-0.1.2-cp37-cp37m-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6cc20f575437c83060fe83997a9778a931f26a6e2b6de302dac21246436419e7"},
-    {file = "kornia_rs-0.1.2-cp37-none-win_amd64.whl", hash = "sha256:88fcddc24fb000739b7360d3adcda12c7745fb678c0da42bbcfedd5eb69dfc22"},
-    {file = "kornia_rs-0.1.2-cp38-cp38-macosx_10_12_x86_64.whl", hash = "sha256:df5e65732e8aa1c3540c83a5661f97d648ba282cc5723e1b10d1fda25984f170"},
-    {file = "kornia_rs-0.1.2-cp38-cp38-macosx_11_0_arm64.whl", hash = "sha256:0d5a65aa3034d1dbb6d04f8f5613eb0e779187db729b70fe27cbb765fd4c0b91"},
-    {file = "kornia_rs-0.1.2-cp38-cp38-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:3dd7c8e71f1e80a3f034ef99f8892287d2ea9e248b0ad666795131fbd17eb6b7"},
-    {file = "kornia_rs-0.1.2-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e76dbdb7e40b611e7000b087a54202869e568389915bff18702f80f6f95d6123"},
-    {file = "kornia_rs-0.1.2-cp38-none-win_amd64.whl", hash = "sha256:a706f99fea3f183612559071a29f032eeba2706871d23dee891c520f0d53c4d5"},
-    {file = "kornia_rs-0.1.2-cp39-cp39-macosx_10_12_x86_64.whl", hash = "sha256:481fbf61af2ae9a15d9de5d2bd6969afcc5f6db63a3f6e02b264c95106f3134e"},
-    {file = "kornia_rs-0.1.2-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:16422daf545630778866f66a51361e50ce9e89a5e8197a25f2450ceada2d11a3"},
-    {file = "kornia_rs-0.1.2-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:0f3777ca772efcf892ec17a4930c47b86dbc9079b46773b54dd03d7887eb29e2"},
-    {file = "kornia_rs-0.1.2-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:4b1c45cfcc006b06b9a5a2284bc743a38cf297faea087d18e866b093f0800cdf"},
-    {file = "kornia_rs-0.1.2-cp39-none-win_amd64.whl", hash = "sha256:1e626f4e4e77adf26ad238da1ef978f87427a93c1c54f3a7b2c0ee2d81865cf2"},
-    {file = "kornia_rs-0.1.2.tar.gz", hash = "sha256:c24cfe72e9400c7cf4616629b43b927d51e7cde91e770e4b0e2942a348515ab8"},
-]
-
-[package.extras]
-dev = ["jax[cpu]", "kornia (>=0.7.2)", "numpy (==1.23.0)", "pytest"]
-
-[[package]]
 name = "lazy-loader"
 version = "0.3"
 description = "lazy_loader"
@@ -2955,4 +2891,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<3.13"
-content-hash = "c88265c0b53c4f0fb3fda76b2bf428e5a6a5c8cd20a51c5d488fa886d9b10213"
+content-hash = "233f6e728220ebe50542ae4dc67b28219034711adbdbdb7c8adbe82c9a3a187f"
