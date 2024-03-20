@@ -7,8 +7,8 @@ from torch import Tensor
 
 from src.base.results import BaseResult
 from src.base.transforms.utils import affine_transform, get_affine_transform
+from src.keypoints.datasets.coco import image_OKS
 from src.keypoints.grouping import MPPEHeatmapParser
-from src.keypoints.metrics import OKS
 from src.keypoints.transforms import KeypointsTransform
 from src.keypoints.visualization import (
     plot_connections,
@@ -289,8 +289,7 @@ class InferenceKeypointsResult(BaseKeypointsResult):
             self.kpts_coords = self.kpts_coords[target_matches_idx]
             self.kpts_scores = self.kpts_scores[target_matches_idx]
             self.obj_scores = self.obj_scores[target_matches_idx]
-        oks = OKS()
-        oks_value = oks.image_eval(
+        oks_value = image_OKS(
             pred_kpts=self.kpts_coords,
             target_kpts=target_kpts_coords,
             target_vis=target_kpts_vis,

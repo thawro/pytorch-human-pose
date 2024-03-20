@@ -89,8 +89,9 @@ if __name__ == "__main__":
 
     x = torch.randn(1, 3, 224, 224)
 
-    ops, params = profile(net, inputs=(x,))
+    ops, params, layer_dict = profile(net, inputs=(x,), ret_layer_info=True)
     print(ops, params)
+    print(type(ops), type(params))
 
     col_names = ["input_size", "output_size", "num_params", "params_percent"]
     summary_txt = str(summary(net, input_data=x, depth=4, col_names=col_names))

@@ -15,7 +15,7 @@ from tqdm.auto import tqdm
 
 from src.base.datasets import BaseImageDataset
 from src.keypoints.transforms import ComposeKeypointsTransform, KeypointsTransform
-from src.keypoints.utils import coco_rle_to_seg, mask_to_polygons, polygons_to_mask
+from src.keypoints.utils import coco_polygons_to_mask, coco_rle_to_seg, mask_to_polygons
 from src.keypoints.visualization import plot_connections, plot_heatmaps
 from src.logger.pylogger import log
 from src.utils.files import load_yaml, save_yaml
@@ -331,7 +331,7 @@ class CocoKeypointsDataset(BaseImageDataset):
                     segmentation = obj["segmentation"]
                     if isinstance(segmentation, dict):
                         segmentation = mask_to_polygons(
-                            polygons_to_mask(segmentation, img_h, img_w)
+                            coco_polygons_to_mask(segmentation, img_h, img_w)
                         )
                     for j in range(len(segmentation)):
                         seg = np.array(segmentation[j])
@@ -461,6 +461,63 @@ class CocoKeypointsDataset(BaseImageDataset):
 
     def __len__(self) -> int:
         return len(self.annots_filepaths)
+
+
+_polygons = list[list[int]]
+
+
+k_i = [26, 25, 25, 35, 35, 79, 79, 72, 72, 62, 62, 107, 107, 87, 87, 89, 89]
+k_i = np.array(k_i) / 1000
+variances = (k_i * 2) ** 2
+
+
+def object_OKS(
+    pred_kpts: np.ndarray,
+    target_kpts: np.ndarray,
+    target_vis: np.ndarray,
+    obj_polygons: _polygons,
+) -> float:
+    # pred_kpts shape: [num_kpts, 2]
+    # target_kpts shape: [num_kpts, 2]
+    # 2 for: x, y
+    if target_vis.sum() <= 0:
+        return -1
+
+    kpts_vis = target_vis > 0
+    area = sum(
+        cv2.contourArea(np.array(poly).reshape(-1, 2).astype(np.int32)) for poly in obj_polygons
+    )
+    area += np.spacing(1)
+
+    dist = ((pred_kpts - target_kpts) ** 2).sum(-1)
+    # dist is already squared (euclidean distance has square root)
+    e = dist / (2 * variances * area)
+    e = e[kpts_vis]
+    num_vis_kpts = kpts_vis.sum()
+    e = np.exp(-e)
+    oks = np.sum(e) / num_vis_kpts
+    return oks
+
+
+def image_OKS(
+    pred_kpts: np.ndarray,
+    target_kpts: np.ndarray,
+    target_vis: np.ndarray,
+    seg_polygons: list[_polygons],
+) -> float:
+    num_obj = len(target_kpts)
+    oks_values = []
+    for j in range(num_obj):
+        dist = ((pred_kpts[j] - target_kpts[j]) ** 2).sum(-1) ** 0.5
+        oks = object_OKS(pred_kpts[j], target_kpts[j], target_vis[j], seg_polygons[j])
+        oks_values.append(oks)
+
+    oks_values = np.array(oks_values).round(3)
+    valid_oks_mask = oks_values != -1
+    if valid_oks_mask.sum() > 0:
+        oks_avg = oks_values[valid_oks_mask].mean()
+        return oks_avg
+    return -1
 
 
 if __name__ == "__main__":
