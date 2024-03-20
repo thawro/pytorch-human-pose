@@ -1,12 +1,13 @@
 import argparse
-from typing import Literal
 
 from src.base.bin.inference import prepare_inference_config
 from src.base.datasets import DirectoryDataset
 from src.classification.config import ClassificationConfig
 from src.classification.datasets import ImagenetClassificationDataset
 from src.logger.pylogger import log, log_breaking_point
-from src.utils.config import YAML_EXP_PATH
+from src.utils.config import INFERENCE_OUT_PATH, YAML_EXP_PATH
+
+CLS_INFERENCE_OUT_PATH = INFERENCE_OUT_PATH / "classification"
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,6 +40,7 @@ def main() -> None:
     cfg_path = str(YAML_EXP_PATH / "classification" / "hrnet_32.yaml")
     cfg: ClassificationConfig = prepare_inference_config(cfg_path, ClassificationConfig)
 
+    out_dirpath = str(CLS_INFERENCE_OUT_PATH / "val")
     ds_cfg = cfg.dataloader.val_ds
     ds = ImagenetClassificationDataset(root=ds_cfg.root, split=ds_cfg.split)
     idx2label = ds.idx2label
@@ -48,9 +50,10 @@ def main() -> None:
     args = parse_args()
 
     if args.mode == "custom":
+        out_dirpath = str(CLS_INFERENCE_OUT_PATH / "custom")
         ds = DirectoryDataset(args.dirpath)
 
-    ds.perform_inference(model=model, idx=0, load_annot=False)
+    ds.perform_inference(model=model, idx=0, load_annot=False, out_dirpath=out_dirpath)
 
 
 if __name__ == "__main__":

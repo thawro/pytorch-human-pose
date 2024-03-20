@@ -14,9 +14,11 @@ from src.keypoints.datasets.coco import CocoKeypointsDataset
 from src.keypoints.model import InferenceKeypointsModel
 from src.keypoints.visualization import plot_connections
 from src.logger.pylogger import log, log_breaking_point
-from src.utils.config import YAML_EXP_PATH
+from src.utils.config import INFERENCE_OUT_PATH, YAML_EXP_PATH
 from src.utils.image import resize_with_aspect_ratio
 from src.utils.utils import elapsed_timer
+
+KPTS_INFERENCE_OUT_PATH = INFERENCE_OUT_PATH / "keypoints"
 
 
 def parse_args() -> argparse.Namespace:
@@ -74,12 +76,10 @@ def video_processing_fn(model: InferenceKeypointsModel, image: np.ndarray) -> Vi
 
 
 def video_inference(model: InferenceKeypointsModel, filepath: str):
-    path_parts = filepath.split("/")
-    in_filepath_dir = "/".join(path_parts[:-1])
-    filename, ext = path_parts[-1].split(".")
-    out_filepath_dir = f"{in_filepath_dir}/out"
-    Path(out_filepath_dir).mkdir(exist_ok=True, parents=True)
-    out_filepath = f"{out_filepath_dir}/{filename}_Size({model.input_size}).{ext}"
+    filename, ext = filepath.split("/")[-1].split(".")
+    out_filepath_dir = KPTS_INFERENCE_OUT_PATH / "video"
+    out_filepath_dir.mkdir(exist_ok=True, parents=True)
+    out_filepath = f"{str(out_filepath_dir)}/{filename}_Size({model.input_size}).{ext}"
     ds = InferenceVideoDataset(
         filepath=filepath, out_filepath=out_filepath, start_frame=0, num_frames=-1
     )
@@ -104,12 +104,14 @@ def main() -> None:
         elif os.path.isdir(path):
             log.info(f"Performing Directory Inference ({path})")
             ds = DirectoryDataset(path)
-            ds.perform_inference(model=model, idx=0, load_annot=False)
+            out_dirpath = str(KPTS_INFERENCE_OUT_PATH / "custom")
+            ds.perform_inference(model=model, idx=0, load_annot=False, out_dirpath=out_dirpath)
     else:
         log.info("Performing COCO val Inference")
         ds_cfg = cfg.dataloader.val_ds
         ds = CocoKeypointsDataset(root=ds_cfg.root, split=ds_cfg.split)
-        ds.perform_inference(model=model, idx=0, load_annot=False)
+        out_dirpath = str(KPTS_INFERENCE_OUT_PATH / "val")
+        ds.perform_inference(model=model, idx=0, load_annot=False, out_dirpath=out_dirpath)
 
 
 if __name__ == "__main__":

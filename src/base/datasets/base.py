@@ -1,6 +1,7 @@
 """Base Dataset classes"""
 
 import glob
+from pathlib import Path
 from typing import Any, Callable
 
 import cv2
@@ -11,6 +12,7 @@ from torch.utils.data import Dataset
 from typing_extensions import Protocol
 
 from src.base.model import BaseInferenceModel
+from src.logger.pylogger import log
 from src.utils.image import make_grid, resize_with_aspect_ratio
 
 
@@ -23,6 +25,7 @@ class KeyBinds:
     RIGHT_ARROW = 83
     DOWN_ARROW = 82
     UP_ARROW = 84
+    S = 115
     TAB = 9
 
     key2info = {
@@ -30,6 +33,7 @@ class KeyBinds:
         SPACE: "Space - pause",
         LEFT_ARROW: "Left Arrow - move to previous frame",
         RIGHT_ARROW: "Right Arrow - move to next frame",
+        S: "Save image",
         TAB: "Tab - open/close navigation bar",
         # DOWN_ARROW: "DOWN_ARROW",
         # UP_ARROW: "UP_ARROW",
@@ -76,14 +80,16 @@ class ExplorerDataset:
 
 
 class PerformInferenceCallback(Protocol):
-    def __call__(self, model: BaseInferenceModel, image: np.ndarray, annot: Any) -> Any: ...
+    def __call__(
+        self, model: BaseInferenceModel, image: np.ndarray, annot: Any
+    ) -> dict[str, np.ndarray]: ...
 
 
 def inference_callback(
     model: BaseInferenceModel,
     image: np.ndarray,
     annot: list[dict] | None = None,
-):
+) -> dict[str, np.ndarray]:
     result = model(image, annot)
     print("=" * 100)
     plots = result.plot()
@@ -91,6 +97,7 @@ def inference_callback(
         plot = cv2.cvtColor(plot, cv2.COLOR_RGB2BGR)
         plot = resize_with_aspect_ratio(plot, height=512, width=None)
         cv2.imshow(name.replace("_", " ").title(), plot)
+    return plots
 
 
 class InferenceDataset:
@@ -109,28 +116,41 @@ class InferenceDataset:
         callback: PerformInferenceCallback = inference_callback,
         idx: int = 0,
         load_annot: bool = False,
+        out_dirpath: str | None = None,
     ):
         num_samples = len(self)
         if idx == -1:
             idx = num_samples - 1
         if idx == num_samples:
             idx = 0
-        print(f"Inference for sample: {idx}/{num_samples-1}")
+        log.info(f"Inference for sample: {idx}/{num_samples-1}")
         image = self.load_image(idx)
-
         annot = self.load_annot(idx) if load_annot else None
-        callback(model=model, image=image, annot=annot)
+        plots = callback(model=model, image=image, annot=annot)
         key = cv2.waitKey(0)
-
-        if key in [KeyBinds.ESCAPE]:  # ESC pressed
-            print("Escape hit, closing")
+        if key in [KeyBinds.ESCAPE]:
+            log.info("Escape hit. Closing")
             cv2.destroyAllWindows()
             return
+        if key in [KeyBinds.S] and out_dirpath is not None:
+            sample_out_dirpath = f"{out_dirpath}/{idx}"
+            Path(sample_out_dirpath).mkdir(exist_ok=True, parents=True)
+            log.info(f"Saving plots to {sample_out_dirpath}")
+            for title, plot in plots.items():
+                filepath = f"{sample_out_dirpath}/{title}.jpg"
+                Image.fromarray(plot).save(filepath)
+                log.info(f"Saved {title} plot to {filepath}")
         elif key in [KeyBinds.SPACE, KeyBinds.RIGHT_ARROW]:
             idx += 1
         elif key in [KeyBinds.LEFT_ARROW]:
             idx -= 1
-        self.perform_inference(model, callback, idx, load_annot)
+        self.perform_inference(
+            model=model,
+            callback=callback,
+            idx=idx,
+            load_annot=load_annot,
+            out_dirpath=out_dirpath,
+        )
 
 
 class BaseImageDataset(Dataset, ExplorerDataset, InferenceDataset):
