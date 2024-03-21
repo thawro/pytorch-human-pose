@@ -81,6 +81,7 @@ class BaseModel:
             input_data=self.example_input(),
             depth=depth,
             col_names=col_names,
+            verbose=0,
         ).__str__()
 
     def freeze(self) -> None:
