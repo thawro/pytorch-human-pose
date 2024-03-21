@@ -30,7 +30,7 @@ make dirs
 ```
 
 
-# Prerequisites
+# 🎒 Prerequisites 
 > **_NOTE:_** If you have installed the environment already (with `make env` or `poetry install`) you can activate it with `poetry shell`.
 
 ## Data preparation
@@ -103,7 +103,7 @@ After download, place the checkpoints inside the **_pretrained_** directory.
 
 
 
-# Inference
+# 📊 Inference
 
 > **_NOTE:_** Checkpoints must be present in _pretrained_ directory to perform the inference.
 
@@ -133,10 +133,15 @@ python src/classification/bin/inference.py --mode "custom" --dirpath "data/examp
 ### Example outputs (top-5 probs):
 
 ![coyote](https://github.com/thawro/pytorch-human-pose/assets/50373360/b2c98474-b4b8-43cd-9c59-92e6f7231199)
+
+<details>
+<summary>👉 more examples</summary>
+
 ![fox](https://github.com/thawro/pytorch-human-pose/assets/50373360/d7339a42-ee80-4f28-ab55-a79adc5f3715)
 ![shark](https://github.com/thawro/pytorch-human-pose/assets/50373360/dc292445-7da5-4224-bf2c-82053443ca0c)
 ![whale](https://github.com/thawro/pytorch-human-pose/assets/50373360/a15f6a15-73e7-499c-a42e-31d7a50a21d9)
 
+</details>
 
 ## Human Pose (_HigherHRNet_)
 Inference using the _HigherHRNet_ model trained on COCO keypoints dataset (17 keypoints). The parameters configurable via CLI:
@@ -171,9 +176,13 @@ python src/keypoints/bin/inference.py --mode "custom" --path "data/examples/keyp
 ### Example outputs (images)
 
 Each sample is composed of Connections plot, Associative Embeddings visualization (after grouping) and Heatmaps plot 
+
 1. Baseball
 ![AE_baseball](https://github.com/thawro/pytorch-human-pose/assets/50373360/6b18c18d-6d4b-4964-83c2-a546ee2baf5d)
 ![HM_baseball](https://github.com/thawro/pytorch-human-pose/assets/50373360/b446ae1f-0655-41f4-b968-8f29dc7e75b9)
+
+<details>
+<summary>👉 More examples</summary>
 
 2. Jump
 ![AE_jump](https://github.com/thawro/pytorch-human-pose/assets/50373360/434222d6-b3c4-464f-9e6b-bebd692fce41)
@@ -183,24 +192,38 @@ Each sample is composed of Connections plot, Associative Embeddings visualizatio
 ![AE_park](https://github.com/thawro/pytorch-human-pose/assets/50373360/2009d88d-ccb4-4cb6-ae9c-b139d62cc76a)
 ![HM_park](https://github.com/thawro/pytorch-human-pose/assets/50373360/06c42437-1336-43db-9ea2-dac38c411827)
 
+</details>
+
+
 ### Example outputs (videos)
 Each sample with two input_sizes variants
 
-1. Two people
+1. Two people (size: 256)
 
 https://github.com/thawro/pytorch-human-pose/assets/50373360/c6c477e5-df4c-48c3-84e9-0c050cb26880
 
+<details>
+<summary>👉 More examples</summary>
+
+2. Two people (size: 512)
+
 https://github.com/thawro/pytorch-human-pose/assets/50373360/6dc84f08-5c1a-4526-9fad-d055d20b1e53
 
-
-2. Three people 
+3. Three people  (size: 256)
 
 https://github.com/thawro/pytorch-human-pose/assets/50373360/9a9be24e-2143-4246-85d0-434fec4db301
 
+
+4. Three people  (size: 512)
+
 https://github.com/thawro/pytorch-human-pose/assets/50373360/184c2071-417e-4380-bf81-99397704843e
 
+</details>
 
-# Training from scratch
+</br>
+
+# 📉 Training from scratch
+
 > **_NOTE:_** You must first install and activate the [Environment](#environment) to perform the training.
 
 > **_IMPORTANT:_** MLFlow logging is enabled by default, so before every training one must run `make mlflow_server` to start the server.
@@ -235,7 +258,9 @@ torchrun --standalone --nproc_per_node=2 src/classification/bin/train.py --setup
 ### Evaluation of _ClassificationHRNet_ on Imagenet
 TODO
 
+
 ## Human Pose
+
 > **_NOTE:_** [COCO](#coco) data must be prepared to train the human pose model.
 
 
@@ -286,7 +311,7 @@ Evaluation results obtained for inference parameters:
 | Average Recall     (AR) @IoU=0.50:0.95     | large   | 20       | 0.819        |
 
 
-# Training code notes
+# 📚 Training code guide 
 
 ## Code structure
 
@@ -329,18 +354,18 @@ Evaluation results obtained for inference parameters:
     │   └── keypoints           #   keypoints experiment results
     |
     ├── scripts                 # directory with useful scripts
-    │   ├── prepare_coco.sh     # prepares COCO dataset - can be used without any other actions 
-    │   ├── prepare_dirs.sh     # creates needed directories
-    │   ├── prepare_env.sh      # installs and activates poetry environment
-    │   ├── prepare_imagenet.sh # prepares ImageNet dataset - requires ImageNet zip file to be downloaded before running
-    │   └── run_mlflow.sh       # runs mlflow server (locally)
+    │   ├── prepare_coco.sh     #   prepares COCO dataset - can be used without any other actions 
+    │   ├── prepare_dirs.sh     #   creates needed directories
+    │   ├── prepare_env.sh      #   installs and activates poetry environment
+    │   ├── prepare_imagenet.sh #   prepares ImageNet dataset - requires ImageNet zip file to be downloaded before running
+    │   └── run_mlflow.sh       #   runs mlflow server (locally)
     |
     └── src                     # project modules
-        ├── base                # base module - defines interfaces, abstract classes and useful training loops
-        ├── classification      # classification related files subclasses
-        ├── keypoints           # keypoints related files subclasses
-        ├── logger              # logging functionalities (monitoring and training loggers)
-        └── utils               # utilities functions (files loading, images manipulation, configs parsing, etc.)
+        ├── base                #   base module - defines interfaces, abstract classes and useful training loops
+        ├── classification      #   classification related files subclasses
+        ├── keypoints           #   keypoints related files subclasses
+        ├── logger              #   logging functionalities (monitoring and training loggers)
+        └── utils               #   utilities functions (files loading, images manipulation, configs parsing, etc.)
 
 ## Code Guide
 
@@ -369,15 +394,15 @@ The Config dataclasses are also repsonsible for creation of training and inferen
 
 ### Training
 
-> **_IMPORTANT:_** Ensure that environment is active (`poetry shell`) and mlflow server is running (`make mlflow_server`) before training.
+> **_IMPORTANT:_** You must ensure that environment is active (`poetry shell`) and mlflow server is running (`make mlflow_server`) before training.
 
 During training the `results` directory is being populated with useful info about runs (logs, metrics, evaluation examples, etc.).
 The structure of the populated `results` directory is the following:
 
     results
-    └── <experiment_name>               # e.g. classification
-        └── <run_name>                  # e.g. 03-21_11:05__ImageNet_ClassificationHRNet
-            ├── <timestamp_1>           # e.g. 03-21_11:05
+    └── <experiment_name>               # run experiment_name (e.g. classification)
+        └── <run_name>                  # run run_name (e.g. 03-21_11:05__ImageNet_ClassificationHRNet)
+            ├── <timestamp_1>           # run timestamp (e.g. 03-21_11:05)
             |   ├── checkpoints         # saved checkpoints
             |   ├── config.yaml         # config used for current run
             |   ├── data_examples       # examples of data produced by datasets defined in datamodule
@@ -387,7 +412,7 @@ The structure of the populated `results` directory is the following:
             |   ├── eval_examples       # example evaluation results (plots produced by results classes)
             |   ├── logs                # per-device logs and system monitoring metrics
             |   └── model               # model-related files (ONNX if saved, layers summary, etc.)
-            └── <timestamp_2>           # e.g. 03-22_12:10
+            └── <timestamp_2>           # resumed run timestamp (e.g. 03-22_12:10)
                 ├── checkpoints
                 ...
                 └── model
