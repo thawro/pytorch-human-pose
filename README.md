@@ -19,7 +19,7 @@ cd pytorch-human-pose
 
 3. Install `poetry` - follow [documentation](https://python-poetry.org/docs/#installation)
 
-4. Install the virtual environment and activate venv
+4. Install the virtual environment and activate it (the script runs `poetry install` and `poetry shell`)
 ```bash
 make env
 ``` 
@@ -31,10 +31,11 @@ make dirs
 
 
 # Prerequisites
+> **_NOTE:_** If you have installed the environment already (with `make env` or `poetry install`) you can activate it with `poetry shell`.
 
 ## Data preparation
 
-> **_NOTE:_** The data preparation scripts use `tqdm` to show progress bars for file unzipping, so make sure to install the [Environment](#environment) first.
+> **_NOTE:_** The data preparation scripts use `tqdm` to show progress bars for file unzipping, so make sure to install and activate the [Environment](#environment) first.
 
 ### ImageNet
 
@@ -106,7 +107,7 @@ After download, place the checkpoints inside the **_pretrained_** directory.
 
 > **_NOTE:_** Checkpoints must be present in _pretrained_ directory to perform the inference.
 
-> **_NOTE:_** [Environment](#environment) must be installed to perform the inference
+> **_NOTE:_** You must first install and activate the [Environment](#environment) to perform the inference.
 
 ## Classification (_ClassificationHRNet_)
 Inference using the _ClassificationHRNet_ model trained on ImageNet dataset (1000 classes). The parameters configurable via CLI:
@@ -200,9 +201,9 @@ https://github.com/thawro/pytorch-human-pose/assets/50373360/184c2071-417e-4380-
 
 
 # Training from scratch
-> **_NOTE:_** [Environment](#environment) must be installed to perform the training
+> **_NOTE:_** You must first install and activate the [Environment](#environment) to perform the training.
 
-> **_IMPORTANT:_** MLFlow logging is enabled by default, so before every training one must run `make mlflow_server` to start the server
+> **_IMPORTANT:_** MLFlow logging is enabled by default, so before every training one must run `make mlflow_server` to start the server.
 
 Most important training configurable CLI parameters (others can be checked in config python files):
 
@@ -214,7 +215,7 @@ Most important training configurable CLI parameters (others can be checked in co
 * `trainer.sync_batchnorm` - Whether to use SyncBatchnorm class for DDP training
 
 ## Backbone
-> **_NOTE:_** [ImageNet](#imagenet) data must be prepared to train the backbone model
+> **_NOTE:_** [ImageNet](#imagenet) data must be prepared to train the backbone model.
 
 ### Pretraining _ClassificationHRNet_ on ImageNet
 
@@ -235,7 +236,7 @@ torchrun --standalone --nproc_per_node=2 src/classification/bin/train.py --setup
 TODO
 
 ## Human Pose
-> **_NOTE:_** [COCO](#coco) data must be prepared to train the human pose model
+> **_NOTE:_** [COCO](#coco) data must be prepared to train the human pose model.
 
 
 ### Training _HigherHRNet_ on COCO
