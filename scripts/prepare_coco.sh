@@ -8,6 +8,11 @@ mkdir images annotations
 
 echo "-> Processing zip files (download zip -> unzip -> remove zip)"
 
+echo "-> Processing trainval2017 annotations"
+wget images.cocodataset.org/annotations/annotations_trainval2017.zip
+unzip annotations_trainval2017.zip
+rm annotations_trainval2017.zip
+
 echo "-> Processing train2017 images files"
 wget images.cocodataset.org/zips/train2017.zip
 num_train_files=`unzip -l train2017.zip | wc -l`
@@ -26,10 +31,7 @@ num_test_files=`unzip -l test2017.zip | wc -l`
 unzip -o test2017.zip -d images | tqdm --desc "Extracting test files:" --unit files --unit_scale --total $num_test_files > /dev/null
 rm test2017.zip
 
-echo "-> Processing trainval2017 annotations"
-wget images.cocodataset.org/annotations/annotations_trainval2017.zip
-unzip annotations_trainval2017.zip
-rm annotations_trainval2017.zip
+
 
 echo "Data statistics:"
 echo "number of train samples: `find images/train2017 -name "*.jpg" | wc -l`"
