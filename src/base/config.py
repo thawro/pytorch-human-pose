@@ -273,9 +273,9 @@ class BaseConfig(AbstractConfig):
             MetricsSaverCallback(),
             MetricsLogger(),
             DatasetExamplesCallback(splits=["train", "val"], n=20, random_idxs=True),
-            ModelSummary(depth=5),
             SaveModelCheckpoint(name="best", metric="loss", last=True, mode="min", stage="val"),
             SystemMetricsMonitoringCallback(),
+            ModelSummary(depth=5),
             ArtifactsLoggerCallback(),  # make sure it is last
         ]
         for callback in callbacks:
