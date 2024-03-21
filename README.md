@@ -163,6 +163,9 @@ Inference using the _ClassificationHRNet_ model trained on ImageNet dataset (100
 * `--inference.ckpt_path` - checkpoint path (default: *pretrained/hrnet_32.pt*)
 
 ### ImageNet data
+
+> **_NOTE:_** [ImageNet](#imagenet) data must be prepared to perform inference on it.
+
 Run inference on ImageNet val split with default input_size (256)
 ```bash
 python src/classification/bin/inference.py --mode "val"
@@ -201,6 +204,9 @@ Inference using the _HigherHRNet_ model trained on COCO keypoints dataset (17 ke
 
 
 ### COCO data
+
+> **_NOTE:_** [COCO](#coco) data must be prepared to perform inference on it.
+
 Run inference on COCO val split with default inference parameters
 ```bash
 python src/keypoints/bin/inference.py --mode "val"
