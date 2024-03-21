@@ -1,8 +1,54 @@
+<details> 
+
+<summary><b><font size="+2">📜 Table of Contents</font></b></summary>
+
+- [Environment](#environment)
+- [🎒 Prerequisites](#-prerequisites)
+  - [Data preparation](#data-preparation)
+    - [ImageNet](#imagenet)
+    - [COCO](#coco)
+  - [Virtual environment installation](#virtual-environment-installation)
+  - [Checkpoints with trained models](#checkpoints-with-trained-models)
+- [📊 Inference](#-inference)
+  - [Classification (_ClassificationHRNet_)](#classification-classificationhrnet)
+    - [ImageNet data](#imagenet-data)
+    - [Custom data](#custom-data)
+    - [Example outputs (top-5 probs):](#example-outputs-top-5-probs)
+  - [Human Pose (_HigherHRNet_)](#human-pose-higherhrnet)
+    - [COCO data](#coco-data)
+    - [Custom data](#custom-data-1)
+    - [Video](#video)
+    - [Example outputs (images)](#example-outputs-images)
+    - [Example outputs (videos)](#example-outputs-videos)
+- [📉 Training from scratch](#-training-from-scratch)
+  - [Backbone](#backbone)
+    - [Pretraining _ClassificationHRNet_ on ImageNet](#pretraining-classificationhrnet-on-imagenet)
+      - [Using single GPU](#using-single-gpu)
+      - [Using multiple GPUs - use `torchrun`](#using-multiple-gpus---use-torchrun)
+    - [Evaluation of _ClassificationHRNet_ on Imagenet](#evaluation-of-classificationhrnet-on-imagenet)
+  - [Human Pose](#human-pose)
+    - [Training _HigherHRNet_ on COCO](#training-higherhrnet-on-coco)
+      - [Using single GPU](#using-single-gpu-1)
+      - [Using multiple GPUs - use `torchrun`](#using-multiple-gpus---use-torchrun-1)
+    - [Evaluation of _HigherHRNet_ on COCO (val2017)](#evaluation-of-higherhrnet-on-coco-val2017)
+- [📚 Training code guide](#-training-code-guide)
+  - [Code structure](#code-structure)
+  - [Code Guide](#code-guide)
+    - [Configs](#configs)
+    - [Training](#training)
+    - [MLFlow](#mlflow)
+
+</details>
+</br>
+
+
 # Multi Person Pose Estimation with PyTorch
 [HigherHRNet](https://arxiv.org/abs/1908.10357) architecture implemented and trained from scratch using ImageNet and COCO datasets.
 The model is trained in two steps:
 1. Classification Backbone pretraining on ImageNet dataset (_ClassificationHRNet_)
 2. Human Pose model Training on COCO (_HigherHRNet_)
+
+
 
 # Environment
 The environment management is handled with the use of `poetry`. To install the virtual environment:
@@ -428,4 +474,4 @@ For each new run there is a new results directory created (defined by current ti
 By default the [mlflow](https://mlflow.org/) is used as the experiments logger (local `mlflow` server under `http://127.0.0.1:5000/` address). The runs logged in mlflow are structured a bit different than ones present in `results` directory. The main differences:
 * Resuming the run is equivalent to logging to the same run (no subruns directories added),
 * There is a new directory in a run artifacts called `history`, where logs and configs of each subrun are saved in their corresponding `<timestamp>` directories,
-* Resuming the run overwrites previously logged `data_examples`, `logs`, `config.yaml`, `eval_examples` and `epoch_metrics` artifacts.
+* Resuming the run overwrites previously logged `data_examples`, `logs`, `config.yaml`, `eval_examples` and `epoch_metrics` artifacts.- [Multi Person Pose Estimation with PyTorch]
