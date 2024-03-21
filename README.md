@@ -287,4 +287,57 @@ Evaluation results obtained for inference parameters:
 
 
 # Training code notes
-TODO
+
+## Code structure
+
+    .
+    ├── data                    # datasets files
+    │   ├── COCO                # COCO dataset
+    │   ├── examples            # example inputs for inference
+    │   └── ImageNet            # ImageNet dataset
+    |
+    ├── experiments
+    │   ├── classification
+    │   └── keypoints
+    |
+    ├── inference_out
+    │   ├── classification
+    │   └── keypoints
+    |
+    ├── Makefile
+    |
+    ├── mlflow
+    │   ├── artifacts
+    │   ├── mlruns.db
+    │   └── test_experiment.py
+    |
+    ├── poetry.lock
+    |
+    ├── pretrained
+    │   ├── higher_hrnet_32.pt
+    │   └── hrnet_32.pt
+    |
+    ├── pyproject.toml
+    |
+    ├── README.md
+    |
+    ├── RESEARCH.md
+    |
+    ├── results
+    │   ├── classification
+    │   ├── debug
+    │   └── keypoints
+    |
+    ├── scripts
+    │   ├── prepare_coco.sh
+    │   ├── prepare_dirs.sh
+    │   ├── prepare_env.sh
+    │   ├── prepare_imagenet.sh
+    │   └── run_mlflow.sh
+    |
+    └── src
+        ├── base
+        ├── classification
+        ├── keypoints
+        ├── logger
+        └── utils
