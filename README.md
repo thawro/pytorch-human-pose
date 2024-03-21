@@ -12,7 +12,7 @@ The model is trained in two steps:
 
 <summary><b><font size="+2">📜 Table of Contents</font></b></summary>
 
-- [Environment](#environment)
+- [💻 Environment](#environment)
 - [🎒 Prerequisites](#-prerequisites)
   - [Data preparation](#data-preparation)
     - [ImageNet](#imagenet)
@@ -52,7 +52,7 @@ The model is trained in two steps:
 
 ---
 
-# Environment
+# 💻 Environment
 The environment management is handled with the use of `poetry`. To install the virtual environment:
 
 1. Clone the repository
