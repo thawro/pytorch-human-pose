@@ -1,3 +1,13 @@
+
+
+# Multi Person Pose Estimation with PyTorch
+[HigherHRNet](https://arxiv.org/abs/1908.10357) architecture implemented and trained from scratch using ImageNet and COCO datasets.
+The model is trained in two steps:
+1. Classification Backbone pretraining on ImageNet dataset (_ClassificationHRNet_ model)
+2. Human Pose model Training on COCO dataset (_HigherHRNet_ model)
+
+---
+
 <details> 
 
 <summary><b><font size="+2">📜 Table of Contents</font></b></summary>
@@ -39,16 +49,8 @@
     - [MLFlow](#mlflow)
 
 </details>
-</br>
 
-
-# Multi Person Pose Estimation with PyTorch
-[HigherHRNet](https://arxiv.org/abs/1908.10357) architecture implemented and trained from scratch using ImageNet and COCO datasets.
-The model is trained in two steps:
-1. Classification Backbone pretraining on ImageNet dataset (_ClassificationHRNet_)
-2. Human Pose model Training on COCO (_HigherHRNet_)
-
-
+---
 
 # Environment
 The environment management is handled with the use of `poetry`. To install the virtual environment:
