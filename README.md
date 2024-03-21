@@ -292,52 +292,115 @@ Evaluation results obtained for inference parameters:
 
     .
     ├── data                    # datasets files
-    │   ├── COCO                # COCO dataset
-    │   ├── examples            # example inputs for inference
-    │   └── ImageNet            # ImageNet dataset
+    │   ├── COCO                #   COCO dataset
+    │   ├── examples            #   example inputs for inference
+    │   └── ImageNet            #   ImageNet dataset
     |
-    ├── experiments
-    │   ├── classification
-    │   └── keypoints
+    ├── experiments             # experiments configs - files needed to perform training/inference
+    │   ├── classification      #   configs for ClassificationHRNet
+    │   └── keypoints           #   configs for HigherHRNet
     |
-    ├── inference_out
-    │   ├── classification
-    │   └── keypoints
+    ├── inference_out           # directory with output from inference
+    │   ├── classification      #   classification inference output
+    │   └── keypoints           #   keypoints inference output
     |
-    ├── Makefile
+    ├── Makefile                # Makefile for cleaner scripts using
     |
-    ├── mlflow
-    │   ├── artifacts
-    │   ├── mlruns.db
-    │   └── test_experiment.py
+    ├── mlflow                  # mlflow files
+    │   ├── artifacts           #   artifacts saved during training
+    │   ├── mlruns.db           #   database for mlflow metrics saved during training
+    │   └── test_experiment.py  #   script for some mlflow server testing
     |
-    ├── poetry.lock
+    ├── poetry.lock             # file updated during poetry environment management
     |
-    ├── pretrained
-    │   ├── higher_hrnet_32.pt
-    │   └── hrnet_32.pt
+    ├── pretrained              # directory with trained checkpoints
+    │   ├── higher_hrnet_32.pt  #   HigherHRNet checkpoint - COCO human pose model
+    │   └── hrnet_32.pt         #   ClassificationHRNet checkpoint - ImageNet classification model
     |
-    ├── pyproject.toml
+    ├── pyproject.toml          # definition of poetry environment
     |
-    ├── README.md
+    ├── README.md               # project README
     |
-    ├── RESEARCH.md
+    ├── RESEARCH.md             # my sidenotes for human pose estimation task
     |
-    ├── results
-    │   ├── classification
-    │   ├── debug
-    │   └── keypoints
+    ├── results                 # directory with training results/logs
+    │   ├── classification      #   classification experiment results
+    │   ├── debug               #   debug experiments results
+    │   └── keypoints           #   keypoints experiment results
     |
-    ├── scripts
-    │   ├── prepare_coco.sh
-    │   ├── prepare_dirs.sh
-    │   ├── prepare_env.sh
-    │   ├── prepare_imagenet.sh
-    │   └── run_mlflow.sh
+    ├── scripts                 # directory with useful scripts
+    │   ├── prepare_coco.sh     # prepares COCO dataset - can be used without any other actions 
+    │   ├── prepare_dirs.sh     # creates needed directories
+    │   ├── prepare_env.sh      # installs and activates poetry environment
+    │   ├── prepare_imagenet.sh # prepares ImageNet dataset - requires ImageNet zip file to be downloaded before running
+    │   └── run_mlflow.sh       # runs mlflow server (locally)
     |
-    └── src
-        ├── base
-        ├── classification
-        ├── keypoints
-        ├── logger
-        └── utils
+    └── src                     # project modules
+        ├── base                # base module - defines interfaces, abstract classes and useful training loops
+        ├── classification      # classification related files subclasses
+        ├── keypoints           # keypoints related files subclasses
+        ├── logger              # logging functionalities (monitoring and training loggers)
+        └── utils               # utilities functions (files loading, images manipulation, configs parsing, etc.)
+
+## Code Guide
+
+### Configs
+
+Training and inference is parametrized using configs. Configs are defined in `experiments` directory using the `.yaml` files.
+`.yaml` files parsing is done with dataclasses tailored for this purpose.`classification` and `keypoints` configs share some custom 
+implementations which are defined in `src/base/config.py`. Task specific configs are implemented in `src/classification/config.py` and `src/keypoints/config.py`.
+The Config dataclasses allow to overwrite the config parameters loaded from `.yaml` files by putting additional arguments to script calls using the following notation:
+`--<field_name>.<nested_field_name>=<new_value>`, for example:
+
+```bash
+python src/keypoints/bin/train.py --setup.ckpt_path=None --trainer.use_DDP=False --setup.pretrained_ckpt_path=None
+```
+
+overwrites the `setup.ckpt_path`, `trainer.use_DDP` and `setup.pretrained_ckpt_path` attributes. 
+
+The Config dataclasses are also repsonsible for creation of training and inference related objects with the use of the following methods:
+* `create_net` (_task-specific_) - create neural network object (`torch.nn.Module`)
+* `create_datamodule` (_task-specific_) - create datamodule (object used for loading train/val/test data into batches)
+* `create_module` (_task-specific_) - create training module (object used to handle training and validation steps)
+* `create_inference_model` (_task-specific_) - create model tailored for inference purposes
+* `create_callbacks` - create callbacks (objects used during the training, each with special hooks)
+* `create_logger` - create logger (object used for logging purposes)
+* `create_trainer` - create trainer (object used to manage the whole training pipeline)
+
+### Training
+
+> **_IMPORTANT:_** Ensure that environment is active (`poetry shell`) and mlflow server is running (`make mlflow_server`) before training.
+
+During training the `results` directory is being populated with useful info about runs (logs, metrics, evaluation examples, etc.).
+The structure of the populated `results` directory is the following:
+
+    results
+    └── <experiment_name>               # e.g. classification
+        └── <run_name>                  # e.g. 03-21_11:05__ImageNet_ClassificationHRNet
+            ├── <timestamp_1>           # e.g. 03-21_11:05
+            |   ├── checkpoints         # saved checkpoints
+            |   ├── config.yaml         # config used for current run
+            |   ├── data_examples       # examples of data produced by datasets defined in datamodule
+            |   ├── epoch_metrics.html  # plots with metrics returned by module class (html)
+            |   ├── epoch_metrics.jpg   # plots with metrics returned by module class (jpg)
+            |   ├── epoch_metrics.yaml  # yaml with metrics
+            |   ├── eval_examples       # example evaluation results (plots produced by results classes)
+            |   ├── logs                # per-device logs and system monitoring metrics
+            |   └── model               # model-related files (ONNX if saved, layers summary, etc.)
+            └── <timestamp_2>           # e.g. 03-22_12:10
+                ├── checkpoints
+                ...
+                └── model
+
+Each training run is parametrized by [yaml config](#configs). The names shown in `<>` are defined by:
+* `setup.experiment_name` define the `<experiment_name>` directory name, 
+* `sertup.run_name` define the `<run_name>` directory name. If set to `null` (default), then `<run_name>` is generated automatically as `<timestamp>__<setup.dataset>_<setup.architecture>` 
+
+For each new run there is a new results directory created (defined by current timestamp). If run is resumed (same `<run_name>` is used), then the new subrun directory (based on timestamp) is added. 
+
+### MLFlow
+
+By default the [mlflow](https://mlflow.org/) is used as the experiments logger (local `mlflow` server under `http://127.0.0.1:5000/` address). The runs logged in mlflow are structured a bit different than ones present in `results` directory. The main differences:
+* Resuming the run is equivalent to logging to the same run (no subruns directories added),
+* There is a new directory in a run artifacts called `history`, where logs and configs of each subrun are saved in their corresponding `<timestamp>` directories,
+* Resuming the run overwrites previously logged `data_examples`, `logs`, `config.yaml`, `eval_examples` and `epoch_metrics` artifacts.
