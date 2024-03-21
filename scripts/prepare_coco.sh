@@ -37,6 +37,7 @@ echo "Data statistics:"
 echo "number of train samples: `find images/train2017 -name "*.jpg" | wc -l`"
 echo "number of val samples: `find images/val2017 -name "*.jpg" | wc -l`"
 echo "number of test samples: `find images/test2017 -name "*.jpg" | wc -l`"
+echo ""
 
 cd ../..
 echo "Directory structure:"

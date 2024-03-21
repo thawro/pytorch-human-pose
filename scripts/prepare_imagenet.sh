@@ -45,6 +45,7 @@ echo "Data statistics:"
 echo "number of train samples: `find train/ -name "*.JPEG" | wc -l`"
 echo "number of val samples: `find val/ -name "*.JPEG" | wc -l`"
 echo "number of test samples: `find test/ -name "*.JPEG" | wc -l`"
+echo ""
 
 cd ../..
 echo "Directory structure:"
