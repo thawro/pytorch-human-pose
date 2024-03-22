@@ -23,7 +23,7 @@ cudnn:
   enabled: True
 
 dataloader:
-  batch_size: 96
+  batch_size: 80
   pin_memory: true
   num_workers: 4
   train_ds:

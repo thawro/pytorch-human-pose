@@ -15,3 +15,6 @@ mlflow_server:
 
 mlflow_example:
 	cd mlflow && python test_experiment.py
+
+gpu_powerlimit:
+	sudo bash scripts/set_gpu_powerlimit.sh

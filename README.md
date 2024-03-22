@@ -483,3 +483,124 @@ By default the [mlflow](https://mlflow.org/) is used as the experiments logger (
 * Resuming the run is equivalent to logging to the same run (no subruns directories added),
 * There is a new directory in a run artifacts called `history`, where logs and configs of each subrun are saved in their corresponding `<timestamp>` directories,
 * Resuming the run overwrites previously logged `data_examples`, `logs`, `config.yaml`, `eval_examples` and `epoch_metrics` artifacts.- [Multi Person Pose Estimation with PyTorch]
+
+
+## Training guide
+
+> **_NOTE:_** Read all previous chapters before running the commands listed below.
+
+> **_NOTE:_**  
+> Adjust settings like:
+> 
+> * `--dataloader.batch_size` (default: 80 for hrnet, 36 for higher_hrnet)
+> * `--dataloader.num_workers` (default: 4 for both tasks)
+> 
+> to your device capabilities
+
+
+Depending on what and how you would like to train the models there exist a few possibilities (listed below). All examples assume using single GPU (to train with multiple GPUs use the `torchrun` commands from previous chapters)
+
+### 1. Only HRNet (classifier) training
+
+First run:
+```bash
+python src/classification/bin/train.py --setup.ckpt_path=None --trainer.use_DDP=False --setup.experiment_name="classification_exp" --setup.run_name="only_hrnet_run"
+```
+
+<details>
+<summary>Optionally if resuming is needed:</summary>
+
+use checkpoint from previous run:
+
+`ckpt_path = "results/classification_exp/only_hrnet_run/<timestamp>/checkpoints/last.pt"`
+
+```bash
+python src/classification/bin/train.py --setup.ckpt_path=<ckpt_path> --trainer.use_DDP=False
+```
+</details>
+
+### 2. Only HigherHRNet (keypoints) training (without pre-trained HRNet backbone)
+
+First run:
+
+```bash
+python src/keypoints/bin/train.py --setup.ckpt_path=None --trainer.use_DDP=False --setup.experiment_name="keypoints_exp" --setup.run_name="only_higherhrnet_run"
+```
+
+<details>
+<summary>Optionally if resuming is needed:</summary>
+
+use checkpoint from previous run:
+
+`ckpt_path = "results/keypoints_exp/only_higherhrnet_run/<timestamp>/checkpoints/last.pt"`
+
+
+```bash
+python src/keypoints/bin/train.py --setup.ckpt_path=<ckpt_path> --trainer.use_DDP=False --setup.experiment_name="keypoints_exp" --setup.run_name="only_higherhrnet_run"
+```
+</details>
+
+
+### 3. Only HigherHRNet (keypoints) training (with pre-trained HRNet backbone)
+
+> **_NOTE:_** [Downloaded](#checkpoints-with-trained-models) `hrnet_32.pt` checkpoint must be present in _pretrained_ directory.
+
+
+First run:
+
+```bash
+python src/keypoints/bin/train.py --setup.ckpt_path=None --trainer.use_DDP=False --setup.experiment_name="keypoints_exp" --setup.run_name="pretrained_higherhrnet_run" --setup.pretrained_ckpt_path="pretrained/hrnet_32.pt"
+```
+<details>
+<summary>Optionally if resuming is needed:</summary>
+
+> **_NOTE:_** There is no need to pass the `pretrained_ckpt_path` when resuming the training since its weights were updated during training.
+
+use checkpoint from previous run:
+
+`ckpt_path = "results/keypoints_exp/pretrained_higherhrnet_run/<timestamp>/checkpoints/last.pt"`
+
+
+```bash
+python src/keypoints/bin/train.py --setup.ckpt_path=<ckpt_path> --trainer.use_DDP=False --setup.experiment_name="keypoints_exp" --setup.run_name="only_higherhrnet_run"
+```
+</details>
+
+
+### 4. Complete, <i>"from scratch"</i> training
+
+The complete (<i>"from scratch"</i>) training include pretraining of ClassificationHRNet and then using it as a backbone for HRNet.
+
+1. Train classification model (HRNet backbone)
+```bash
+python src/classification/bin/train.py --setup.ckpt_path=None --trainer.use_DDP=False --setup.experiment_name="classification_exp" --setup.run_name="from_scratch_hrnet_pretrain_run"
+```
+
+<details>
+<summary>Optionally if resuming is needed:</summary>
+
+`ckpt_path = "results/classification_exp/from_scratch_hrnet_pretrain_run/<timestamp>/checkpoints/last.pt"`
+
+```bash
+python src/classification/bin/train.py --setup.ckpt_path=<ckpt_path> --trainer.use_DDP=False --setup.experiment_name="classification_exp" --setup.run_name="from_scratch_hrnet_pretrain_run"
+```
+</details>
+
+
+2. Use pretrained backbone and train HigherHRNet keypoints estimation model
+
+`pretrained_ckpt_path = "results/classification_exp/from_scratch_hrnet_pretrain_run/<timestamp>/checkpoints/last.pt"`
+
+```bash
+python src/keypoints/bin/train.py --setup.ckpt_path=None --trainer.use_DDP=False --setup.experiment_name="keypoints_exp" --setup.run_name="from_scratch_pretrained_higherhrnet_run" --setup.pretrained_ckpt_path=<pretrained_ckpt_path>
+```
+
+<details>
+<summary>Optionally if resuming is needed:</summary>
+
+`ckpt_path = "results/keypoints_exp/from_scratch_pretrained_higherhrnet_run/<timestamp>/checkpoints/last.pt"`
+
+```bash
+python src/classification/bin/train.py --setup.ckpt_path=<ckpt_path> --trainer.use_DDP=False --setup.experiment_name="classification_exp" --setup.run_name="from_scratch_pretrained_higherhrnet_run"
+```
+</details>
