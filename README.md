@@ -47,6 +47,12 @@ The model is trained in two steps:
     - [Configs](#configs)
     - [Training](#training)
     - [MLFlow](#mlflow)
+  - [Training guide](#training-guide)
+    - [1. Only HRNet (classifier) training](#1-only-hrnet-classifier-training)
+    - [2. Only HigherHRNet (keypoints) training (without pre-trained HRNet backbone)](#2-only-higherhrnet-keypoints-training-without-pre-trained-hrnet-backbone)
+    - [3. Only HigherHRNet (keypoints) training (with pre-trained HRNet backbone)](#3-only-higherhrnet-keypoints-training-with-pre-trained-hrnet-backbone)
+    - [4. Complete, "from scratch" training](#4-complete-from-scratch-training)
+
 
 </details>
 
