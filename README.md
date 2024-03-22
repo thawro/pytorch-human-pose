@@ -121,12 +121,13 @@ After these steps there should be a directory `data/ImageNet` with the following
         └── n15075141
 
 ### COCO
-1. Run COCO preparation script from the `<project_root>` directory (it may take a while)
+1. Run COCO preparation scripts from the `<project_root>` directory (it may take a while)
 ```bash
 make coco
+make save_coco_annots
 ```
 
-The script will create `data/COCO` directory, download files from the COCO [website](https://cocodataset.org/#download) (_2017 Train images [118K/18GB]_, _2017 Val images [5K/1GB]_, _2017 Test images [41K/6GB]_, _2017 Train/Val annotations [241MB]_) to the `data/COCO` directory, unzip the files, move the files to `images` and `annotations` subdirectories and remove the redundant zip files.
+`make coco` script will create `data/COCO` directory, download files from the COCO [website](https://cocodataset.org/#download) (_2017 Train images [118K/18GB]_, _2017 Val images [5K/1GB]_, _2017 Test images [41K/6GB]_, _2017 Train/Val annotations [241MB]_) to the `data/COCO` directory, unzip the files, move the files to `images` and `annotations` subdirectories and remove the redundant zip files. `make save_coco_annots` will parse COCO annotation `.json` files and save the per-sample annotations to `.yaml` files and per-sample crowd-masks (used in loss function) to `.npy` files.
 
 After these steps there should be a directory `data/COCO` with the following directory structure:
 
@@ -322,6 +323,9 @@ TODO
 ## Human Pose
 
 > **_NOTE:_** [COCO](#coco) data must be prepared to train the human pose model.
+
+> **_NOTE:_** `src/keypoints/datasets/coco/CocoKeypointsDataset` during initialization runs its method `_save_annots_to_files` (only if it wasn't already executed for particular split), which parses the COCO .json annotation files and saves per-sample `.yaml` annotation files  and `.npy` crowd masks (used in loss function) to `data/COCO/annotations/person_keypoints_<split>/<sample_id>.yaml` and `data/COCO/masks/person_keypoints_<split>/<sample_id>.npy`. It is executed only if annotations directory (`data/COCO/annotations/person_keypoints_<split>`) isn't present.
+
 
 
 ### Training _HigherHRNet_ on COCO

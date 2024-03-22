@@ -206,7 +206,6 @@ class CocoKeypointsDataset(BaseImageDataset):
         self.num_kpts = num_kpts
         self.max_num_people = max_num_people
         self.mosaic_probability = mosaic_probability
-        self._save_annots_to_files()
         self._set_paths()
         self.transform = transform
         self.hm_resolutions = hm_resolutions
@@ -236,9 +235,11 @@ class CocoKeypointsDataset(BaseImageDataset):
         num_imgs = len(images_filepaths)
         num_annots = len(annots_filepaths)
         num_masks = len(masks_filepaths)
-        assert (
-            num_imgs == num_annots == num_masks
-        ), f"There must be the same number of images and annotations. Currently: num_imgs={num_imgs}, num_annots={num_annots}, num_masks={num_masks}"
+        assert num_imgs == num_annots == num_masks, (
+            f"There must be the same number of images and annotations. "
+            f"Currently: num_imgs={num_imgs}, num_annots={num_annots}, num_masks={num_masks}. "
+            "Make sure that `_save_annots_to_files` was already called (run `make save_coco_annots` command in terminal)"
+        )
 
     def _save_annots_to_files(self):
         # save mask to npy file and annot to yaml file
@@ -248,18 +249,32 @@ class CocoKeypointsDataset(BaseImageDataset):
                 f"     Current process (rank = {rank}) is not the main process (rank = 0) -> Skipping annots files saving"
             )
             return
-        if os.path.exists(self.annots_dir):
-            log.info(
-                f"..{self.split} annotations already saved to files -> Skipping annots files saving.."
-            )
-            return
-        log.info(f"..Saving {self.split} annotations (keypoints and crowd masks) to files..")
-        Path(self.annots_dir).mkdir(exist_ok=True, parents=True)
-        Path(self.masks_dir).mkdir(exist_ok=True, parents=True)
+        annot_dir_exists = os.path.exists(self.annots_dir)
+        num_files = len(glob.glob(f"{self.annots_dir}/*"))
+
         coco = COCO(f"{self.root}/annotations/person_keypoints_{self.split}.json")
         ids = list(coco.imgs.keys())
         # remove_images_without_annotations
         ids = [_id for _id in ids if len(coco.getAnnIds(imgIds=_id, iscrowd=None)) > 0]
+
+        num_gt_annots = len(ids)
+        if annot_dir_exists and num_files == num_gt_annots:
+            log.info(
+                f"..{self.split} annotations already saved to files -> Skipping annots files saving.."
+            )
+            return
+        if num_files != num_gt_annots and annot_dir_exists:
+            log.info(
+                f"..Number of ground truth annotations ({num_gt_annots}) is not equal to "
+                f"number of saves annotation files ({num_files}). "
+                f"Repeating the annotations files saving process.."
+            )
+        log.info(
+            f"..Saving {self.split} annotations to files (keypoints to .yaml and crowd masks to .npy).."
+        )
+        Path(self.annots_dir).mkdir(exist_ok=True, parents=True)
+        Path(self.masks_dir).mkdir(exist_ok=True, parents=True)
+
         for idx in tqdm(range(len(ids)), desc=f"Saving {self.split} annotations"):
             img_id = ids[idx]
             ann_ids = coco.getAnnIds(imgIds=img_id)

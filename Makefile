@@ -10,6 +10,10 @@ imagenet:
 coco:
 	bash scripts/prepare_coco.sh
 
+save_coco_annots:
+	poetry shell
+	python scripts/save_coco_annots.py
+
 mlflow_server:
 	bash scripts/run_mlflow.sh
 
